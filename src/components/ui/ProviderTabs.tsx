@@ -50,12 +50,11 @@ export function ProviderTabs({
     const selectedButton = buttons[selectedIndex];
     if (!selectedButton) return;
 
-    const containerRect = container.getBoundingClientRect();
     const buttonRect = selectedButton.getBoundingClientRect();
 
     indicator.style.width = `${buttonRect.width}px`;
     indicator.style.height = `${buttonRect.height}px`;
-    indicator.style.transform = `translateX(${buttonRect.left - containerRect.left}px)`;
+    indicator.style.transform = `translateX(${selectedButton.offsetLeft}px)`;
     indicator.style.opacity = "1";
   }, [providers, selectedId]);
 
@@ -72,7 +71,11 @@ export function ProviderTabs({
   return (
     <div
       ref={containerRef}
-      className={`relative inline-flex items-center gap-0.5 p-0.5 ${scrollable ? "overflow-x-auto" : ""}`}
+      className={`relative items-center gap-1 p-0.5 ${
+        scrollable
+          ? "flex w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden pb-1 [&::-webkit-scrollbar-thumb]:bg-border hover:[&::-webkit-scrollbar-thumb]:bg-border-hover"
+          : "inline-flex"
+      }`}
     >
       <div
         ref={indicatorRef}
@@ -97,7 +100,7 @@ export function ProviderTabs({
               onSelect(provider.id);
             }}
             className={`relative z-10 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-xs transition-colors duration-150 ${
-              scrollable ? "whitespace-nowrap" : ""
+              scrollable ? "whitespace-nowrap shrink-0" : ""
             } ${
               isDisabled
                 ? "text-muted-foreground/50 cursor-not-allowed ring-1 ring-border/40 dark:ring-white/5"
