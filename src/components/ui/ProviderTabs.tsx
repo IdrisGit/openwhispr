@@ -20,8 +20,8 @@ interface ProviderTabsProps {
   onSelect: (id: string) => void;
   renderIcon?: (providerId: string) => ReactNode;
   colorScheme?: ColorScheme;
-  /** Allow horizontal scrolling for many providers */
-  scrollable?: boolean;
+  /** Wrap pills onto multiple lines when there are many providers */
+  wrap?: boolean;
 }
 
 export function ProviderTabs({
@@ -30,7 +30,7 @@ export function ProviderTabs({
   onSelect,
   renderIcon,
   colorScheme = "purple",
-  scrollable = false,
+  wrap = false,
 }: ProviderTabsProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -55,7 +55,7 @@ export function ProviderTabs({
 
     indicator.style.width = `${buttonRect.width}px`;
     indicator.style.height = `${buttonRect.height}px`;
-    indicator.style.transform = `translateX(${selectedButton.offsetLeft}px)`;
+    indicator.style.transform = `translate(${selectedButton.offsetLeft}px, ${selectedButton.offsetTop}px)`;
     indicator.style.opacity = "1";
   }, [providers, selectedId]);
 
@@ -72,16 +72,11 @@ export function ProviderTabs({
   return (
     <div
       ref={containerRef}
-      className={cn(
-        "relative items-center gap-1 p-0.5",
-        scrollable
-          ? "flex w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden pb-1 [&::-webkit-scrollbar-thumb]:bg-border hover:[&::-webkit-scrollbar-thumb]:bg-border-hover"
-          : "inline-flex"
-      )}
+      className={cn("relative items-center gap-1 p-0.5", wrap ? "flex flex-wrap" : "inline-flex")}
     >
       <div
         ref={indicatorRef}
-        className="absolute top-0.5 left-0 rounded-full bg-primary/10 dark:bg-primary/15 ring-1 ring-primary/30 dark:ring-primary/25 transition-[width,height,transform,opacity] duration-200 ease-out pointer-events-none"
+        className="absolute top-0 left-0 rounded-full bg-primary/10 dark:bg-primary/15 ring-1 ring-primary/30 dark:ring-primary/25 transition-[width,height,transform,opacity] duration-200 ease-out pointer-events-none"
         style={{ opacity: 0 }}
       />
 
@@ -102,13 +97,12 @@ export function ProviderTabs({
               onSelect(provider.id);
             }}
             className={cn(
-              "relative z-10 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-xs transition-colors duration-150",
-              scrollable && "whitespace-nowrap shrink-0",
-              isDisabled &&
-                "text-muted-foreground/50 cursor-not-allowed ring-1 ring-border/40 dark:ring-white/5",
-              isSelected && !isDisabled
-                ? "text-foreground [&_svg]:text-primary"
-                : "text-muted-foreground ring-1 ring-border/60 dark:ring-white/10 hover:text-foreground hover:bg-foreground/4 dark:hover:bg-white/5"
+              "relative z-10 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-xs whitespace-nowrap transition-colors duration-150",
+              isDisabled
+                ? "text-muted-foreground/50 cursor-not-allowed ring-1 ring-border/40 dark:ring-white/5"
+                : isSelected
+                  ? "text-foreground [&_svg]:text-primary"
+                  : "text-muted-foreground ring-1 ring-border/60 dark:ring-white/10 hover:text-foreground hover:bg-foreground/4 dark:hover:bg-white/5"
             )}
           >
             {renderIcon ? renderIcon(provider.id) : <ProviderIcon provider={provider.id} />}
