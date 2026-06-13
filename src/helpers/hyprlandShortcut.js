@@ -431,27 +431,30 @@ class HyprlandShortcutManager {
       return true;
     }
 
-    try {
-      this._removeBindFromConfig();
+    const binding = this.currentBinding;
 
-      execFileSync("hyprctl", ["keyword", "unbind", this.currentBinding], {
+    try {
+      execFileSync("hyprctl", ["keyword", "unbind", binding], {
         stdio: "pipe",
         timeout: 5000,
       });
-
-      debugLogger.log(
-        `[HyprlandShortcut] Keybinding "${this.currentBinding}" unregistered successfully`
-      );
-      this.currentBinding = null;
-      this.isRegistered = false;
-      return true;
     } catch (err) {
-      debugLogger.log("[HyprlandShortcut] Failed to unregister keybinding:", err.message);
-      // Even if unbind fails, clear state so we don't keep retrying
-      this.currentBinding = null;
-      this.isRegistered = false;
-      return false;
+      debugLogger.log(`[HyprlandShortcut] Runtime unbind for "${binding}" failed:`, err.message);
     }
+
+    try {
+      this._removeBindFromConfig();
+    } catch (err) {
+      debugLogger.log(
+        "[HyprlandShortcut] Failed to remove persisted keybinding:",
+        err.message
+      );
+    }
+
+    debugLogger.log(`[HyprlandShortcut] Keybinding "${binding}" unregistered successfully`);
+    this.currentBinding = null;
+    this.isRegistered = false;
+    return true;
   }
 
   /**
