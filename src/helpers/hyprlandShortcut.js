@@ -324,8 +324,8 @@ class HyprlandShortcutManager {
     const sourceLine = `source = ./${BINDS_FILENAME}`;
     if (content.includes(`./${BINDS_FILENAME}`)) return;
 
-    const newContent = content.replace(/\n*$/, "") + "\n" + sourceLine + "\n";
-    fs.writeFileSync(mainConfig, newContent, "utf-8");
+    const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+    fs.appendFileSync(mainConfig, `${separator}${sourceLine}\n`, "utf-8");
     debugLogger.log("[HyprlandShortcut] Added source directive to hyprland.conf");
   }
 
