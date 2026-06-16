@@ -34,6 +34,7 @@ import { formatHotkeyLabel, getDefaultHotkey, isGlobeLikeHotkey } from "../utils
 import { useAuth } from "../hooks/useAuth";
 import { HotkeyInput } from "./ui/HotkeyInput";
 import { useHotkeyRegistration } from "../hooks/useHotkeyRegistration";
+import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
 import { getValidationMessage } from "../utils/hotkeyValidator";
 import { validateHotkeyForSlot } from "../utils/hotkeyValidation";
 import { getCachedPlatform, getPlatform } from "../utils/platform";
@@ -105,12 +106,8 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [skipAuth, setSkipAuth] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
   const [isModelDownloaded, setIsModelDownloaded] = useState(false);
-  const [isUsingNativeShortcut, setIsUsingNativeShortcut] = useState(false);
-  const [isUsingHyprland, setIsUsingHyprland] = useState(false);
-  const [hyprlandConfigStatus, setHyprlandConfigStatus] = useState<{
-    canWrite: boolean;
-    path: string;
-  } | null>(null);
+  const { isUsingNativeShortcut, isUsingHyprland, hyprlandConfigStatus, supportsPushToTalk } =
+    useHotkeyModeInfo("onboarding");
   const readableHotkey = formatHotkeyLabel(hotkey);
   const { alertDialog, confirmDialog, showAlertDialog, hideAlertDialog, hideConfirmDialog } =
     useDialogs();
@@ -181,28 +178,10 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const showProgress = currentStep > 0;
 
   useEffect(() => {
-    const checkHotkeyMode = async () => {
-      try {
-        const info = await window.electronAPI?.getHotkeyModeInfo();
-        if (info?.isUsingNativeShortcut) {
-          setIsUsingNativeShortcut(true);
-          if (!info.supportsPushToTalk) {
-            setActivationMode("tap");
-          }
-        }
-        if (info?.isUsingHyprland) {
-          setIsUsingHyprland(true);
-          const configStatus = await window.electronAPI?.getHyprlandConfigStatus?.();
-          if (configStatus) {
-            setHyprlandConfigStatus(configStatus);
-          }
-        }
-      } catch (error) {
-        logger.error("Failed to check hotkey mode", { error }, "onboarding");
-      }
-    };
-    checkHotkeyMode();
-  }, [setActivationMode]);
+    if (isUsingNativeShortcut && !supportsPushToTalk) {
+      setActivationMode("tap");
+    }
+  }, [isUsingNativeShortcut, supportsPushToTalk, setActivationMode]);
 
   // Update wizard UI when backend falls back to a different hotkey.
   // Only update local state — don't persist to localStorage so the app
