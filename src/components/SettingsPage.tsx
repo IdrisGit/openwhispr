@@ -778,6 +778,8 @@ export default function SettingsPage({
 
   const chatAgentKey = useSettingsStore((s) => s.chatAgentKey);
   const setChatAgentKey = useSettingsStore((s) => s.setChatAgentKey);
+  const voiceAgentKey = useSettingsStore((s) => s.voiceAgentKey);
+  const setVoiceAgentKey = useSettingsStore((s) => s.setVoiceAgentKey);
   const meetingAudioDetection = useSettingsStore((s) => s.meetingAudioDetection);
   const setMeetingAudioDetection = useSettingsStore((s) => s.setMeetingAudioDetection);
 
@@ -937,10 +939,11 @@ export default function SettingsPage({
         {
           "settingsPage.general.meetingHotkey.title": meetingKey,
           "agentMode.settings.hotkey": chatAgentKey,
+          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
         },
         t
       ),
-    [meetingKey, chatAgentKey, t]
+    [meetingKey, chatAgentKey, voiceAgentKey, t]
   );
 
   const validateMeetingHotkey = useCallback(
@@ -950,23 +953,39 @@ export default function SettingsPage({
         {
           "settingsPage.general.hotkey.title": dictationKey,
           "agentMode.settings.hotkey": chatAgentKey,
+          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
         },
         t
       ),
-    [dictationKey, chatAgentKey, t]
+    [dictationKey, chatAgentKey, voiceAgentKey, t]
   );
 
-  const validateAgentHotkey = useCallback(
+  const validateChatAgentHotkey = useCallback(
     (hotkey: string) =>
       validateHotkeyForSlot(
         hotkey,
         {
           "settingsPage.general.hotkey.title": dictationKey,
           "settingsPage.general.meetingHotkey.title": meetingKey,
+          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
         },
         t
       ),
-    [dictationKey, meetingKey, t]
+    [dictationKey, meetingKey, voiceAgentKey, t]
+  );
+
+  const validateVoiceAgentHotkey = useCallback(
+    (hotkey: string) =>
+      validateHotkeyForSlot(
+        hotkey,
+        {
+          "settingsPage.general.hotkey.title": dictationKey,
+          "settingsPage.general.meetingHotkey.title": meetingKey,
+          "agentMode.settings.hotkey": chatAgentKey,
+        },
+        t
+      ),
+    [dictationKey, meetingKey, chatAgentKey, t]
   );
 
   const [isUsingNativeShortcut, setIsUsingNativeShortcut] = useState(false);
@@ -3245,15 +3264,35 @@ EOF`,
 
                 {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
                   <SettingsPanelRow>
-                    <p className="text-xs font-medium text-muted-foreground/80 mb-2">
-                      {t("settingsPage.general.hotkey.activationMode")}
-                    </p>
-                    <ActivationModeSelector value={activationMode} onChange={setActivationMode} />
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground/80">
+                        {t("settingsPage.general.hotkey.activationMode")}
+                      </span>
+                      <ActivationModeSelector value={activationMode} onChange={setActivationMode} />
+                    </div>
                     {getCachedPlatform() === "linux" && activationMode === "push" && (
                       <LinuxPttSetupInfo isAvailable={linuxPttAvailable} />
                     )}
                   </SettingsPanelRow>
                 )}
+              </SettingsPanel>
+            </div>
+
+            {/* Voice Agent Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.voiceAgentHotkey.title")}
+                description={t("settingsPage.general.voiceAgentHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyInput
+                    value={voiceAgentKey}
+                    onChange={setVoiceAgentKey}
+                    onClear={() => setVoiceAgentKey("")}
+                    validate={validateVoiceAgentHotkey}
+                  />
+                </SettingsPanelRow>
               </SettingsPanel>
             </div>
 
@@ -3270,21 +3309,13 @@ EOF`,
                     onChange={async (newHotkey) => {
                       await registerMeetingHotkey(newHotkey);
                     }}
+                    onClear={async () => {
+                      await window.electronAPI?.registerMeetingHotkey?.("");
+                      setMeetingKey("");
+                    }}
                     disabled={isMeetingHotkeyRegistering}
                     validate={validateMeetingHotkey}
                   />
-                  {meetingKey && (
-                    <button
-                      onClick={async () => {
-                        await window.electronAPI?.registerMeetingHotkey?.("");
-                        setMeetingKey("");
-                      }}
-                      disabled={isMeetingHotkeyRegistering}
-                      className="mt-2 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
-                    >
-                      {t("settingsPage.general.meetingHotkey.clear")}
-                    </button>
-                  )}
                 </SettingsPanelRow>
                 <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/40 dark:border-white/5">
                   <span className="text-xs text-muted-foreground/80">
@@ -3318,7 +3349,7 @@ EOF`,
               </SettingsPanel>
             </div>
 
-            {/* Agent Hotkey */}
+            {/* Chat Agent Hotkey */}
             <div>
               <SectionHeader
                 title={t("agentMode.settings.hotkey")}
@@ -3329,16 +3360,9 @@ EOF`,
                   <HotkeyInput
                     value={chatAgentKey}
                     onChange={setChatAgentKey}
-                    validate={validateAgentHotkey}
+                    onClear={() => setChatAgentKey("")}
+                    validate={validateChatAgentHotkey}
                   />
-                  {chatAgentKey && (
-                    <button
-                      onClick={() => setChatAgentKey("")}
-                      className="mt-2 text-xs text-muted-foreground/70 hover:text-foreground transition-colors"
-                    >
-                      {t("agentMode.settings.clearHotkey")}
-                    </button>
-                  )}
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>
