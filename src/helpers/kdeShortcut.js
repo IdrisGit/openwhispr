@@ -145,14 +145,12 @@ class KDEShortcutManager {
     try {
       this.bus = dbusModule.sessionBus();
       this.kglobalaccel = await new Promise((resolve, reject) => {
-        this.bus.getService("org.kde.kglobalaccel").getInterface(
-          "/kglobalaccel",
-          "org.kde.KGlobalAccel",
-          (err, iface) => {
+        this.bus
+          .getService("org.kde.kglobalaccel")
+          .getInterface("/kglobalaccel", "org.kde.KGlobalAccel", (err, iface) => {
             if (err) return reject(err);
             resolve(iface);
-          }
-        );
+          });
       });
 
       debugLogger.log("[KDEShortcut] Connected to KGlobalAccel D-Bus");
@@ -171,14 +169,12 @@ class KDEShortcutManager {
     try {
       const componentPath = `/component/${COMPONENT_NAME}`;
       const iface = await new Promise((resolve, reject) => {
-        this.bus.getService("org.kde.kglobalaccel").getInterface(
-          componentPath,
-          "org.kde.kglobalaccel.Component",
-          (err, ifc) => {
+        this.bus
+          .getService("org.kde.kglobalaccel")
+          .getInterface(componentPath, "org.kde.kglobalaccel.Component", (err, ifc) => {
             if (err) return reject(err);
             resolve(ifc);
-          }
-        );
+          });
       });
 
       iface.on("globalShortcutPressed", (componentUnique, shortcutUnique, timestamp) => {
