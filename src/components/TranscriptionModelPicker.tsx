@@ -25,9 +25,9 @@ import {
   type ModelPickerStyles,
 } from "../utils/modelPickerStyles";
 import { useSettingsStore } from "../stores/settingsStore";
-import { getProviderIcon, isMonochromeProvider } from "../utils/providerIcons";
+import { getRemoteProviderIcon } from "../utils/providerIcons";
 import { API_ENDPOINTS, normalizeBaseUrl } from "../config/constants";
-import { createExternalLinkHandler } from "../utils/externalLinks";
+import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { getCachedPlatform } from "../utils/platform";
 import type { CudaWhisperStatus } from "../types/electron";
 import logger from "../utils/logger";
@@ -205,6 +205,7 @@ const CLOUD_PROVIDER_TABS = [
   { id: "xai", name: "xAI" },
   { id: "mistral", name: "Mistral" },
   { id: "corti", name: "Corti" },
+  { id: "tinfoil", name: "Tinfoil" },
   { id: "custom", name: "Custom" },
 ];
 
@@ -217,7 +218,8 @@ interface ProviderCredentialField {
     | "cortiClientId"
     | "cortiClientSecret"
     | "cortiEnvironment"
-    | "cortiTenant";
+    | "cortiTenant"
+    | "tinfoilApiKey";
   input: "secret" | "text" | "select";
   labelKey?: string;
   placeholder?: string;
@@ -265,6 +267,10 @@ const PROVIDER_CREDENTIALS: Record<
         placeholder: "base",
       },
     ],
+  },
+  tinfoil: {
+    consoleUrl: "https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr",
+    fields: [{ key: "tinfoilApiKey", input: "secret" }],
   },
 };
 
@@ -346,6 +352,8 @@ export default function TranscriptionModelPicker({
   const setCortiEnvironment = useSettingsStore((s) => s.setCortiEnvironment);
   const cortiTenant = useSettingsStore((s) => s.cortiTenant);
   const setCortiTenant = useSettingsStore((s) => s.setCortiTenant);
+  const tinfoilApiKey = useSettingsStore((s) => s.tinfoilApiKey);
+  const setTinfoilApiKey = useSettingsStore((s) => s.setTinfoilApiKey);
   const customTranscriptionApiKey = useSettingsStore((s) => s.customTranscriptionApiKey);
   const setCustomTranscriptionApiKey = useSettingsStore((s) => s.setCustomTranscriptionApiKey);
   const effectiveLocal = mode === "local" ? true : mode === "cloud" ? false : useLocalWhisper;
@@ -714,6 +722,7 @@ export default function TranscriptionModelPicker({
     cortiClientSecret,
     cortiEnvironment,
     cortiTenant,
+    tinfoilApiKey,
   };
   const credentialSetters: Record<ProviderCredentialField["key"], (value: string) => void> = {
     openaiApiKey: setOpenaiApiKey,
@@ -724,18 +733,20 @@ export default function TranscriptionModelPicker({
     cortiClientSecret: setCortiClientSecret,
     cortiEnvironment: setCortiEnvironment,
     cortiTenant: setCortiTenant,
+    tinfoilApiKey: setTinfoilApiKey,
   };
 
   const cloudModelOptions = useMemo(() => {
     if (!currentCloudProvider) return [];
+    const { icon, invertInDark } = getRemoteProviderIcon(selectedCloudProvider);
     return currentCloudProvider.models.map((m) => ({
       value: m.id,
       label: m.name,
       description: m.descriptionKey
         ? t(m.descriptionKey, { defaultValue: m.description })
         : m.description,
-      icon: getProviderIcon(selectedCloudProvider),
-      invertInDark: isMonochromeProvider(selectedCloudProvider),
+      icon,
+      invertInDark,
     }));
   }, [currentCloudProvider, selectedCloudProvider, t]);
 
@@ -966,13 +977,11 @@ export default function TranscriptionModelPicker({
                         {field.labelKey ? t(field.labelKey) : t("common.apiKey")}
                       </label>
                       {index === 0 && (
-                        <button
-                          type="button"
-                          onClick={createExternalLinkHandler(providerCredentials.consoleUrl)}
+                        <GetApiKeyLink
+                          url={providerCredentials.consoleUrl}
+                          labelKey="transcription.getKey"
                           className="text-xs text-primary/70 hover:text-primary transition-colors cursor-pointer"
-                        >
-                          {t("transcription.getKey")}
-                        </button>
+                        />
                       )}
                     </div>
                     {field.input === "secret" ? (

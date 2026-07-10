@@ -449,7 +449,13 @@
       "noModels": "未返回任何模型，请检查端点 URL。",
       "providerName": "自定义",
       "ownerLabel": "所有者：{{owner}}",
-      "unableToLoadModels": "无法从端点加载模型。"
+      "unableToLoadModels": "无法从端点加载模型。",
+      "searchPlaceholder": "搜索模型…",
+      "selectedGroup": "已选择",
+      "otherGroup": "其他",
+      "noSearchResults": "没有与“{{query}}”匹配的模型",
+      "selectModelHint": "尚未选择模型 — 请从下方列表中选择一个。",
+      "keyRequiredHint": "推理需要 API 密钥 — 请添加密钥以使用此提供商。"
     },
     "getApiKey": "获取你的 API Key ->",
     "selectModel": "选择模型",
@@ -498,6 +504,11 @@
         "adcHelp": "使用 Application Default Credentials。请执行：gcloud auth application-default login",
         "apikeyHelp": "从 Google AI Studio 获取的 Vertex AI Express Mode API 密钥。"
       }
+    },
+    "tinfoil": {
+      "modelRetiredTitle": "模型已不可用",
+      "modelRetired": "Tinfoil 已停用 {{from}}，已切换至 {{to}}。",
+      "refreshingModels": "正在刷新模型…"
     }
   },
   "transcription": {
@@ -541,6 +552,10 @@
       "noAudio": {
         "title": "未检测到音频",
         "description": "录音中未检测到音频，请重试。"
+      },
+      "partialTranscription": {
+        "title": "部分转录",
+        "description": "部分录音内容无法转录。"
       },
       "errorDescriptions": {
         "sessionExpired": "OpenWhispr Cloud 会话不可用。请到「设置」中重新登录。",
@@ -726,6 +741,11 @@
       "ready": "就绪",
       "welcomeBack": "欢迎回来",
       "welcomeBackName": "欢迎回来，{{name}}"
+    },
+    "sso": {
+      "continueWithSSO": "使用 SSO 登录",
+      "emailRequired": "输入您的工作邮箱以使用 SSO。",
+      "failed": "单点登录失败，请重试。"
     },
     "social": {
       "completeInBrowser": "在浏览器中完成登录",
@@ -999,7 +1019,8 @@
       "openwhisprCloud": "OpenWhispr Cloud",
       "providerLabel": "服务商",
       "run": "运行测试",
-      "customEndpoint": "自定义端点"
+      "customEndpoint": "自定义端点",
+      "apiKeyMissing": "未配置 {{provider}} API 密钥，请在 AI 模型设置中添加。"
     },
     "view": {
       "customPrompt": "自定义提示词",
@@ -1831,6 +1852,7 @@
   },
   "models": {
     "learnMore": "了解更多",
+    "noneAvailable": "没有可用的模型",
     "descriptions": {
       "parakeet": {
         "parakeet_tdt_0_6b_v3": "快速多语言语音识别，自动语言检测（25 种语言）",
@@ -1852,7 +1874,8 @@
         "groq_whisper_large_v3": "Large v3 模型，快速且精准",
         "mistral_voxtral_mini_latest": "快速多语言转录",
         "corti_transcribe": "临床级医疗转录",
-        "xai_grok_stt": "xAI 高精度语音识别"
+        "xai_grok_stt": "xAI 高精度语音识别",
+        "tinfoil_voxtral_mini_realtime": "可验证的私密流式转录"
       },
       "cloud": {
         "openai_gpt_5_2": "强大的推理模型",
@@ -1883,7 +1906,13 @@
         "anthropic_claude_opus_4_8": "最强大的 Claude 模型",
         "anthropic_claude_opus_4_7": "强大的 Opus 模型",
         "anthropic_claude_opus_4_6": "上一代 Opus，1M 上下文",
-        "anthropic_claude_opus_4_5": "更早的 Opus 模型"
+        "anthropic_claude_opus_4_5": "更早的 Opus 模型",
+        "tinfoil_deepseek_v4_pro": "安全飞地中的私密长上下文推理，800K 上下文",
+        "tinfoil_glm_5_2": "安全飞地中的私密智能体工程模型，384K 上下文",
+        "tinfoil_kimi_k2_6": "私密长程编码与多模态模型，256K 上下文",
+        "tinfoil_gemma4_31b": "支持工具调用的私密多语言推理模型，256K 上下文",
+        "tinfoil_gpt_oss_120b": "支持工具使用的私密开源权重推理模型，131K 上下文",
+        "tinfoil_llama3_3_70b": "支持工具调用的私密对话模型，128K 上下文"
       },
       "enterprise": {
         "bedrock_claude_haiku_4_5": "快速且低成本。适合文本清理。",
@@ -2074,6 +2103,7 @@
       "transcribingProvider": "正在通过 {{provider}} 转录...",
       "cancelTranscription": "取消转录",
       "transcriptionComplete": "转录完成",
+      "partialWarning": "部分音频内容无法转录。",
       "openNote": "打开笔记",
       "uploadAnother": "上传另一个",
       "retry": "重试",
