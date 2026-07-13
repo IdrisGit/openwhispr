@@ -1,5 +1,5 @@
 import {
-  getAnthropicApiConfig,
+  supportsTemperature,
   getModelProvider,
   getCloudModel,
   getOpenAiApiConfig,
@@ -439,7 +439,7 @@ class ReasoningService extends BaseReasoningService {
       requestBody.max_tokens = maxTokens;
     } else {
       requestBody[apiConfig.tokenParam] = maxTokens;
-      if (apiConfig.supportsTemperature) {
+      if (supportsTemperature(model)) {
         requestBody.temperature = config.temperature ?? 0.3;
       }
     }
@@ -641,7 +641,6 @@ class ReasoningService extends BaseReasoningService {
           disableThinking: openrouterDisableThinking,
         });
 
-    const apiConfig = getOpenAiApiConfig(model, provider);
     const modelDef = getCloudModel(model);
     const userSuppressesThinking = config.disableThinking === true && !!modelDef?.supportsThinking;
     const needsGroqDisableThinking =
@@ -663,12 +662,7 @@ class ReasoningService extends BaseReasoningService {
       messageCount: messages.length,
     });
 
-    const useTemperature =
-      isLocalProvider ||
-      isLanCleanup ||
-      (provider === "anthropic"
-        ? getAnthropicApiConfig(model).supportsTemperature
-        : apiConfig.supportsTemperature);
+    const useTemperature = isLocalProvider || isLanCleanup || supportsTemperature(model);
 
     // cancelActiveStream() aborts this controller; streamText propagates it
     // into doStream, cancelling the enterprise IPC proxy's request in main.
