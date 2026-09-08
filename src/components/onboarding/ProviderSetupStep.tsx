@@ -26,6 +26,7 @@ import type { OnboardingStepId } from "./flow";
 import {
   forgetPendingLocalModel,
   isPendingLocalModel,
+  readPendingLocalModels,
   rememberPendingLocalModel,
 } from "./pendingLocalModels";
 import { isLocalStageDownloadActive } from "./localDownloadState";
@@ -700,10 +701,8 @@ export function LocalModelSetupStep({
   }, [onReadinessChange, selectedReady]);
 
   const selectInstalledModel = useCallback(
-    (modelId: string) => {
+    (modelId: string): void => {
       const kind = assistant ? "assistant" : "dictation";
-      if (!isPendingLocalModel(kind, { provider: selectedProvider, modelId })) return;
-
       setSelectedModel(modelId);
       if (assistant) {
         store.setChatAgentMode("local");
@@ -723,17 +722,43 @@ export function LocalModelSetupStep({
     [assistant, selectedProvider, store]
   );
 
-  const downloadModel = (modelId: string) => {
-    // downloadModel refuses (toast only) while another download of this kind
-    // runs; recording the pending selection for a refused download leaves a
-    // stale entry that a much later download would silently activate.
-    if (!activeDownload.isDownloading) {
-      rememberPendingLocalModel(assistant ? "assistant" : "dictation", {
+  const chooseInstalledModel = (modelId: string): void => {
+    forgetPendingLocalModel(assistant ? "assistant" : "dictation");
+    selectInstalledModel(modelId);
+  };
+
+  const downloadModel = (modelId: string): void => {
+    const kind = assistant ? "assistant" : "dictation";
+    // LLMs can download concurrently; a refused duplicate or native transfer
+    // must not replace the selection waiting for an accepted download.
+    if (
+      !activeDownload.isDownloadingModel(modelId) &&
+      (assistant || !activeDownload.isDownloading)
+    ) {
+      rememberPendingLocalModel(kind, {
         provider: selectedProvider,
         modelId,
       });
     }
-    void activeDownload.downloadModel(modelId, selectInstalledModel);
+    void activeDownload.downloadModel(modelId, (downloadedId): void => {
+      if (isPendingLocalModel(kind, { provider: selectedProvider, modelId: downloadedId })) {
+        selectInstalledModel(downloadedId);
+        return;
+      }
+      if (readPendingLocalModels()[kind]) return;
+
+      // The tray can activate and consume this selection before the initiating
+      // IPC resolves. Reflect that activation without replacing a newer choice.
+      const saved = useSettingsStore.getState();
+      const alreadySelected = assistant
+        ? saved.chatAgentMode === "local" &&
+          saved.chatAgentProvider === selectedProvider &&
+          saved.chatAgentModel === downloadedId
+        : saved.localTranscriptionProvider === selectedProvider &&
+          (selectedProvider === "nvidia" ? saved.parakeetModel : saved.whisperModel) ===
+            downloadedId;
+      if (alreadySelected) setSelectedModel(downloadedId);
+    });
   };
 
   const chooseProvider = (providerId: string) => {
@@ -812,9 +837,10 @@ export function LocalModelSetupStep({
       <div className="onboarding-scroll-hidden mt-3 h-56 overflow-y-auto rounded-2xl border border-[var(--onboarding-control-border)] bg-[var(--onboarding-surface-secondary)] px-3">
         {models.map((model) => {
           const isDownloaded = downloadedModels.has(model.id);
-          const isDownloading = activeDownload.isDownloadingModel(model.id);
+          const download = activeDownload.downloads[model.id];
+          const isDownloading = Boolean(download);
           const isSelected = selectedModel === model.id && isDownloaded;
-          const percentage = Math.round(activeDownload.downloadProgress.percentage);
+          const percentage = Math.round(download?.progress ?? 0);
           return (
             <div
               key={model.id}
@@ -830,7 +856,7 @@ export function LocalModelSetupStep({
               <button
                 type="button"
                 disabled={!isDownloaded}
-                onClick={() => selectInstalledModel(model.id)}
+                onClick={() => chooseInstalledModel(model.id)}
                 className="min-w-0 flex-1 text-left disabled:cursor-default"
               >
                 <span className="block truncate text-sm font-medium text-[var(--onboarding-text-primary)]">
@@ -858,7 +884,7 @@ export function LocalModelSetupStep({
                   />
                   <span className="relative">{percentage}%</span>
                   <span className="relative whitespace-nowrap">
-                    {activeDownload.isInstalling
+                    {download?.phase === "installing"
                       ? t("onboarding.rehaul.local.installing")
                       : t("onboarding.rehaul.local.downloadingShort")}
                   </span>
@@ -876,7 +902,7 @@ export function LocalModelSetupStep({
                 // primary in onboarding does, and Download stays neutral below it.
                 <Button
                   type="button"
-                  onClick={() => selectInstalledModel(model.id)}
+                  onClick={() => chooseInstalledModel(model.id)}
                   className="-mr-2 h-7 gap-1.5 rounded-full border-0! bg-[var(--onboarding-accent)] px-2.5 text-xs font-normal text-[var(--onboarding-accent-foreground)] shadow-none! hover:bg-[var(--onboarding-accent-hover)] hover:shadow-none!"
                 >
                   {t("onboarding.rehaul.local.use")}

@@ -4,9 +4,11 @@ const Module = require("node:module");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const modelRegistryData = require("../../src/models/modelRegistryData.json");
 const downloadUtils = require("../../src/helpers/downloadUtils");
+const LocalModelDownloadStatus = require("../../src/helpers/localModelDownloadStatus");
 
 const originalLoad = Module._load;
 const modelManagerModulePath = require.resolve("../../src/helpers/modelManagerBridge.js");
@@ -53,6 +55,166 @@ function loadModelManager({ downloadFile, checkDiskSpace } = {}) {
     Module._load = originalLoad;
   }
 }
+
+async function loadModelDownloadHandler(modelManager) {
+  const source = await fs.readFile(require.resolve("../../src/helpers/ipcHandlers.js"), "utf8");
+  const start = source.indexOf('    ipcMain.handle("model-download",');
+  const end = source.indexOf('    ipcMain.handle("model-delete",', start);
+  assert.ok(start >= 0 && end > start, "the model-download handler must be registered");
+
+  const events = [];
+  const status = new LocalModelDownloadStatus();
+  const context = {
+    localModelDownloadStatus: status,
+    windowManager: {
+      sendToControlPanel(channel, data) {
+        events.push({ channel, ...data });
+      },
+    },
+  };
+  let handleDownload;
+  // Execute the production registration without booting unrelated Electron services.
+  vm.runInNewContext(`(function () { ${source.slice(start, end)} }).call(context)`, {
+    context,
+    ipcMain: {
+      handle(channel, handler) {
+        assert.equal(channel, "model-download");
+        handleDownload = handler;
+      },
+    },
+    require(request) {
+      assert.equal(request, "./modelManagerBridge");
+      return { default: modelManager };
+    },
+  });
+  return { handleDownload, events, status };
+}
+
+for (const outcome of ["cancel", "error", "complete"]) {
+  test(`the owning IPC request settles after ${outcome} when a duplicate arrives during preflight`, async (t) => {
+    const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "openwhispr-ipc-owner-"));
+    electronHome = tmpHome;
+    const preflight = Promise.withResolvers();
+    const transferStarted = Promise.withResolvers();
+    const transferFinished = Promise.withResolvers();
+    const modelManager = loadModelManager({
+      checkDiskSpace: async () => ({ ok: true, availableBytes: Infinity }),
+      downloadFile: async (_url, destination, { signal, onProgress }) => {
+        signal.onAbort = () =>
+          transferFinished.reject(Object.assign(new Error("cancelled"), { isAbort: true }));
+        onProgress(420_000, 1_000_001);
+        transferStarted.resolve();
+        await transferFinished.promise;
+        await fs.writeFile(destination, Buffer.alloc(1_000_001));
+      },
+    });
+    const model = modelRegistryData.localProviders[0].models[0];
+    const checkModelValid = modelManager.checkModelValid.bind(modelManager);
+    let firstCheck = true;
+    modelManager.checkModelValid = async (modelPath) => {
+      if (firstCheck) {
+        firstCheck = false;
+        await preflight.promise;
+      }
+      return checkModelValid(modelPath);
+    };
+    const { handleDownload, events, status } = await loadModelDownloadHandler(modelManager);
+    const owner = handleDownload({}, model.id);
+    const duplicate = handleDownload({}, model.id);
+    t.after(async () => {
+      preflight.resolve();
+      transferFinished.resolve();
+      await Promise.allSettled([owner, duplicate]);
+      await fs.rm(tmpHome, { recursive: true, force: true });
+    });
+
+    const duplicateResult = await Promise.race([
+      duplicate,
+      transferStarted.promise.then(() => ({ code: "DUPLICATE_STARTED_TRANSFER" })),
+    ]);
+    assert.equal(duplicateResult.code, "DOWNLOAD_IN_PROGRESS");
+    assert.equal(duplicateResult.success, false);
+    assert.equal(status.getActiveDownloads().length, 1);
+    assert.equal(status.getActiveDownloads()[0].progress, 0);
+    assert.equal(events.length, 0);
+
+    preflight.resolve();
+    await transferStarted.promise;
+    assert.equal(status.getActiveDownloads()[0].downloadedBytes, 420_000);
+    const progressSequence = status.getActiveDownloads()[0].sequence;
+
+    if (outcome === "cancel") {
+      assert.equal(modelManager.cancelDownload(model.id), true);
+      assert.equal(status.has("llm", model.id), true);
+    } else if (outcome === "error") {
+      transferFinished.reject(new Error("connection lost"));
+    } else {
+      transferFinished.resolve();
+    }
+
+    const result = await owner;
+    assert.equal(result.success, outcome === "complete");
+    if (outcome !== "complete") {
+      assert.equal(result.code, outcome === "cancel" ? "DOWNLOAD_CANCELLED" : "NETWORK_ERROR");
+    }
+    assert.deepEqual(status.getActiveDownloads(), []);
+    assert.equal(modelManager.activeDownloads.size, 0);
+    assert.equal(modelManager.activeRequests.size, 0);
+    assert.equal(modelManager.downloadReservations.size, 0);
+    const terminalEvents = events.filter((event) => event.type !== "progress");
+    assert.equal(terminalEvents.length, 1);
+    assert.equal(terminalEvents[0].modelId, model.id);
+    assert.equal(terminalEvents[0].type, outcome === "complete" ? "complete" : "error");
+    assert.ok(terminalEvents[0].sequence > progressSequence);
+  });
+}
+
+test("the IPC registry permits distinct LLM transfers and settles them independently", async (t) => {
+  const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "openwhispr-ipc-concurrent-"));
+  electronHome = tmpHome;
+  const [firstModel, secondModel] = modelRegistryData.localProviders[0].models;
+  const firstTransfer = Promise.withResolvers();
+  const secondTransfer = Promise.withResolvers();
+  const bothStarted = Promise.withResolvers();
+  let startedCount = 0;
+  const modelManager = loadModelManager({
+    checkDiskSpace: async () => ({ ok: true, availableBytes: Infinity }),
+    downloadFile: async (_url, destination, { onProgress }) => {
+      const transfer = destination.endsWith(firstModel.fileName) ? firstTransfer : secondTransfer;
+      onProgress(420_000, 1_000_001);
+      startedCount += 1;
+      if (startedCount === 2) bothStarted.resolve();
+      await transfer.promise;
+      await fs.writeFile(destination, Buffer.alloc(1_000_001));
+    },
+  });
+  const { handleDownload, events, status } = await loadModelDownloadHandler(modelManager);
+  const firstRequest = handleDownload({}, firstModel.id);
+  const secondRequest = handleDownload({}, secondModel.id);
+  t.after(async () => {
+    firstTransfer.resolve();
+    secondTransfer.resolve();
+    await Promise.allSettled([firstRequest, secondRequest]);
+    await fs.rm(tmpHome, { recursive: true, force: true });
+  });
+
+  await bothStarted.promise;
+  assert.equal(status.getActiveDownloads().length, 2);
+  firstTransfer.reject(new Error("connection lost"));
+  assert.equal((await firstRequest).code, "NETWORK_ERROR");
+  assert.equal(status.has("llm", firstModel.id), false);
+  assert.equal(status.has("llm", secondModel.id), true);
+  secondTransfer.resolve();
+  assert.equal((await secondRequest).success, true);
+  assert.deepEqual(status.getActiveDownloads(), []);
+  assert.deepEqual(
+    events.filter((event) => event.type !== "progress").map((event) => [event.modelId, event.type]),
+    [
+      [firstModel.id, "error"],
+      [secondModel.id, "complete"],
+    ]
+  );
+});
 
 test("getAllModels surfaces in-flight local model download state", async (t) => {
   const tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "openwhispr-model-status-"));

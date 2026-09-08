@@ -4055,7 +4055,15 @@ class IPCHandlers {
     });
 
     ipcMain.handle("model-download", async (event, modelId) => {
-      const hadActiveDownload = this.localModelDownloadStatus.has("llm", modelId);
+      if (this.localModelDownloadStatus.has("llm", modelId)) {
+        return {
+          success: false,
+          error: "Model is already being downloaded",
+          code: "DOWNLOAD_IN_PROGRESS",
+          details: { modelId },
+        };
+      }
+      // Claim ownership before the manager's asynchronous filesystem preflight.
       this.localModelDownloadStatus.start("llm", modelId);
       try {
         const modelManager = require("./modelManagerBridge").default;
@@ -4089,10 +4097,8 @@ class IPCHandlers {
         });
         return { success: true, path: result };
       } catch (error) {
-        const status = hadActiveDownload
-          ? null
-          : this.localModelDownloadStatus.finish("llm", modelId);
-        if (!hadActiveDownload && error.code !== "DOWNLOAD_IN_PROGRESS") {
+        const status = this.localModelDownloadStatus.finish("llm", modelId);
+        if (error.code !== "DOWNLOAD_IN_PROGRESS") {
           this.windowManager.sendToControlPanel("model-download-progress", {
             modelId,
             type: "error",
