@@ -70,6 +70,18 @@ async function createSetupHarness(
         downloadWhisperModel: startDownload("whisper"),
         downloadParakeetModel: startDownload("parakeet"),
         modelDownload: startDownload("llm"),
+        modelCancelDownload: async (modelId) => {
+          const response = {
+            success: false,
+            code: "DOWNLOAD_CANCELLED",
+            error: "Download cancelled by user",
+          };
+          for (const listener of listeners.llm) {
+            listener({}, { type: "error", modelId, code: response.code, error: response.error });
+          }
+          requests.get(modelId).resolve(response);
+          return { success: true };
+        },
         onWhisperDownloadProgress: subscribe("whisper"),
         onParakeetDownloadProgress: subscribe("parakeet"),
         onModelDownloadProgress: subscribe("llm"),
@@ -87,6 +99,7 @@ async function createSetupHarness(
         export const initReactI18next = { type: "3rdParty", init() {} };
       `,
       "/ProviderConnectionTest": `export default function ProviderConnectionTest() { return null; }`,
+      "/OnboardingShell": `export function BrandMark() { return null; }`,
       "/ui/ProviderIcon": `export function ProviderIcon() { return null; }`,
     },
   });
@@ -104,20 +117,28 @@ async function createSetupHarness(
   );
   const { ToastContext } = await vite.ssrLoadModule("/components/ui/useToast.ts");
   const pending = await vite.ssrLoadModule("/components/onboarding/pendingLocalModels.ts");
+  const { default: BackgroundModelDownloadTray } = await vite.ssrLoadModule(
+    "/components/onboarding/BackgroundModelDownloadTray.tsx"
+  );
   let tree;
+  let trayTree;
   let ready = false;
+  let proceeded = false;
   const props = {
     stepId: assistant ? "local-assistant" : "local-dictation",
     onReadinessChange: (value) => {
       ready = value;
     },
-    onProceed() {},
+    onProceed() {
+      proceeded = true;
+    },
     onSkip() {},
   };
   function Harness() {
     // Execute the real component and hooks with React lifecycle, while leaving
     // native controls unmounted: their returned handlers are the test boundary.
     tree = LocalModelSetupStep(props);
+    trayTree = BackgroundModelDownloadTray();
     return null;
   }
   const root = createRoot(container);
@@ -160,15 +181,27 @@ async function createSetupHarness(
       for (const listener of listeners[family]) listener({}, event);
     });
   };
-  const complete = async (modelId, beforeResponse) => {
+  const complete = async (modelId) => {
     const request = requests.get(modelId);
     assert.ok(request, `download ${modelId} started`);
     inventory[request.family].add(modelId);
     await React.act(async () => {
-      await beforeResponse?.();
+      for (const listener of listeners[request.family]) {
+        listener(
+          {},
+          request.family === "llm"
+            ? { type: "complete", modelId, progress: 100 }
+            : { type: "complete", model: modelId, percentage: 100 }
+        );
+      }
       request.resolve({ success: true });
     });
   };
+  const actionButton = (label) =>
+    findElement(
+      tree,
+      (node) => typeof node.props?.onClick === "function" && textContent(node) === label
+    );
   return {
     store: useSettingsStore,
     pending,
@@ -176,14 +209,31 @@ async function createSetupHarness(
     click,
     progress,
     complete,
+    cancel: async (modelId) => {
+      const trayRow = findElement(
+        trayTree,
+        (node) => node.type === "div" && node.key === `llm:${modelId}`
+      );
+      assert.ok(trayRow, `tray row ${modelId} is visible`);
+      const button = findElement(trayRow, (node) => node.type === "button");
+      await React.act(async () => button.props.onClick());
+    },
+    chooseProvider: async (providerId) => {
+      const select = findElement(tree, (node) => typeof node.props?.onValueChange === "function");
+      await React.act(async () => select.props.onValueChange(providerId));
+    },
+    proceed: async () => {
+      const button = actionButton("onboarding.rehaul.provider.proceed");
+      assert.equal(button.props.disabled, false, "Proceed is enabled");
+      await React.act(async () => button.props.onClick());
+    },
+    proceeded: () => proceeded,
     ready: () => ready,
-    canProceed: () =>
-      !findElement(
-        tree,
-        (node) =>
-          typeof node.props?.onClick === "function" &&
-          textContent(node) === "onboarding.rehaul.provider.proceed"
-      ).props.disabled,
+    canProceed: () => !actionButton("onboarding.rehaul.provider.proceed").props.disabled,
+    canSkip: () => {
+      const button = actionButton("common.skip");
+      return Boolean(button && !button.props.disabled);
+    },
   };
 }
 
@@ -216,6 +266,8 @@ test("an explicit installed-model choice supersedes an earlier pending download"
   await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
   await setup.click(SECOND_LLM, "onboarding.rehaul.local.use");
   assert.equal(setup.pending.hasPendingLocalModels(), false);
+  assert.equal(setup.canProceed(), true);
+  assert.equal(setup.canSkip(), true);
   await setup.complete(FIRST_LLM);
   assert.equal(setup.store.getState().chatAgentModel, SECOND_LLM);
   assert.equal(setup.ready(), true);
@@ -225,14 +277,8 @@ test("completion enables Proceed after the background tray consumes the pending 
   const setup = await createSetupHarness(t, { assistant: true });
   await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
   localStorage.setItem("localSetupPending", "true");
-  await setup.complete(FIRST_LLM, () => {
-    // The tray receives the terminal event before the initiating IPC resolves.
-    const selection = setup.pending.consumePendingLocalModel("assistant", FIRST_LLM);
-    assert.ok(selection);
-    const store = setup.store.getState();
-    store.setChatAgentProvider(selection.provider);
-    store.setChatAgentModel(selection.modelId);
-  });
+  await setup.complete(FIRST_LLM);
+  assert.equal(setup.pending.hasPendingLocalModels(), false);
   assert.equal(setup.store.getState().chatAgentModel, FIRST_LLM);
   assert.equal(setup.ready(), true);
   assert.equal(setup.canProceed(), true);
@@ -268,4 +314,57 @@ test("a refused concurrent Whisper download preserves the original pending selec
   await setup.complete("base");
   assert.equal(setup.store.getState().whisperModel, "base");
   assert.equal(setup.ready(), true);
+});
+
+test("cancelling the newest assistant download blocks both ways to continue until a model is chosen", async (t) => {
+  const setup = await createSetupHarness(t, { assistant: true });
+  await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
+  await setup.click(SECOND_LLM, "onboarding.rehaul.local.download");
+  await setup.progress(FIRST_LLM, 10);
+  await setup.progress(SECOND_LLM, 20);
+  await setup.cancel(SECOND_LLM);
+
+  assert.equal(setup.pending.hasPendingLocalModels(), false);
+  assert.deepEqual(
+    { proceed: setup.canProceed(), skip: setup.canSkip() },
+    { proceed: false, skip: false }
+  );
+  await setup.complete(FIRST_LLM);
+  assert.equal(setup.store.getState().chatAgentModel, "");
+  assert.equal(setup.canProceed(), false);
+  await setup.click(FIRST_LLM, "onboarding.rehaul.local.use");
+  assert.equal(setup.store.getState().chatAgentModel, FIRST_LLM);
+  assert.equal(setup.canProceed(), true);
+});
+
+test("cancelling an older assistant download preserves the pending background selection", async (t) => {
+  const setup = await createSetupHarness(t, { assistant: true });
+  await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
+  await setup.click(SECOND_LLM, "onboarding.rehaul.local.download");
+  await setup.progress(FIRST_LLM, 10);
+  await setup.progress(SECOND_LLM, 20);
+  await setup.cancel(FIRST_LLM);
+
+  assert.equal(setup.pending.readPendingLocalModels().assistant.modelId, SECOND_LLM);
+  assert.equal(setup.canProceed(), true);
+  assert.equal(setup.canSkip(), true);
+  await setup.proceed();
+  assert.equal(setup.proceeded(), true);
+  assert.equal(localStorage.getItem("localSetupPending"), "true");
+  await setup.complete(SECOND_LLM);
+  assert.equal(setup.store.getState().chatAgentModel, SECOND_LLM);
+  assert.equal(setup.ready(), true);
+});
+
+test("browsing another dictation provider preserves the active pending background selection", async (t) => {
+  const setup = await createSetupHarness(t);
+  await setup.click("base", "onboarding.rehaul.local.download");
+  await setup.chooseProvider("nvidia");
+  assert.equal(setup.canProceed(), true);
+  assert.equal(setup.canSkip(), true);
+  await setup.proceed();
+  assert.equal(localStorage.getItem("localSetupPending"), "true");
+  await setup.complete("base");
+  assert.equal(setup.store.getState().localTranscriptionProvider, "whisper");
+  assert.equal(setup.store.getState().whisperModel, "base");
 });

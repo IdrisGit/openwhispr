@@ -117,10 +117,12 @@ function StepPrimaryAction({
 
 function StepSecondaryAction({
   onClick,
+  disabled = false,
   className = "",
   children,
 }: {
   onClick: () => void;
+  disabled?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -129,6 +131,7 @@ function StepSecondaryAction({
       type="button"
       variant="outline-flat"
       onClick={onClick}
+      disabled={disabled}
       className={`h-9 rounded-[38px]! border! border-[var(--onboarding-control-border)]! bg-transparent! px-5 text-sm font-medium leading-[1.4] text-[var(--onboarding-text-primary)] shadow-none! hover:bg-[var(--onboarding-surface-hover)]! ${className}`}
     >
       {children}
@@ -777,18 +780,24 @@ export function LocalModelSetupStep({
     parakeet: parakeetDownload.isDownloading,
     llm: llmDownload.isDownloading,
   });
-  // A running download is enough to move on: it lives in the main process, the
-  // model is already remembered as pending (downloadModel above), and
-  // BackgroundModelDownloadTray keeps the progress on screen and applies the
-  // selection when it lands. Waiting for 100% would pin the user to this step
-  // for a multi-gigabyte download.
-  const canProceed = selectedReady || anyDownloadActive;
+  const pendingSelection = readPendingLocalModels()[assistant ? "assistant" : "dictation"];
+  const pendingDownload = assistant
+    ? llmDownload
+    : pendingSelection?.provider === "nvidia"
+      ? parakeetDownload
+      : whisperDownload;
+  // Only the pending selection will activate in the background. Other transfers
+  // can outlive it when the user cancels the newest of several downloads.
+  const hasPendingDownload = Boolean(
+    pendingSelection && pendingDownload.isDownloadingModel(pendingSelection.modelId)
+  );
+  const canProceed = selectedReady || hasPendingDownload;
 
   const proceed = () => {
     // Leaving mid-download is the same situation as "download in background":
     // this step unmounts, so the tray is what finishes the job, and it only
     // applies the pending selection while localSetupPending is set.
-    if (anyDownloadActive && !selectedReady) {
+    if (hasPendingDownload && !selectedReady) {
       localStorage.setItem("localSetupPending", "true");
     }
     onProceed();
@@ -929,7 +938,9 @@ export function LocalModelSetupStep({
 
       <div className={`mt-4 grid gap-2 ${anyDownloadActive ? "grid-cols-2" : "grid-cols-1"}`}>
         {anyDownloadActive && (
-          <StepSecondaryAction onClick={onSkip}>{t("common.skip")}</StepSecondaryAction>
+          <StepSecondaryAction onClick={onSkip} disabled={!canProceed}>
+            {t("common.skip")}
+          </StepSecondaryAction>
         )}
         <StepPrimaryAction onClick={proceed} disabled={!canProceed}>
           {t("onboarding.rehaul.provider.proceed")}
