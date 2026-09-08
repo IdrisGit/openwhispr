@@ -1,4 +1,4 @@
-const { app, screen, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, screen, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const debugLogger = require("./debugLogger");
 // Aliased: this class has an openExternalUrl method wrapping the helper.
 const { openExternalUrl: openUrlInExternalBrowser } = require("./externalUrlOpener");
@@ -71,8 +71,11 @@ class WindowManager {
       const notification = this._pendingNotificationData;
       // Dismiss first: an expiring restart offer lets the engine flush the
       // detections it was holding, and a prompt raised from that handler must
-      // not be closed by this dismissal.
-      this.dismissMeetingNotification();
+      // not be closed by this dismissal. The engine is not told the card closed
+      // either — handleNotificationTimeout below settles this expiry, and a
+      // close report here would flush the queue into a card that handler is
+      // about to clear.
+      this.dismissMeetingNotification({ notifyEngine: false });
       if (this.meetingDetectionEngine) {
         this.meetingDetectionEngine.handleNotificationTimeout(notification);
       }
@@ -129,6 +132,7 @@ class WindowManager {
 
     this.setMainWindowInteractivity(false);
     this.registerMainWindowEvents();
+    this.registerAssistantSelectionContextMenu();
 
     // Register load event handlers BEFORE loading to catch all events
     this.mainWindow.webContents.on(
@@ -170,6 +174,14 @@ class WindowManager {
     MenuManager.setupMainMenu(() => this.openSettings());
   }
 
+  registerAssistantSelectionContextMenu() {
+    this.mainWindow?.webContents.on("context-menu", (_event, params) => {
+      if (!this._assistantPanelOpen || !params?.selectionText?.trim()) return;
+
+      Menu.buildFromTemplate([{ role: "copy" }]).popup({ window: this.mainWindow });
+    });
+  }
+
   _updateMainContentProtection() {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     this.mainWindow.setContentProtection(
@@ -183,7 +195,8 @@ class WindowManager {
   }
 
   // The pill window is created focusable:false so it never steals focus; the
-  // assistant panel needs keyboard focus so Escape can dismiss it reliably.
+  // assistant panel makes it focusable so it can take keyboard input at all.
+  // How it then becomes key is platform-split — see the branches below.
   setAssistantPanelOpen(open) {
     this._assistantPanelOpen = Boolean(open);
     if (!this._assistantPanelOpen) {
@@ -195,12 +208,24 @@ class WindowManager {
         // (PTT tap, auto-hide, tray); focus() is a no-op on a hidden window.
         if (!this.mainWindow.isVisible()) this.mainWindow.showInactive();
         this.mainWindow.setFocusable(true);
-        this.mainWindow.focus();
+        // macOS: never request app activation for the overlay. focus() calls
+        // NSApp activate, and when another OpenWhispr window (control panel)
+        // lives on a different Space, macOS answers a granted activation by
+        // sliding the whole desktop to it — the "massive flash" on panel
+        // open/close. The window is a non-activating panel, so clicking its
+        // input still makes it key (typing and Escape work from then on)
+        // without activating the app or stealing the user's keyboard.
+        if (process.platform !== "darwin") {
+          this.mainWindow.focus();
+        }
       } else {
         // On Windows/Linux the pill is a normal/toolbar window, so focus()
         // activated OpenWhispr — blur before dropping focusability to hand
-        // the foreground back to the app the user was in.
-        this.mainWindow.blur();
+        // the foreground back to the app the user was in. On macOS nothing
+        // was activated, and blur() would only churn key-window state.
+        if (process.platform !== "darwin") {
+          this.mainWindow.blur();
+        }
         this.mainWindow.setFocusable(false);
       }
       this.enforceMainWindowOnTop();
@@ -416,6 +441,19 @@ class WindowManager {
           ? "center"
           : `bottom-${this._activeHorizontalDirection || this.getMainWindowHorizontalDirection()}`;
       this._baseBoundsBeforeResize = null;
+      if (
+        restored.x === currentBounds.x &&
+        restored.y === currentBounds.y &&
+        restored.width === currentBounds.width &&
+        restored.height === currentBounds.height
+      ) {
+        // Nothing moved (BASE and the grown size share bounds) — skip the mask
+        // handshake and setBounds so the restore cannot perturb the renderer.
+        this._lastResizeBounds = restored;
+        this._activeHorizontalDirection = null;
+        this._notifyMainWindowHorizontalDirection();
+        return { success: true, bounds: restored, changed: false };
+      }
       await this._prepareRendererForMainWindowResize(restored, restoreAnchor);
       if (!this.mainWindow || this.mainWindow.isDestroyed()) {
         return { success: false, message: "Window not available" };
@@ -1128,6 +1166,21 @@ class WindowManager {
     return this.hotkeyManager.isUsingNativeShortcut();
   }
 
+  // The control panel is transparent on macOS, where Electron ignores
+  // `-webkit-app-region: drag` entirely — the renderer recreates its titlebar
+  // drag through the shared DragManager instead (useControlPanelWindowDrag).
+  // No pill bookkeeping: position ownership below is main-window-only.
+  async startControlPanelDrag() {
+    if (!this.controlPanelWindow || this.controlPanelWindow.isDestroyed()) {
+      return { success: false, message: "Window not available" };
+    }
+    return await this.dragManager.startWindowDrag(this.controlPanelWindow);
+  }
+
+  async stopControlPanelDrag() {
+    return await this.dragManager.stopWindowDrag();
+  }
+
   async startWindowDrag() {
     // A lookup started by a prior hotkey must never land while the user is
     // taking ownership of the panel position.
@@ -1500,7 +1553,7 @@ class WindowManager {
     this.hideDictationPanel();
     this.hideTranscriptionPreview();
     this.hideAgentDictationPill();
-    this.dismissMeetingNotification();
+    this.dismissMeetingNotification({ flushQueued: false });
 
     if (this._pendingUpdateNotificationData) {
       this._deferredUpdateNotificationInfo = { ...this._pendingUpdateNotificationData };
@@ -1963,10 +2016,11 @@ class WindowManager {
     // after the replacement already took over the reference and the countdown.
     win.on("closed", () => {
       if (this.notificationWindow !== win) return;
+      const closedNotification = this._pendingNotificationData;
       const closedAutoEndSessionId =
-        this._pendingNotificationData?.kind === "auto-end"
-          ? this._pendingNotificationData.sessionId
-          : null;
+        closedNotification?.kind === "auto-end" ? closedNotification.sessionId : null;
+      const closedDetectionId =
+        closedNotification?.kind === "detection" ? closedNotification.detectionId : null;
       this.notificationWindow = null;
       this._pendingNotificationData = null;
       this._notificationDismissTimer.cancel();
@@ -1980,6 +2034,8 @@ class WindowManager {
       }
       if (closedAutoEndSessionId) {
         this.meetingDetectionEngine?.handleAutoEndNotificationClosed?.(closedAutoEndSessionId);
+      } else if (closedDetectionId) {
+        this.meetingDetectionEngine?.handleDetectionNotificationClosed?.(closedDetectionId);
       }
     });
 
@@ -2083,7 +2139,8 @@ class WindowManager {
     win.showInactive();
   }
 
-  dismissMeetingNotification() {
+  dismissMeetingNotification({ notifyEngine = true, flushQueued = true } = {}) {
+    const notification = this._pendingNotificationData;
     this._pendingNotificationData = null;
     if (this._notificationReadyFallback) {
       clearTimeout(this._notificationReadyFallback);
@@ -2097,6 +2154,11 @@ class WindowManager {
     const win = this.notificationWindow;
     this.notificationWindow = null;
     if (win && !win.isDestroyed()) win.close();
+    if (notifyEngine && notification?.kind === "detection") {
+      this.meetingDetectionEngine?.handleDetectionNotificationClosed?.(notification.detectionId, {
+        flushQueued,
+      });
+    }
   }
 
   showMeetingAutoEndNotification({ sessionId, expiresAt, reason }) {
