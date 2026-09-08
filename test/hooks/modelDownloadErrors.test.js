@@ -212,3 +212,173 @@ test("remount restores concurrent LLM downloads and cancellation settles only it
   assert.equal(download.isDownloading, false);
   assert.equal(refreshes, 2);
 });
+
+test("a failed required download waits for Retry when failure arrives during duplicate recovery", async (t) => {
+  const duplicateResponse = deferred();
+  const recoverySnapshot = deferred();
+  const retryResponse = deferred();
+  const requests = [];
+  let snapshotCalls = 0;
+  let progressListener;
+  const renderer = await createDownloadRenderer(t, {
+    onWhisperDownloadProgress(listener) {
+      progressListener = listener;
+      return () => {};
+    },
+    onParakeetDownloadProgress: () => () => {},
+    modelGetActiveDownloads() {
+      return ++snapshotCalls <= 2 ? Promise.resolve([]) : recoverySnapshot.promise;
+    },
+    downloadWhisperModel(modelId) {
+      requests.push(modelId);
+      return requests.length === 1 ? duplicateResponse.promise : retryResponse.promise;
+    },
+  });
+  const { RequiredModelDownloadStep } = await renderer.vite.ssrLoadModule(
+    "/components/onboarding/RequiredModelDownloadStep.tsx"
+  );
+  const props = {
+    required: ["tiny"],
+    missing: ["tiny"],
+    loading: false,
+    refresh: async () => {},
+    onProceed() {},
+  };
+  let tree;
+  function Harness() {
+    tree = RequiredModelDownloadStep(props);
+    return null;
+  }
+  await renderer.render(Harness);
+  assert.deepEqual(requests, ["tiny"]);
+
+  await React.act(async () =>
+    duplicateResponse.resolve({ success: false, code: "DOWNLOAD_IN_PROGRESS" })
+  );
+  assert.equal(snapshotCalls, 3);
+  // The original transfer fails before the second IPC request reaches main.
+  await React.act(async () => {
+    progressListener(null, {
+      model: "tiny",
+      type: "error",
+      error: "ENOTFOUND",
+      code: "ENOTFOUND",
+      sequence: 2,
+    });
+  });
+  await React.act(async () => recoverySnapshot.resolve([]));
+
+  assert.deepEqual(requests, ["tiny"], "failure must not trigger an automatic retry");
+  const retryButtons = findRetryButtons(tree);
+  assert.equal(retryButtons.length, 1);
+  await React.act(async () => retryButtons[0].props.onClick());
+  assert.deepEqual(requests, ["tiny", "tiny"]);
+  await React.act(async () =>
+    retryResponse.resolve({ success: false, error: "ENOTFOUND", code: "ENOTFOUND" })
+  );
+});
+
+for (const outcome of ["error", "complete", "cancel"]) {
+  test(`LLM duplicate recovery preserves ${outcome} before an empty snapshot`, async (t) => {
+    const duplicateResponse = deferred();
+    const recoverySnapshot = deferred();
+    let snapshotCalls = 0;
+    let progressListener;
+    let refreshes = 0;
+    let selections = 0;
+    const renderer = await createDownloadRenderer(t, {
+      onModelDownloadProgress(listener) {
+        progressListener = listener;
+        return () => {};
+      },
+      modelGetActiveDownloads() {
+        return ++snapshotCalls === 1 ? Promise.resolve([]) : recoverySnapshot.promise;
+      },
+      modelDownload: () => duplicateResponse.promise,
+    });
+    const { useModelDownload } = await renderer.vite.ssrLoadModule("/hooks/useModelDownload.ts");
+    let download;
+    function Harness() {
+      download = useModelDownload({
+        modelType: "llm",
+        onDownloadComplete() {
+          refreshes += 1;
+        },
+      });
+      return null;
+    }
+    await renderer.render(Harness);
+    let request;
+    await React.act(async () => {
+      request = download.downloadModel("model-a", () => {
+        selections += 1;
+      });
+    });
+    await React.act(async () =>
+      duplicateResponse.resolve({ success: false, code: "DOWNLOAD_IN_PROGRESS" })
+    );
+    assert.equal(snapshotCalls, 2);
+    await React.act(async () => {
+      progressListener(
+        null,
+        outcome === "complete"
+          ? { modelId: "model-a", type: "complete", progress: 100, sequence: 2 }
+          : {
+              modelId: "model-a",
+              type: "error",
+              error: outcome === "cancel" ? "Download cancelled by user" : "ENOTFOUND",
+              code: outcome === "cancel" ? "DOWNLOAD_CANCELLED" : "ENOTFOUND",
+              sequence: 2,
+            }
+      );
+    });
+    await React.act(async () => {
+      recoverySnapshot.resolve([]);
+      await request;
+    });
+    assert.equal(download.isDownloading, false);
+    assert.equal(
+      download.downloadError,
+      outcome === "error" ? "hooks.modelDownload.errors.notFound" : null
+    );
+    assert.equal(refreshes, 1);
+    assert.equal(selections, 0, "a refused request must not take over model selection");
+  });
+}
+
+for (const modelType of ["whisper", "parakeet", "llm"]) {
+  test(`${modelType} duplicate recovery ${modelType === "llm" ? "keeps exact model ownership" : "restores the active family model"}`, async (t) => {
+    let snapshotCalls = 0;
+    const subscribe = () => () => {};
+    const refuseDownload = async () => ({ success: false, code: "DOWNLOAD_IN_PROGRESS" });
+    const active = {
+      modelType,
+      modelId: "active-model",
+      phase: "downloading",
+      progress: 42,
+      downloadedBytes: 420,
+      totalBytes: 1000,
+      sequence: 2,
+    };
+    const renderer = await createDownloadRenderer(t, {
+      onWhisperDownloadProgress: subscribe,
+      onParakeetDownloadProgress: subscribe,
+      onModelDownloadProgress: subscribe,
+      modelGetActiveDownloads: async () => (++snapshotCalls === 1 ? [] : [active]),
+      downloadWhisperModel: refuseDownload,
+      downloadParakeetModel: refuseDownload,
+      modelDownload: refuseDownload,
+    });
+    const { useModelDownload } = await renderer.vite.ssrLoadModule("/hooks/useModelDownload.ts");
+    let download;
+    function Harness() {
+      download = useModelDownload({ modelType });
+      return null;
+    }
+    await renderer.render(Harness);
+    await React.act(async () => download.downloadModel("requested-model"));
+    assert.equal(download.isDownloadingModel("requested-model"), false);
+    assert.equal(download.downloadingModel, modelType === "llm" ? null : "active-model");
+    if (modelType !== "llm") assert.equal(download.downloadProgress.percentage, 42);
+  });
+}

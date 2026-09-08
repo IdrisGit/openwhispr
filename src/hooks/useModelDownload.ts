@@ -40,6 +40,13 @@ interface UseModelDownloadOptions {
   onModelsCleared?: () => void;
 }
 
+interface ModelDownloadTerminalEvent {
+  type: "complete" | "error";
+  error?: string;
+  code?: string;
+  sequence?: number;
+}
+
 type LLMDownloadProgressData = LocalLLMDownloadProgressEvent & { sequence?: number };
 
 export function formatETA(seconds: number): string {
@@ -94,7 +101,7 @@ export function useModelDownload({
   const [downloads, setDownloads] = useState<Record<string, LocalModelDownloadStatus>>({});
   const [cancellingModels, setCancellingModels] = useState<Set<string>>(new Set());
   const [downloadErrors, setDownloadErrors] = useState<Record<string, string>>({});
-  const ownedRequestsRef = useRef(new Set<string>());
+  const ownedRequestsRef = useRef(new Map<string, ModelDownloadTerminalEvent | null>());
   const settlingDownloadsRef = useRef(new Set<string>());
   const terminalSequencesRef = useRef<Record<string, number>>({});
   const lastProgressUpdateRef = useRef<Record<string, number>>({});
@@ -165,20 +172,23 @@ export function useModelDownload({
   );
 
   const handleTerminalDownload = useCallback(
-    (
+    async (
       modelId: string,
       type: "complete" | "error",
       error?: string,
       code?: string,
       sequence?: number
-    ) => {
+    ): Promise<void> => {
       if (sequence !== undefined) {
         terminalSequencesRef.current[modelId] = Math.max(
           terminalSequencesRef.current[modelId] || 0,
           sequence
         );
       }
-      if (ownedRequestsRef.current.has(modelId)) return;
+      if (ownedRequestsRef.current.has(modelId)) {
+        ownedRequestsRef.current.set(modelId, { type, error, code, sequence });
+        return;
+      }
       if (type === "complete") notifyLocalModelsChanged();
       if (type === "error" && !isCancellation(error, code)) {
         const message = getDownloadErrorMessage(
@@ -195,7 +205,7 @@ export function useModelDownload({
           description: message,
         });
       }
-      void settleDownload(modelId, sequence);
+      await settleDownload(modelId, sequence);
     },
     [settleDownload, showAlertDialog, t]
   );
@@ -203,7 +213,7 @@ export function useModelDownload({
   const handleNativeProgress = useCallback(
     (data: WhisperDownloadProgressData) => {
       if (data.type === "complete" || data.type === "error") {
-        handleTerminalDownload(data.model, data.type, data.error, data.code, data.sequence);
+        void handleTerminalDownload(data.model, data.type, data.error, data.code, data.sequence);
         return;
       }
       if (data.type !== "progress" && data.type !== "installing") return;
@@ -231,11 +241,11 @@ export function useModelDownload({
   const handleLLMProgress = useCallback(
     (_event: unknown, data: LLMDownloadProgressData) => {
       if (data.type === "complete") {
-        handleTerminalDownload(data.modelId, data.type, undefined, undefined, data.sequence);
+        void handleTerminalDownload(data.modelId, data.type, undefined, undefined, data.sequence);
         return;
       }
       if (data.type === "error") {
-        handleTerminalDownload(data.modelId, data.type, data.error, data.code, data.sequence);
+        void handleTerminalDownload(data.modelId, data.type, data.error, data.code, data.sequence);
         return;
       }
       const now = Date.now();
@@ -284,7 +294,11 @@ export function useModelDownload({
 
   const downloadModel = useCallback(
     async (modelId: string, onSelectAfterDownload?: (id: string) => void) => {
-      if (downloads[modelId] || (modelType !== "llm" && Object.keys(downloads).length > 0)) {
+      if (
+        ownedRequestsRef.current.has(modelId) ||
+        downloads[modelId] ||
+        (modelType !== "llm" && Object.keys(downloads).length > 0)
+      ) {
         toast({
           title: t("hooks.modelDownload.downloadInProgress.title"),
           description: t("hooks.modelDownload.downloadInProgress.description"),
@@ -292,7 +306,7 @@ export function useModelDownload({
         return;
       }
 
-      ownedRequestsRef.current.add(modelId);
+      ownedRequestsRef.current.set(modelId, null);
       setDownloadErrors((current) => {
         if (!(modelId in current)) return current;
         const { [modelId]: _removed, ...remaining } = current;
@@ -310,6 +324,7 @@ export function useModelDownload({
       lastProgressUpdateRef.current[modelId] = 0;
 
       let keepActiveDownloadState = false;
+      let isDuplicateRequest = false;
 
       try {
         const result =
@@ -323,13 +338,16 @@ export function useModelDownload({
           notifyLocalModelsChanged();
           onSelectAfterDownload?.(modelId);
         } else if (result?.code === "DOWNLOAD_IN_PROGRESS") {
+          isDuplicateRequest = true;
           const activeDownloads = await window.electronAPI?.modelGetActiveDownloads?.();
+          if (ownedRequestsRef.current.get(modelId)) return;
           const activeDownload = activeDownloads?.find(
-            (status) => status.modelType === modelType && status.modelId === modelId
+            (status) =>
+              status.modelType === modelType && (modelType !== "llm" || status.modelId === modelId)
           );
           if (activeDownload) {
             updateDownload(activeDownload);
-            keepActiveDownloadState = true;
+            keepActiveDownloadState = activeDownload.modelId === modelId;
           }
           toast({
             title: t("hooks.modelDownload.downloadInProgress.title"),
@@ -361,13 +379,32 @@ export function useModelDownload({
           });
         }
       } finally {
+        const terminalEvent = ownedRequestsRef.current.get(modelId);
         ownedRequestsRef.current.delete(modelId);
-        if (!keepActiveDownloadState) {
+        if (isDuplicateRequest && terminalEvent) {
+          // A duplicate response cannot carry the original transfer's terminal result.
+          await handleTerminalDownload(
+            modelId,
+            terminalEvent.type,
+            terminalEvent.error,
+            terminalEvent.code,
+            terminalEvent.sequence
+          );
+        } else if (!keepActiveDownloadState) {
           await settleDownload(modelId);
         }
       }
     },
-    [downloads, modelType, settleDownload, showAlertDialog, t, toast, updateDownload]
+    [
+      downloads,
+      handleTerminalDownload,
+      modelType,
+      settleDownload,
+      showAlertDialog,
+      t,
+      toast,
+      updateDownload,
+    ]
   );
 
   const deleteModel = useCallback(
