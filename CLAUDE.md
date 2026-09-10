@@ -50,8 +50,8 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
 
 - **windows-key-listener.c**: C source for Windows low-level keyboard hook (Push-to-Talk)
 - **windows-mic-listener.c**: C source for WASAPI mic session monitor (event-driven mic detection)
-- **windows-system-audio-helper.c**: C source for WASAPI process-loopback system audio capture (meeting transcription). Excludes OpenWhispr's own process tree, so it hears every app on every output device. Requires Windows 10 2004+; falls back to Chromium display-media loopback when unavailable. Outputs 24 kHz mono s16le PCM on stdout, line-delimited JSON events on stderr (same protocol as linux-system-audio-helper)
-- **macos-mic-listener.swift**: Swift source for CoreAudio mic property listener (event-driven mic detection)
+- **windows-system-audio-helper.c**: C source for WASAPI process-loopback system audio capture (meeting transcription). Excludes OpenWhispr's own process tree, so it hears every app on every output device. Requires Windows 10 2004+; falls back to Chromium display-media loopback when unavailable, and mid-session when the helper emits a `capture_silent` warning (its own stream is silent while a render endpoint is metering output — activation success cannot detect that). Outputs 24 kHz mono s16le PCM on stdout, line-delimited JSON events on stderr (same protocol as linux-system-audio-helper)
+- **macos-mic-listener.swift**: Swift source for the CoreAudio process-object microphone listener (event-driven mic detection); falls back to aggregate device activity and retries PID monitoring from its heartbeat
 - **globe-listener.swift**: Swift source for macOS Globe/Fn key detection
 - **bin/**: Directory for compiled native binaries (whisper-cpp, nircmd, key/mic listeners)
 
@@ -130,10 +130,10 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
   - macOS: Event-driven via `systemPreferences.subscribeWorkspaceNotification` (zero CPU)
   - Windows/Linux: Shared `processListCache` polling (30s interval)
 - **audioActivityDetector.js**: Detects microphone usage for unscheduled meetings
-  - macOS: Event-driven via `macos-mic-listener` binary (CoreAudio property listeners)
+  - macOS: Event-driven via `macos-mic-listener` binary (CoreAudio process objects; aggregate device activity prompts only while a known meeting app is running)
   - Windows: Event-driven via `windows-mic-listener.exe` (WASAPI sessions, self-PID exclusion)
   - Linux: Event-driven via `pactl subscribe` (PulseAudio source-output events)
-  - All platforms: Graceful fallback to polling if native approach fails
+  - Windows/Linux: Graceful fallback to polling if the native approach fails; macOS has no safe polling signal and respawns the listener with backoff instead
 - **processListCache.js**: Shared singleton process list cache (5s TTL, `ps-list` npm)
 - **meetingEchoLeakDetector.js**: Audio-layer echo analysis for meeting recordings — correlates each mic chunk against the recent system-audio tap (lag search 0–500 ms in 5 ms steps) and classifies it `clean_local` / `suspected_render_bleed` / `double_talk`; drives chunk muting and per-segment suppression flags. PCM-driven tests in `test/helpers/meetingEchoLeakDetector.test.js`
 - **meetingMicGate.js**: Pure RMS/peak chunk stats + the meeting mic gate verdict (`send` / `zero` for streaming, `send` / `skip` for local) with the exported silence and bleed thresholds; `ipcHandlers.js` (`dispatchMeetingAudioBuffer`, `transcribeLocalMeetingChunk`) only applies the verdict. Unit-tested in `test/helpers/meetingMicGate.test.js`
@@ -214,6 +214,7 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
 - **parakeet.js**: Model management for NVIDIA Parakeet ASR models
   - Uses sherpa-onnx runtime for cross-platform ONNX inference
   - Bundled binaries in `resources/bin/sherpa-onnx-{platform}-{arch}`
+  - Windows: the bundled ONNX Runtime ships as `ow-onnxrt.dll`, not `onnxruntime.dll`. `scripts/download-sherpa-onnx.js` renames it and rewrites the import tables of every sherpa image (`scripts/lib/pe-imports.js`) because Windows 11 ships an older `onnxruntime.dll` in System32 and some loader configurations resolve the bare name to that copy (#2054). `afterPack.js` fails the Windows build if `onnxruntime.dll` is present or `ow-onnxrt.dll` is missing
   - INT8 quantized models for efficient CPU inference
   - Models stored in `~/.cache/openwhispr/parakeet-models/`
   - Server pre-warming on startup when `LOCAL_TRANSCRIPTION_PROVIDER=nvidia` is set
@@ -224,6 +225,7 @@ OpenWhispr is an Electron-based desktop dictation application that uses whisper.
   - `parakeet-unified-en-0.6b`: English-only, ~631MB, state-of-the-art EN accuracy (5.91% avg WER on Open ASR Leaderboard)
   - `nemotron-speech-streaming-en-0.6b`: English-only, ~632MB, cache-aware streaming FastConformer (`"runtime": "online"` in the registry)
   - `nemotron-3.5-asr-streaming-0.6b`: Multilingual (15 transcription-ready languages, auto detection), ~650MB, cache-aware streaming FastConformer (`"runtime": "online"`)
+  - `cohere-transcribe-03-2026`: Multilingual (14 languages, NO auto detection — one language per server start), ~1.7GB download / ~2.7GB on disk, Conformer encoder-decoder (`"modelType": "cohere-transcribe"`), most accurate local model (5.42% avg WER). Exposed as the `"cohere"` local provider in settings/UI but served by the same ParakeetManager/sherpa-onnx offline WS server; the dictation language is part of the server identity, so changing it restarts the server. Segments long audio at 30s (model max ~35s)
 
 - **Runtimes**: Models are `offline` (default) or `online` per their registry `runtime` field. Offline models use the bundled `sherpa-onnx-ws-{platform}-{arch}` (offline websocket server); online models use `sherpa-onnx-online-ws-{platform}-{arch}` (online websocket server). Both are downloaded by `scripts/download-sherpa-onnx.js`. Partial/final JSON results are merged by `parakeetWsResult.js`.
 
@@ -614,13 +616,14 @@ Detects meetings via three independent sources, orchestrated by `MeetingDetectio
 
 - macOS: `systemPreferences.subscribeWorkspaceNotification` — zero CPU, instant detection
 - Windows/Linux: `processListCache` shared polling (30s interval, `ps-list` npm)
+- Context-only: a running meeting app never prompts by itself (FaceTime idles in the background). It corroborates unattributed macOS device activity (below) and drives the auto-end process-exit fast path
 
 **Microphone Detection** (unscheduled/browser meetings like Google Meet):
 
-- macOS: `macos-mic-listener` binary — CoreAudio `kAudioDevicePropertyDeviceIsRunningSomewhere` property listeners with hot-plug support
-- Windows: `windows-mic-listener.exe` — WASAPI `IAudioSessionManager2` session monitoring, `--exclude-pid` for self-mic exclusion
+- macOS: `macos-mic-listener` binary — CoreAudio process-object input monitoring, excluding the background `com.apple.CoreSpeech` service (it runs input during ordinary playback). `CAPABILITY PID` transitions prompt on their own. `CAPABILITY AGGREGATE` device activity (no process objects — roughly macOS < 14.2 — or a transient snapshot failure) includes playback on combined input/output devices, so it prompts only while a known meeting app is running; the helper retries PID monitoring every 30s from its heartbeat and the detector accepts the later `CAPABILITY PID`. Capability is logged at info level; `sustained-audio-detected` carries `attributed`
+- Windows: `windows-mic-listener.exe` — WASAPI `IAudioSessionManager2` session monitoring; self-mic exclusion happens in JavaScript using current OpenWhispr and capture-helper PIDs
 - Linux: `pactl subscribe` — PulseAudio source-output events
-- All platforms: Graceful fallback to polling if native binary/command unavailable
+- Windows/Linux: Fall back to polling if the native binary/command is unavailable. macOS has no safe polling signal: a missing binary pauses audio prompts, a crashed listener is respawned with exponential backoff (5s → 60s), and meanwhile only calendar reminders prompt while auto-end uses its existing silence fallback
 
 **Calendar Reminders** (scheduled meetings):
 
@@ -652,15 +655,16 @@ Detects meetings via three independent sources, orchestrated by `MeetingDetectio
 
 ### 17. Voice Assistant Hotkey
 
-A dedicated global hotkey that starts a dictation whose transcript is sent straight to the voice assistant as a command — no wake word ("Hey [AgentName]") needed — and that always bypasses the cleanup model. Standalone commands never type at the cursor: the answer streams into a floating assistant panel attached to the dictation pill (there is no separate assistant window). The pill window is content-protected while the panel is open (the panel never appears in screen shares).
+A dedicated global hotkey that starts a dictation whose transcript is sent straight to the voice assistant as a command — no wake word ("Hey [AgentName]") needed — and that always bypasses the cleanup model. Standalone commands never type at an unverified cursor: with auto-paste enabled and a writable caret verified at capture time (an opaque `caret` session in `selectionManager.js`, revalidated before pasting; terminals and fields with a live selection excluded — the native probes check the focused element's own selection state, closing the clipboard-capture blind spots), the completed answer pastes at that caret and the pill returns to idle. Otherwise the answer streams into a floating assistant panel attached to the dictation pill (there is no separate assistant window) and, with auto-paste enabled, is also copied to the clipboard for manual paste (the Copy button confirms for six seconds). The pill window is content-protected while the panel is open (the panel never appears in screen shares).
 
 **Flow**:
 
 1. Hotkey pressed → `voiceAgent` slot callback in `main.js` → `windowManager.sendToggleVoiceAgent()` → `toggle-voice-agent` IPC to the main window → recording capsule appears
 2. `useAudioRecording.js` starts a recording with `audioManager.setVoiceAgentRequested(true)` (any other start resets it to `false`)
 3. On transcription, `resolveReasoningRoute` consults `resolveDictationRouteKind()` (`src/helpers/dictationRouting.js`): a voice assistant recording always takes the agent route and never falls back to cleanup. The dictation agent's reachability only gates selection edits — a selection with the dictation agent unconfigured routes to the panel with the selected text quoted instead of editing in place
-4. Standalone commands (no text selected) stream into the assistant panel (`src/components/dictation/AssistantPanel.tsx`) through the chat pipeline: chat tools (notes search/create/update, calendar, web search, clipboard), RAG memory, and the custom dictionary injected into the system prompt. Conversations persist in the `agent_conversations` table and are browsable from the ControlPanel chat
-5. Selection edits are unchanged: highlighted text goes through the `dictationAgent` scope and is safely replaced in place — it never opens the panel
+4. Standalone commands (no text selected) run through the chat pipeline (`src/components/dictation/AssistantPanel.tsx`): chat tools (notes search/create/update, calendar, web search, clipboard), RAG memory, and the custom dictionary injected into the system prompt. Conversations persist in the `agent_conversations` table and are browsable from the ControlPanel chat
+5. Response delivery: a capture with `status: "editable"` (a focused writable non-terminal field with no selection) plus auto-paste banks a `deliverySessionId`; the completed answer is pasted via `paste-at-captured-target`, which revalidates the target and fails closed to the panel + clipboard on any change (`assistantResponseDelivery.ts`, `pasteAtCapturedTarget` in `selectionManager.js`). A follow-up spoken while the panel is already open stays panel-first. Cancelled or empty responses never paste and never touch the clipboard
+6. Selection edits are unchanged: highlighted text goes through the `dictationAgent` scope and is safely replaced in place — it never opens the panel
 
 **Storage & IPC**:
 
@@ -819,11 +823,11 @@ Raster UI assets live in `src/assets/` (onboarding ones are named `onboarding-*`
    - CI workflow (`.github/workflows/build-windows-key-listener.yml`) auto-builds on push to main
 
 6. **Meeting Detection Not Working**:
-   - Check debug logs for "event-driven" vs "polling" mode
+   - Check debug logs for "event-driven" vs "polling" mode; macOS also logs `macOS microphone detection capability` as `PID` or `AGGREGATE`
    - macOS: Verify `macos-mic-listener` binary exists in `resources/bin/` (compiled during `npm run compile:native`)
    - Windows: Verify `windows-mic-listener.exe` exists in `resources/bin/` (downloaded during `prebuild:win`)
    - Linux: Verify `pactl` is installed (`pulseaudio-utils` or `pipewire-pulse` package)
-   - If event-driven binary is missing, detection falls back to polling automatically
+   - If the event-driven binary is missing, Windows/Linux fall back to polling; macOS pauses audio prompts (and respawns a crashed listener with backoff)
 
 7. **Local Semantic Search Not Working**:
    - Qdrant binary should be in `resources/bin/qdrant-{platform}-{arch}` (auto-downloaded during `predev`/`prebuild`)
@@ -906,7 +910,7 @@ Raster UI assets live in `src/assets/` (onboarding ones are named `onboarding-*`
 - Temporary file cleanup
 - Memory usage with large models
 - Process timeout protection (5 minutes)
-- Meeting detection uses event-driven OS APIs (near-zero CPU) with polling fallback
+- Meeting detection uses event-driven OS APIs (near-zero CPU) with polling fallback on Windows/Linux
 - Process list cache shared between detectors to avoid duplicate `tasklist`/`pgrep` calls
 - Calendar sync (Google/Microsoft) uses exponential backoff to avoid hammering APIs on network failures
 

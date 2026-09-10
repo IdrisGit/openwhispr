@@ -431,6 +431,16 @@ function initializeCoreManagers() {
   windowManager = new WindowManager();
   hotkeyManager = windowManager.hotkeyManager;
   databaseManager = new DatabaseManager();
+  // Restore the last validated account scope before any window, IPC handler,
+  // or meeting flow can read or create notes. Offline launches keep the
+  // account's data visible; a stale or rotated credential fails the hash
+  // check and restores nothing.
+  const accountScopeBinding = require("./src/helpers/accountScopeBinding");
+  const bootAccountId = accountScopeBinding.resolveBootAccountScope({
+    token: require("./src/helpers/tokenStore").get(),
+    binding: accountScopeBinding.read(),
+  });
+  if (bootAccountId) databaseManager.setActiveAccountId(bootAccountId);
   clipboardManager = new ClipboardManager();
   whisperManager = new WhisperManager();
   if (process.platform !== "darwin") {
@@ -478,9 +488,10 @@ function initializeCoreManagers() {
     calendarReminderScheduler
   );
   appleCalendarManager = new AppleCalendarManager(databaseManager, calendarReminderScheduler);
+  const meetingProcessDetector = new MeetingProcessDetector();
   meetingDetectionEngine = new MeetingDetectionEngine(
     calendarReminderScheduler,
-    new MeetingProcessDetector(),
+    meetingProcessDetector,
     new AudioActivityDetector(
       // The capture-helper managers are created a few lines below; the provider
       // is only invoked on mic events, long after initialization completes.
@@ -490,7 +501,8 @@ function initializeCoreManagers() {
           linuxPortalAudioManager,
           windowsLoopbackAudioManager,
         ])
-      )
+      ),
+      () => meetingProcessDetector.getDetectedProcesses().length > 0
     ),
     windowManager,
     databaseManager
@@ -541,6 +553,7 @@ function initializeCoreManagers() {
     linuxPortalAudioManager,
     windowsLoopbackAudioManager,
     meetingAecManager,
+    getQdrantManager: () => qdrantManager,
     getTrayManager: () => trayManager,
     oauthProtocolRegistered: protocolRegistered,
     oauthProtocol: OAUTH_PROTOCOL,
@@ -1203,6 +1216,7 @@ async function startApp() {
   const parakeetSettings = {
     localTranscriptionProvider: process.env.LOCAL_TRANSCRIPTION_PROVIDER || "",
     parakeetModel: process.env.PARAKEET_MODEL,
+    language: process.env.DICTATION_LANGUAGE,
   };
   parakeetManager.initializeAtStartup(parakeetSettings).catch((err) => {
     debugLogger.debug("Parakeet startup init error (non-fatal)", { error: err.message });
