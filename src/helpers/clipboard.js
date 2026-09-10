@@ -1877,9 +1877,7 @@ class ClipboardManager {
 
     const xdotoolEntry = canUseXdotool ? [{ cmd: "xdotool" }] : [];
     const ydotoolEntry =
-      canUseYdotool && !ydotoolAttempted
-        ? [{ cmd: "ydotool", args: buildYdotoolArgs() }]
-        : [];
+      canUseYdotool && !ydotoolAttempted ? [{ cmd: "ydotool", args: buildYdotoolArgs() }] : [];
 
     // Compositor-aware priority ordering. X11 and wlroots (where wtype already
     // ran): xdotool first — native on X11, no daemon needed. GNOME, KDE, or
