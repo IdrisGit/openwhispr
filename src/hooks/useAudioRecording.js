@@ -13,6 +13,7 @@ import {
   isScreenContextAllowed,
   isTranscriptionContextAllowed,
 } from "../stores/policyRules";
+import { isManagedTranscriptionActive } from "../services/managedTranscription";
 import { usePolicyStore } from "../stores/policyStore";
 import { getOnboardingDemoKind } from "../utils/onboardingDemo";
 import {
@@ -118,7 +119,8 @@ export const useAudioRecording = (toast, options = {}) => {
         if (!audioManagerRef.current) return false;
         const policyState = usePolicyStore.getState();
         if (
-          !isTranscriptionContextAllowed(policyState, getSettings(), "dictation") ||
+          (!isManagedTranscriptionActive() &&
+            !isTranscriptionContextAllowed(policyState, getSettings(), "dictation")) ||
           (voiceAgentRequested && !isAgentAllowed(policyState))
         ) {
           toast({ title: t("common.managedByOrg"), variant: "default" });
@@ -535,6 +537,60 @@ export const useAudioRecording = (toast, options = {}) => {
           const isStreaming = result.source?.includes("streaming");
           const { autoPasteEnabled, keepTranscriptionInClipboard } = getSettings();
 
+          const persistencePromise = audioManagerRef.current
+            .saveTranscription(result.text, result.rawText ?? result.text, {
+              clientTranscriptionId: result.clientTranscriptionId,
+              // Spread rather than set: a result with no analytics timestamp
+              // must not gain the key as undefined, matching how audioManager
+              // carries this field and keeping the options object exactly what
+              // callers without Insights data expect.
+              ...(result.analyticsOccurredAt
+                ? { analyticsOccurredAt: result.analyticsOccurredAt }
+                : {}),
+            })
+            .then(
+              (persisted) => {
+                if (!persisted) {
+                  logger.error(
+                    "Failed to persist transcription",
+                    {
+                      clientTranscriptionId: result.clientTranscriptionId,
+                      source: result.source,
+                    },
+                    "audio"
+                  );
+                }
+                return persisted;
+              },
+              (error) => {
+                logger.error(
+                  "Failed to persist transcription",
+                  {
+                    clientTranscriptionId: result.clientTranscriptionId,
+                    error: error?.message,
+                    source: result.source,
+                  },
+                  "audio"
+                );
+                return false;
+              }
+            );
+
+          const keepInClipboard = async (delivery) => {
+            try {
+              const clipboardResult = await window.electronAPI.writeClipboard(result.text);
+              if (clipboardResult?.success === false) {
+                throw new Error("clipboard-write-failed");
+              }
+            } catch (error) {
+              logger.warn(
+                "Failed to keep transcription in clipboard",
+                { delivery, error: error?.message },
+                "clipboard"
+              );
+            }
+          };
+
           if (autoPasteEnabled && !result.assistantConversation) {
             const pasteStart = performance.now();
             let pasteSucceeded = true;
@@ -551,7 +607,7 @@ export const useAudioRecording = (toast, options = {}) => {
               if (!pasteSucceeded) {
                 window.electronAPI?.hideDictationPreview?.();
                 if (keepTranscriptionInClipboard) {
-                  await navigator.clipboard.writeText(result.text);
+                  await keepInClipboard("selection-edit-fallback");
                 }
                 const detailKey =
                   SELECTION_EDIT_DETAIL_KEY_BY_CODE[replacement?.code] || "unavailable";
@@ -588,12 +644,8 @@ export const useAudioRecording = (toast, options = {}) => {
               if (result.cleanupFailure) recordCleanupFailure(result.cleanupFailure);
             }
           } else if (keepTranscriptionInClipboard && !result.assistantConversation) {
-            await navigator.clipboard.writeText(result.text);
+            await keepInClipboard("clipboard-only");
           }
-
-          audioManagerRef.current.saveTranscription(result.text, result.rawText ?? result.text, {
-            clientTranscriptionId: result.clientTranscriptionId,
-          });
 
           if (result.source === "openai" && getSettings().useLocalWhisper) {
             toast({
@@ -618,6 +670,8 @@ export const useAudioRecording = (toast, options = {}) => {
           if (audioManagerRef.current.shouldUseStreaming()) {
             audioManagerRef.current.warmupStreamingConnection();
           }
+
+          await persistencePromise;
         }
       },
       onTranslationFallback: ({ reason }) => {
