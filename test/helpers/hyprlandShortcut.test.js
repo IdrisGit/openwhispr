@@ -716,3 +716,26 @@ test(
     assert.equal(manager.bindings.translation, undefined);
   })
 );
+
+test("punctuation accelerators validate and convert to XKB key names", () => {
+  const HyprlandShortcutManager = loadManager(() => "ok\n");
+
+  assert.equal(HyprlandShortcutManager.isValidHotkey("F8"), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+F8"), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+Super"), true);
+
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+,"), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Alt+."), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+/"), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+-"), true);
+  assert.equal(HyprlandShortcutManager.isValidHotkey("Control+Plus"), true);
+
+  assert.equal(HyprlandShortcutManager.convertToHyprlandFormat("Control+,").bindKey, "CTRL, comma");
+  assert.equal(HyprlandShortcutManager.convertToHyprlandFormat("Alt+.").bindKey, "ALT, period");
+  assert.equal(HyprlandShortcutManager.convertToHyprlandFormat("Control+/").bindKey, "CTRL, slash");
+  assert.equal(HyprlandShortcutManager.convertToHyprlandFormat("Control+-").bindKey, "CTRL, minus");
+  assert.equal(
+    HyprlandShortcutManager.convertToHyprlandFormat("Control+Plus").bindKey,
+    "CTRL, plus"
+  );
+});
