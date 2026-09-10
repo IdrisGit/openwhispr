@@ -14,6 +14,7 @@ import type {
 import type { CalendarAccount } from "../types/calendar";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { sweepRetiredPromptOverrides } from "../config/retiredPrompts";
+import { sweepRetiredCloudModelSelections } from "../config/retiredCloudModels";
 import {
   deriveReasoningMode,
   buildReasoningScopePatches,
@@ -29,6 +30,11 @@ import {
 import { normalizeChineseScriptPreference } from "../utils/chineseScript";
 import { adjustBedrockModelForRegion } from "../utils/bedrockRegions";
 import modelRegistryData from "../models/modelRegistryData.json";
+import { pickDefaultModelId } from "../models/providerDefaultModel";
+// Both are leaves: tinfoilModelCache imports only a type from ModelRegistry and
+// the switch store only zustand, so neither reopens the ModelRegistry cycle.
+import { readCachedTinfoilModels } from "../models/tinfoilModelCache";
+import { recordTinfoilModelSwitch } from "./tinfoilModelSwitchStore";
 import {
   getTranscriptionSelection,
   isScreenContextAllowed,
@@ -73,9 +79,13 @@ export const LLM_POLICY_PROVIDER_IDS = [
 // Azure and Vertex remain intentionally unavailable in the desktop picker.
 export const LLM_ENTERPRISE_POLICY_PROVIDER_IDS = ["bedrock"] as const;
 
+// Managed transcription is Azure-only in this phase.
+export const TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS = ["azure"] as const;
+
 const TRANSCRIPTION_POLICY_CATALOG = {
-  modes: ["openwhispr", "providers", "local", "self-hosted"] as const,
+  modes: ["openwhispr", "providers", "local", "self-hosted", "enterprise"] as const,
   byokProviders: TRANSCRIPTION_POLICY_PROVIDER_IDS,
+  enterpriseProviders: TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
 };
 
 const MEETING_TRANSCRIPTION_POLICY_CATALOG = {
@@ -148,8 +158,7 @@ function defaultLlmModel(mode: InferenceMode, providerId: string, bedrockRegion:
       : mode === "enterprise"
         ? modelRegistryData.enterpriseProviders
         : modelRegistryData.cloudProviders;
-  const defaultModel =
-    providers.find((provider) => provider.id === providerId)?.models[0]?.id ?? "";
+  const defaultModel = pickDefaultModelId(providers.find(({ id }) => id === providerId));
   return mode === "enterprise" && providerId === "bedrock"
     ? adjustBedrockModelForRegion(defaultModel, bedrockRegion)
     : defaultModel;
@@ -223,54 +232,6 @@ function migrateMicrophoneSelectionMode() {
 
 migrateMicrophoneSelectionMode();
 
-// One-time migration for legacy `meetingFollows{Transcription,Reasoning}` flags.
-// When the flag was true (the default), meeting/note recordings inherited the
-// main dictation/intelligence settings. We've removed the toggle; copy the
-// effective values into the dedicated meeting fields so post-migration reads
-// (which always go through meeting fields) preserve every existing user's
-// behavior. After migration the flag stays at "false" as a marker so this
-// never runs again. Safe to delete after a few releases.
-const MEETING_TRANSCRIPTION_PAIRS: ReadonlyArray<[string, string]> = [
-  ["useLocalWhisper", "meetingUseLocalWhisper"],
-  ["whisperModel", "meetingWhisperModel"],
-  ["localTranscriptionProvider", "meetingLocalTranscriptionProvider"],
-  ["parakeetModel", "meetingParakeetModel"],
-  ["cohereModel", "meetingCohereModel"],
-  ["cloudTranscriptionProvider", "meetingCloudTranscriptionProvider"],
-  ["cloudTranscriptionModel", "meetingCloudTranscriptionModel"],
-  ["cloudTranscriptionBaseUrl", "meetingCloudTranscriptionBaseUrl"],
-  ["cloudTranscriptionMode", "meetingCloudTranscriptionMode"],
-  ["transcriptionMode", "meetingTranscriptionMode"],
-  ["remoteTranscriptionType", "meetingRemoteTranscriptionType"],
-  ["remoteTranscriptionUrl", "meetingRemoteTranscriptionUrl"],
-];
-const MEETING_REASONING_PAIRS: ReadonlyArray<[string, string]> = [
-  ["reasoningProvider", "meetingReasoningProvider"],
-  ["reasoningModel", "meetingReasoningModel"],
-  ["reasoningMode", "meetingReasoningMode"],
-  ["cloudReasoningMode", "meetingCloudReasoningMode"],
-  ["cloudReasoningBaseUrl", "meetingCloudReasoningBaseUrl"],
-  ["remoteReasoningType", "meetingRemoteReasoningType"],
-  ["remoteReasoningUrl", "meetingRemoteReasoningUrl"],
-];
-
-function migrateMeetingFollowFlags() {
-  if (!isBrowser) return;
-  for (const [flag, pairs] of [
-    ["meetingFollowsTranscription", MEETING_TRANSCRIPTION_PAIRS],
-    ["meetingFollowsReasoning", MEETING_REASONING_PAIRS],
-  ] as const) {
-    if (localStorage.getItem(flag) === "false") continue;
-    for (const [src, dst] of pairs) {
-      const v = localStorage.getItem(src);
-      if (v !== null) localStorage.setItem(dst, v);
-    }
-    localStorage.setItem(flag, "false");
-  }
-}
-
-migrateMeetingFollowFlags();
-
 const BOOLEAN_SETTINGS = new Set([
   "useLocalWhisper",
   "meetingUseLocalWhisper",
@@ -287,6 +248,7 @@ const BOOLEAN_SETTINGS = new Set([
   "translationDisableThinking",
   "preferBuiltInMic",
   "cloudBackupEnabled",
+  "insightsSyncEnabled",
   "telemetryEnabled",
   "audioCuesEnabled",
   "pauseMediaOnDictation",
@@ -381,6 +343,24 @@ function deriveTranscriptionMode(
   return "openwhispr";
 }
 
+// Map the legacy `cloudReasoningMode` + provider pair to the InferenceMode the
+// Settings tabs select on. Shared by the provider-settings and agent-mode
+// migrations and by healSkippedMeetingFollowModes(). Distinct from the imported
+// deriveReasoningMode(), which collapses local and enterprise into "providers"
+// on purpose for the cloud-only "use everywhere" action.
+function deriveLegacyReasoningMode(
+  cloudMode: string | null,
+  provider: string | null
+): InferenceMode {
+  if (cloudMode !== "byok") return "openwhispr";
+  if (provider === "custom") return "self-hosted";
+  if (provider === "bedrock" || provider === "azure" || provider === "vertex") {
+    return "enterprise";
+  }
+  if (provider && localLlmProviderIds.has(provider)) return "local";
+  return "providers";
+}
+
 function migrateProviderSettings() {
   if (!isBrowser) return;
   if (localStorage.getItem("_providerSettingsMigrated") === "1") return;
@@ -403,23 +383,10 @@ function migrateProviderSettings() {
 
   const reasoningMode = localStorage.getItem("cloudReasoningMode");
   const reasoningProvider = localStorage.getItem("reasoningProvider");
-  let newReasoningMode: InferenceMode = "openwhispr";
-  if (reasoningMode === "byok") {
-    if (reasoningProvider === "custom") {
-      newReasoningMode = "self-hosted";
-    } else if (
-      reasoningProvider === "bedrock" ||
-      reasoningProvider === "azure" ||
-      reasoningProvider === "vertex"
-    ) {
-      newReasoningMode = "enterprise";
-    } else if (reasoningProvider && localLlmProviderIds.has(reasoningProvider)) {
-      newReasoningMode = "local";
-    } else {
-      newReasoningMode = "providers";
-    }
-  }
-  localStorage.setItem("reasoningMode", newReasoningMode);
+  localStorage.setItem(
+    "reasoningMode",
+    deriveLegacyReasoningMode(reasoningMode, reasoningProvider)
+  );
 
   if (reasoningProvider === "custom" && reasoningMode === "byok") {
     localStorage.setItem("remoteReasoningType", "openai-compatible");
@@ -429,6 +396,58 @@ function migrateProviderSettings() {
 }
 
 migrateProviderSettings();
+
+// One-time migration for legacy `meetingFollows{Transcription,Reasoning}` flags.
+// When the flag was true (the default), meeting/note recordings inherited the
+// main dictation/intelligence settings. We've removed the toggle; copy the
+// effective values into the dedicated meeting fields so post-migration reads
+// (which always go through meeting fields) preserve every existing user's
+// behavior. After migration the flag stays at "false" as a marker so this
+// never runs again. Safe to delete after a few releases.
+const MEETING_TRANSCRIPTION_PAIRS: ReadonlyArray<[string, string]> = [
+  ["useLocalWhisper", "meetingUseLocalWhisper"],
+  ["whisperModel", "meetingWhisperModel"],
+  ["localTranscriptionProvider", "meetingLocalTranscriptionProvider"],
+  ["parakeetModel", "meetingParakeetModel"],
+  ["cohereModel", "meetingCohereModel"],
+  ["cloudTranscriptionProvider", "meetingCloudTranscriptionProvider"],
+  ["cloudTranscriptionModel", "meetingCloudTranscriptionModel"],
+  ["cloudTranscriptionBaseUrl", "meetingCloudTranscriptionBaseUrl"],
+  ["cloudTranscriptionMode", "meetingCloudTranscriptionMode"],
+  ["transcriptionMode", "meetingTranscriptionMode"],
+  ["remoteTranscriptionType", "meetingRemoteTranscriptionType"],
+  ["remoteTranscriptionUrl", "meetingRemoteTranscriptionUrl"],
+];
+const MEETING_REASONING_PAIRS: ReadonlyArray<[string, string]> = [
+  ["reasoningProvider", "meetingReasoningProvider"],
+  ["reasoningModel", "meetingReasoningModel"],
+  ["reasoningMode", "meetingReasoningMode"],
+  ["cloudReasoningMode", "meetingCloudReasoningMode"],
+  ["cloudReasoningBaseUrl", "meetingCloudReasoningBaseUrl"],
+  ["remoteReasoningType", "meetingRemoteReasoningType"],
+  ["remoteReasoningUrl", "meetingRemoteReasoningUrl"],
+];
+
+function migrateMeetingFollowFlags() {
+  if (!isBrowser) return;
+  for (const [flag, pairs] of [
+    ["meetingFollowsTranscription", MEETING_TRANSCRIPTION_PAIRS],
+    ["meetingFollowsReasoning", MEETING_REASONING_PAIRS],
+  ] as const) {
+    if (localStorage.getItem(flag) === "false") continue;
+    for (const [src, dst] of pairs) {
+      const v = localStorage.getItem(src);
+      if (v !== null) localStorage.setItem(dst, v);
+    }
+    localStorage.setItem(flag, "false");
+  }
+}
+
+// Runs after migrateProviderSettings() so the mode keys it derives and persists
+// (`transcriptionMode`, `reasoningMode`, the `remote*` keys) exist to be copied.
+// Before 1.10.0 it ran first, skipped those pairs, and latched — see
+// healSkippedMeetingFollowModes() for the profiles that already did.
+migrateMeetingFollowFlags();
 
 // One-time seed of the dedicated audio-upload transcription settings. Runs
 // after migrateProviderSettings() so the `transcriptionMode` it derives and
@@ -462,30 +481,74 @@ function migrateUploadTranscription() {
 
 migrateUploadTranscription();
 
+// Dictation and upload render `*TranscriptionMode` in their picker but route on
+// `*UseLocalWhisper` (audioManager, fileTranscription) and `*CloudTranscriptionMode`
+// (the `isOpenWhisprCloud` test), so routing can disagree with what the user sees
+// (#2086). Must run after the upload one-shot copy, which mirrors the dictation
+// keys desync-and-all and then latches.
+//
+// Note Recording is excluded: resolveMeetingTranscriptionOptions branches on
+// `meetingTranscriptionMode`, the key MeetingSettings renders, so it cannot
+// disagree, and no router reads `meetingUseLocalWhisper`.
+//
+// Never complete either rule symmetrically — it would start uploading audio from
+// profiles that exist: the mode-less Settings toggle wrote the local flag alone
+// until 6fb0c906, and ProviderSetupStep writes `cloudTranscriptionMode` before the
+// commit that derives the mode.
+const TRANSCRIPTION_ROUTING_KEYS: ReadonlyArray<{
+  mode: keyof SettingsState;
+  useLocal: keyof SettingsState;
+  cloudMode: keyof SettingsState;
+}> = [
+  { mode: "transcriptionMode", useLocal: "useLocalWhisper", cloudMode: "cloudTranscriptionMode" },
+  {
+    mode: "uploadTranscriptionMode",
+    useLocal: "uploadUseLocalWhisper",
+    cloudMode: "uploadCloudTranscriptionMode",
+  },
+];
+
+function reconcileTranscriptionRouting(): void {
+  if (!isBrowser) return;
+  const repaired: string[] = [];
+  for (const keys of TRANSCRIPTION_ROUTING_KEYS) {
+    const mode = localStorage.getItem(keys.mode);
+    if (mode === "local" && localStorage.getItem(keys.useLocal) !== "true") {
+      localStorage.setItem(keys.useLocal, "true");
+      repaired.push(keys.useLocal);
+    }
+    // Stored value, not the upload resolver's inherited one: these modes are only
+    // derivable when the scope's own cloud key is set, so unset is not a desync.
+    if (
+      (mode === "providers" || mode === "self-hosted") &&
+      localStorage.getItem(keys.cloudMode) === "openwhispr"
+    ) {
+      localStorage.setItem(keys.cloudMode, "byok");
+      repaired.push(keys.cloudMode);
+    }
+  }
+  if (repaired.length === 0) return;
+
+  logger.info(
+    "Repaired transcription routing that disagreed with the selected mode",
+    { keys: repaired },
+    "settings"
+  );
+}
+
+reconcileTranscriptionRouting();
+
 function migrateAgentMode() {
   if (!isBrowser) return;
   if (localStorage.getItem("_agentModeMigrated") === "1") return;
 
-  const cloudAgentMode = localStorage.getItem("cloudAgentMode");
-  const agentProvider = localStorage.getItem("agentProvider");
-
-  let agentInferenceMode: InferenceMode = "openwhispr";
-  if (cloudAgentMode === "byok") {
-    if (agentProvider === "custom") {
-      agentInferenceMode = "self-hosted";
-    } else if (
-      agentProvider === "bedrock" ||
-      agentProvider === "azure" ||
-      agentProvider === "vertex"
-    ) {
-      agentInferenceMode = "enterprise";
-    } else if (agentProvider && localLlmProviderIds.has(agentProvider)) {
-      agentInferenceMode = "local";
-    } else {
-      agentInferenceMode = "providers";
-    }
-  }
-  localStorage.setItem("agentInferenceMode", agentInferenceMode);
+  localStorage.setItem(
+    "agentInferenceMode",
+    deriveLegacyReasoningMode(
+      localStorage.getItem("cloudAgentMode"),
+      localStorage.getItem("agentProvider")
+    )
+  );
 
   localStorage.setItem("_agentModeMigrated", "1");
 }
@@ -591,29 +654,129 @@ function migrateLLMScopeKeys() {
 
 migrateLLMScopeKeys();
 
-// Groq retired these models on 2026-08-16, so a scope still pointing at one
-// 404s on every request. Remap to the closest replacement Groq still serves.
-// Runs after migrateLLMScopeKeys so scope values live under their final keys.
-const RETIRED_GROQ_MODELS: Record<string, string> = {
-  "qwen/qwen3-32b": "openai/gpt-oss-120b",
-  "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
-  "llama-3.1-8b-instant": "openai/gpt-oss-20b",
-};
+// Builds before 1.10.0 ran migrateMeetingFollowFlags() before
+// migrateProviderSettings() had created `transcriptionMode` / `reasoningMode`,
+// so a profile upgrading straight from ≤1.6.7 copied every Note Recording key
+// except the two modes and then latched the follow flags.
+//
+// The two modes fail differently when absent, so they are healed differently.
+// `meetingTranscriptionMode` has no fallback: selectResolvedMeetingTranscription
+// passes it straight through and the store default sends note recordings to
+// OpenWhispr Cloud, so every mode is reconstructed from the snapshot the copy
+// did write — with the same functions migrateProviderSettings() uses, not from
+// today's dictation keys, which the user may have changed since.
+// `noteFormattingMode` does have one: an absent mode reads "openwhispr", but
+// selectIsCloudNoteFormattingMode also requires cloudMode "openwhispr", and the
+// copied cloudMode is "byok", so buildNoteFormattingOverrides emits no provider
+// and processText dispatches from the dictation-cleanup scope. Note formatting
+// therefore follows cleanup rather than leaking, and the only cohort at risk is
+// one whose reasoning snapshot was local and whose cleanup has since moved
+// cloud-ward. So that mode is healed local-ward only: pinning a cloud snapshot
+// would override a since-local cleanup and send note text to a third party.
+//
+// Runs after migrateLLMScopeKeys() so a pre-1.7.0 profile's reasoning snapshot
+// is under its final `noteFormatting*` names. `noteFormattingCloudMode` is the
+// reasoning-side signal: the scope editor can write the provider alone but only
+// ever writes cloudMode together with mode. Idempotent — writing a mode retires
+// its own guard — and it never touches `meetingUseLocalWhisper`, which no router
+// reads but which rule two below depends on.
+function healSkippedMeetingFollowModes(): Record<string, InferenceMode> {
+  if (!isBrowser) return {};
+  const healed: Record<string, InferenceMode> = {};
 
-function migrateRetiredGroqModels() {
-  if (!isBrowser) return;
-  if (localStorage.getItem("_retiredGroqModelsMigrated") === "1") return;
-
-  for (const { storeKeys } of Object.values(INFERENCE_SCOPES)) {
-    if (localStorage.getItem(storeKeys.provider) !== "groq") continue;
-    const replacement = RETIRED_GROQ_MODELS[localStorage.getItem(storeKeys.model) ?? ""];
-    if (replacement) localStorage.setItem(storeKeys.model, replacement);
+  const meetingUseLocal = localStorage.getItem("meetingUseLocalWhisper");
+  const meetingCloudMode = localStorage.getItem("meetingCloudTranscriptionMode");
+  if (
+    localStorage.getItem("meetingTranscriptionMode") === null &&
+    (meetingUseLocal !== null || meetingCloudMode !== null)
+  ) {
+    const mode = deriveTranscriptionMode(
+      meetingUseLocal === "true",
+      meetingCloudMode,
+      localStorage.getItem("meetingCloudTranscriptionProvider")
+    );
+    localStorage.setItem("meetingTranscriptionMode", mode);
+    healed.meetingTranscriptionMode = mode;
   }
 
-  localStorage.setItem("_retiredGroqModelsMigrated", "1");
+  // v1.6.8–v1.6.9's since-removed mode-less toggle wrote `useLocalWhisper` alone,
+  // so a deliberate Local choice could sit under a stale cloud mode; v1.6.10's
+  // wholesale copy carried both into Note Recording, where the mode is what
+  // routes. The UI writes the flag as `mode === "local"`, so this pair can only
+  // be that copy. Follow the flag — local-ward only.
+  const meetingMode = localStorage.getItem("meetingTranscriptionMode");
+  if (meetingUseLocal === "true" && meetingMode !== null && meetingMode !== "local") {
+    localStorage.setItem("meetingTranscriptionMode", "local");
+    healed.meetingTranscriptionMode = "local";
+  }
+
+  const noteFormattingCloudMode = localStorage.getItem("noteFormattingCloudMode");
+  if (localStorage.getItem("noteFormattingMode") === null && noteFormattingCloudMode !== null) {
+    const mode = deriveLegacyReasoningMode(
+      noteFormattingCloudMode,
+      localStorage.getItem("noteFormattingProvider")
+    );
+    // Local-ward only — see the header. Any other snapshot is left absent so
+    // note formatting keeps following dictation cleanup, as it does today.
+    if (mode === "local") {
+      localStorage.setItem("noteFormattingMode", mode);
+      healed.noteFormattingMode = mode;
+    }
+  }
+
+  return healed;
 }
 
-migrateRetiredGroqModels();
+const healedMeetingFollowModes = healSkippedMeetingFollowModes();
+if (Object.keys(healedMeetingFollowModes).length > 0) {
+  logger.info(
+    "Re-derived Note Recording modes the follow-flag migration had skipped",
+    healedMeetingFollowModes,
+    "settings"
+  );
+}
+
+// Resolved offline, so a retired model's name survives only in the user's own
+// catalog cache and a replacement's only if we seed it. The raw-id fallback is
+// what the live-catalog reconcile shows too.
+function tinfoilModelName(modelId: string): string {
+  const named =
+    readCachedTinfoilModels().models.find((model) => model.id === modelId) ??
+    modelRegistryData.cloudProviders
+      .find((provider) => provider.id === "tinfoil")
+      ?.models.find((model) => model.id === modelId);
+  return named?.name ?? modelId;
+}
+
+// A scope still pointing at a model its provider has retired 404s on every
+// request. Runs after migrateLLMScopeKeys so scope values live under their
+// final keys, and before the store reads them, so the first request of the
+// session already carries a model the provider serves.
+function migrateRetiredCloudModels() {
+  if (!isBrowser) return;
+  const swept = sweepRetiredCloudModelSelections(
+    localStorage,
+    Object.values(INFERENCE_SCOPES).map(({ storeKeys }) => storeKeys)
+  );
+  if (swept.length === 0) return;
+
+  logger.info(
+    "Repointed retired cloud model selections",
+    { scopes: swept.map(({ storeKey }) => storeKey) },
+    "settings"
+  );
+
+  // Tinfoil is the one provider that tells the user their model was switched
+  // out, and getting here first means reconcileSelectedModels no longer will.
+  const announced = new Set<string>();
+  for (const { provider, from, to } of swept) {
+    if (provider !== "tinfoil" || announced.has(from)) continue;
+    announced.add(from);
+    recordTinfoilModelSwitch({ from: tinfoilModelName(from), to: tinfoilModelName(to) });
+  }
+}
+
+migrateRetiredCloudModels();
 
 export interface SettingsState
   extends
@@ -882,6 +1045,7 @@ export interface SettingsState
 
   // Enterprise providers
   enterpriseSetupMode: EnterpriseSetupMode;
+  enterpriseTranscriptionSetupMode: EnterpriseSetupMode;
   bedrockAuthMode: string;
   bedrockRegion: string;
   bedrockProfile: string;
@@ -898,6 +1062,7 @@ export interface SettingsState
   vertexApiKey: string;
   setBedrockAuthMode: (value: string) => void;
   setEnterpriseSetupMode: (value: EnterpriseSetupMode) => void;
+  setEnterpriseTranscriptionSetupMode: (value: EnterpriseSetupMode) => void;
   setBedrockRegion: (value: string) => void;
   setBedrockProfile: (value: string) => void;
   setBedrockAccessKeyId: (key: string) => void;
@@ -930,6 +1095,7 @@ export interface SettingsState
 
   setTheme: (value: "light" | "dark" | "auto") => void;
   setCloudBackupEnabled: (value: boolean) => void;
+  setInsightsSyncEnabled: (value: boolean) => void;
   setTelemetryEnabled: (value: boolean) => void;
   setAudioRetentionDays: (days: number) => void;
   setTranscriptRetentionDays: (days: number) => void;
@@ -1289,6 +1455,11 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     if (v === "auto" || v === "managed" || v === "manual") return v;
     return "auto" as EnterpriseSetupMode;
   })(),
+  enterpriseTranscriptionSetupMode: (() => {
+    const v = readString("enterpriseTranscriptionSetupMode", "auto");
+    if (v === "auto" || v === "managed" || v === "manual") return v;
+    return "auto" as EnterpriseSetupMode;
+  })(),
   bedrockAuthMode: readString("bedrockAuthMode", "sso"),
   bedrockRegion: readString("bedrockRegion", "us-east-1"),
   bedrockProfile: readString("bedrockProfile", ""),
@@ -1335,6 +1506,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     return "auto" as const;
   })(),
   cloudBackupEnabled: readBoolean("cloudBackupEnabled", false),
+  insightsSyncEnabled: readBoolean("insightsSyncEnabled", false),
   telemetryEnabled: readBoolean("telemetryEnabled", false),
   audioRetentionDays: readNumber("audioRetentionDays", 30),
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
@@ -1929,6 +2101,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setEnterpriseSetupMode: createStringSetter("enterpriseSetupMode") as (
     value: EnterpriseSetupMode
   ) => void,
+  setEnterpriseTranscriptionSetupMode: createStringSetter("enterpriseTranscriptionSetupMode") as (
+    value: EnterpriseSetupMode
+  ) => void,
   setBedrockAuthMode: (value: string) => {
     if (isBrowser) localStorage.setItem("bedrockAuthMode", value);
     set({ bedrockAuthMode: value });
@@ -2085,6 +2260,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   },
 
   setCloudBackupEnabled: createBooleanSetter("cloudBackupEnabled"),
+  setInsightsSyncEnabled: createBooleanSetter("insightsSyncEnabled"),
   setTelemetryEnabled: createBooleanSetter("telemetryEnabled"),
   setMicWarmHoldSeconds: (value: number) => {
     const snapped = snapMicWarmHold(value);
@@ -2762,6 +2938,11 @@ export function selectPolicyEffectiveSettings(
         // as user authorization to send content there.
         writable[keys.baseUrl] = "";
       }
+    } else if (selection.mode === "enterprise") {
+      // The managed deployment/endpoint is resolved separately by
+      // enterpriseIdentityStore; the provider id here only needs to satisfy
+      // the policy gate (isTranscriptionContextAllowed).
+      writable[keys.provider] = selection.provider;
     }
   }
 
@@ -2867,7 +3048,7 @@ export function reconcileRetiredCloudModelSelections(): void {
     if (!provider || !model || provider === "tinfoil") continue;
     const providerDef = modelRegistryData.cloudProviders.find((p) => p.id === provider);
     if (!providerDef || reasoningModelBelongsToProvider(provider, model)) continue;
-    const replacement = providerDef.models[0]?.id;
+    const replacement = pickDefaultModelId(providerDef);
     if (!replacement) continue;
     setStringSetting(scope.storeKeys.model as keyof SettingsState, replacement);
     logger.info(

@@ -164,6 +164,7 @@
     "add": "Aggiungi",
     "retry": "Riprova",
     "back": "Indietro",
+    "logout": "Disconnetti",
     "next": "Avanti",
     "complete": "Completa",
     "reset": "Reimposta",
@@ -200,8 +201,11 @@
     "done": "Fatto",
     "skip": "Salta",
     "policyAiProcessingRestricted": "L’elaborazione con IA è limitata dalla tua organizzazione.",
-    "policyAgentRestricted": "L’uso dell’agente IA è limitato dalla tua organizzazione.",
-    "policyTranscriptionRestricted": "La trascrizione è limitata dalla tua organizzazione."
+    "policyAgentRestricted": "L’uso dell’assistente IA è limitato dalla tua organizzazione.",
+    "policyTranscriptionRestricted": "La trascrizione è limitata dalla tua organizzazione.",
+    "managedConfigLoading": "Verifica della configurazione gestita della tua organizzazione in corso. Riprova tra un momento.",
+    "managedConfigUnavailable": "L'accesso aziendale gestito non è disponibile. Accedi di nuovo o contatta l'amministratore.",
+    "managedPolicyConflict": "L'accesso gestito è bloccato dai criteri del tuo spazio di lavoro. Contatta l'amministratore."
   },
   "onboarding": {
     "rehaul": {
@@ -210,8 +214,8 @@
         "microphoneDescription": "Trasforma la voce in testo.",
         "accessibilityDescription": "Incolla il testo nell’app attiva.",
         "systemAudioTitle": "Audio di Sistema",
-        "systemAudioDescription": "Acquisisce l’audio da altre app.",
-        "screenContextDescription": "Consente all’assistente vocale di vedere lo schermo. Mai salvato.",
+        "systemAudioDescription": "Necessario per acquisire l’audio nelle note delle riunioni.",
+        "screenContextDescription": "Condividi il contesto dello schermo con l’assistente vocale.",
         "enable": "Attiva",
         "enabled": "Attivato"
       },
@@ -236,6 +240,7 @@
       "hotkey": {
         "capture": "Premi i tasti che vuoi usare",
         "chooseAnother": "Scegli un’altra scorciatoia",
+        "confirmAgain": "Premi di nuovo {{hotkey}} per confermare",
         "inUse": "Questa scorciatoia è già in uso. Scegline un’altra.",
         "holding": "Continua a tenere premuto o premi un altro tasto"
       },
@@ -408,7 +413,6 @@
         "descriptionLineOne": "Scegli i modelli da eseguire",
         "descriptionLineTwo": "sul tuo dispositivo.",
         "providerLabel": "Provider",
-        "agent": "Agente",
         "download": "Scarica",
         "downloadingShort": "Download",
         "selected": "Selezionato",
@@ -417,7 +421,7 @@
         "cancelDownload": "Annulla il download di {{model}}",
         "downloads": "Download dei modelli",
         "downloading": "Download in corso… {{progress}}%",
-        "installing": "Installazione del modello…"
+        "installing": "Installazione"
       }
     },
     "steps": {
@@ -647,7 +651,8 @@
       "failedOffline": "Offline",
       "clearAll": "Cancella tutto",
       "clearAllTitle": "Cancella tutte le trascrizioni",
-      "clearAllDescription": "Tutte le trascrizioni e i file audio verranno rimossi definitivamente.",
+      "clearAllDescription": "Tutte le trascrizioni, i file audio e i conteggi di Insights verranno rimossi definitivamente da questo dispositivo e dal tuo account.",
+      "clearAllDescriptionDevice": "Tutte le trascrizioni, i file audio e i conteggi di Insights verranno rimossi definitivamente da questo dispositivo. I conteggi già sincronizzati con un account non saranno interessati.",
       "clearAllSuccess": "Cronologia cancellata",
       "clearAllErrorTitle": "Impossibile cancellare la cronologia",
       "clearAllErrorDescription": "Qualcosa è andato storto. Riprova.",
@@ -675,11 +680,6 @@
         "recovered": "Recuperata"
       },
       "retryTranslationMode": "Modalità Traduzione"
-    },
-    "cloudMigration": {
-      "title": "Benvenuto in OpenWhispr Cloud",
-      "description": "Abbiamo spostato la trascrizione su OpenWhispr Cloud per risultati più rapidi e accurati. Le impostazioni precedenti sono state salvate: puoi tornare indietro in qualsiasi momento dalle Impostazioni.",
-      "viewSettings": "Apri impostazioni"
     },
     "aiCta": {
       "title": "Migliora le tue trascrizioni con l'IA",
@@ -865,7 +865,7 @@
       "errorTitles": {
         "sessionExpired": "Sessione scaduta",
         "offline": "Sei offline",
-        "agentUnavailable": "Agente non disponibile",
+        "agentUnavailable": "Assistente non disponibile",
         "screenContextSkipped": "Contesto dello schermo ignorato",
         "dailyLimitReached": "Limite giornaliero raggiunto",
         "providerRateLimited": "Limite di velocità del provider"
@@ -902,7 +902,10 @@
         "chunkLoss": "Un problema di rete ha fatto perdere troppa parte della registrazione. Ritrascrivila dalla cronologia.",
         "agentReasoningFailed": "L'assistente vocale non è riuscito a elaborare il comando; è stata inserita la trascrizione grezza.",
         "screenContextSkipped": "Non è stato possibile inviare lo screenshot, quindi il comando è stato eseguito senza contesto dello schermo.",
-        "customEndpointInvalid": "L'endpoint di trascrizione personalizzato non è configurato o il suo URL non è valido. Aggiornalo in Impostazioni → Da voce a testo."
+        "customEndpointInvalid": "L'endpoint di trascrizione personalizzato non è configurato o il suo URL non è valido. Aggiornalo in Impostazioni → Da voce a testo.",
+        "managedTranscriptionUnavailable": "La trascrizione gestita non è disponibile al momento. Riprova tra un momento.",
+        "managedRouteInvalid": "La trascrizione gestita non è potuta partire per un'incoerenza di configurazione. Riprova o contatta l'amministratore.",
+        "managedAuthRejected": "Le credenziali di trascrizione gestita della tua organizzazione sono state rifiutate. Contatta l'amministratore."
       },
       "translationFallback": {
         "unreachableTitle": "Traduzione non disponibile",
@@ -1100,12 +1103,12 @@
       "welcomeBack": "Bentornato"
     },
     "signedIn": {
-      "ready": "Pronto",
-      "welcomeBack": "Bentornato",
-      "welcomeBackName": "Bentornato, {{name}}"
+      "welcomeBack": "Bentornato"
     },
     "sso": {
       "continueWithSSO": "Accedi con SSO",
+      "workEmailLabel": "E-mail di lavoro",
+      "emailPlaceholder": "Aggiungi la tua e-mail",
       "emailRequired": "Inserisci la tua email di lavoro per usare l’SSO.",
       "failed": "Accesso SSO non riuscito. Riprova.",
       "companySignInTitle": "Usa l'accesso aziendale",
@@ -1370,10 +1373,10 @@
       }
     },
     "edit": {
-      "agentNameLabel": "Nome dell'agente:",
+      "agentNameLabel": "Nome dell'assistente:",
       "cautionLabel": "Attenzione",
       "cautionTextPrefix": "La modifica di questo prompt potrebbe influire sulla qualità della trascrizione.",
-      "cautionTextSuffix": "Mantieni il segnaposto {{agentName}} per preservare il rilevamento dell'agente.",
+      "cautionTextSuffix": "Mantieni il segnaposto {{agentName}} per preservare il rilevamento dell'assistente.",
       "placeholder": "Inserisci il tuo prompt di sistema personalizzato..."
     },
     "tabs": {
@@ -1607,7 +1610,7 @@
           "features": [
             "Registrazioni riunioni illimitate",
             "Ruoli e gestione dei membri dell'area di lavoro",
-            "Modalità agente",
+            "Modalità assistente",
             "Chatta con i tuoi dati",
             "Supporto prioritario"
           ],
@@ -1712,11 +1715,11 @@
       }
     },
     "agentConfig": {
-      "agentName": "Nome dell'agente",
+      "agentName": "Nome dell'assistente",
       "description": "Dai un nome al tuo assistente IA per rivolgerti direttamente a lui durante la dettatura",
       "dialogs": {
-        "updatedDescription": "Il tuo agente ora si chiama \"{{name}}\". Rivolgiti a lui dicendo \"Ehi {{name}}\" seguito dalle tue istruzioni.",
-        "updatedTitle": "Nome dell'agente aggiornato"
+        "updatedDescription": "Il tuo assistente ora si chiama \"{{name}}\". Rivolgiti a lui dicendo \"Ehi {{name}}\" seguito dalle tue istruzioni.",
+        "updatedTitle": "Nome dell'assistente aggiornato"
       },
       "examplesTitle": "Esempi",
       "helper": "Scegli qualcosa di breve e naturale da dire ad alta voce",
@@ -1831,7 +1834,7 @@
       "clearDictionaryTitle": "Svuotare il dizionario?",
       "clearDictionaryDescription": "Verranno rimosse tutte le parole dal tuo dizionario personalizzato. Questa azione non può essere annullata.",
       "clearAll": "Cancella tutto",
-      "agentNameAutoManaged": "Gestito automaticamente — sincronizzato con il nome dell'agente",
+      "agentNameAutoManaged": "Gestito automaticamente — sincronizzato con il nome dell'assistente",
       "removeWord": "Rimuovi parola",
       "noWords": "Nessuna parola ancora",
       "wordsAppearHere": "Le parole aggiunte appariranno qui",
@@ -2096,12 +2099,16 @@
       "cloudNotesMigrationDone": "Tutte le note salvate nel cloud",
       "description": "Controlla quali dati escono dal tuo dispositivo. Tutto è disattivato per impostazione predefinita.",
       "title": "Privacy",
+      "insightsSync": "Sincronizza le Statistiche personali",
+      "insightsSyncDescription": "Sincronizza conteggi di parole, la data e l'ora esatta di ogni dettatura, durate e tipi di modello tra i tuoi dispositivi. Il contenuto delle trascrizioni non è mai incluso. Quando hai effettuato l'accesso, cancellare la cronologia rimuove questi conteggi anche da questo dispositivo e dal tuo account.",
+      "insightsSyncRequiresAccount": "Accedi per sincronizzare i dati delle Statistiche senza contenuti tra i tuoi dispositivi.",
+      "insightsSyncRequiresHistory": "Attiva la conservazione dei dati per registrare le Statistiche prima di sincronizzarle tra i tuoi dispositivi.",
       "usageAnalytics": "Analisi dell'utilizzo",
       "usageAnalyticsDescription": "Aiutaci a migliorare OpenWhispr condividendo metriche di prestazione anonime. Non inviamo mai il contenuto delle trascrizioni, solo dati su tempi ed errori.",
       "dataRetention": "Conservazione dei dati",
       "dataRetentionDescription": "Salva trascrizioni e audio localmente nella cronologia. Se disattivato, le trascrizioni vengono incollate ma non salvate.",
       "transcriptRetention": "Conservazione delle trascrizioni",
-      "transcriptRetentionDescription": "Elimina automaticamente le trascrizioni salvate e il relativo audio dopo questo periodo.",
+      "transcriptRetentionDescription": "Elimina automaticamente le trascrizioni salvate, il relativo audio e i relativi contatori di Insights dopo questo periodo.",
       "transcriptRetentionForever": "Per sempre",
       "hoursAgo": "{{count}}h fa",
       "justNow": "adesso",
@@ -2162,7 +2169,9 @@
         "openwhisprDesc": "Risultati affidabili. Nessuna configurazione necessaria.",
         "providersDesc": "Usa la tua chiave API.",
         "localDesc": "Modelli sul dispositivo. Totalmente privato.",
-        "selfHostedDesc": "Il tuo server nella tua rete."
+        "selfHostedDesc": "Il tuo server nella tua rete.",
+        "enterprise": "Cloud aziendale",
+        "enterpriseDesc": "L'audio viene inviato al cloud della tua organizzazione."
       },
       "openwhisprCloud": "OpenWhispr Cloud",
       "openwhisprCloudDescription": "Risultati affidabili. Nessuna configurazione necessaria.",
@@ -2187,6 +2196,10 @@
         "switchedSelfHosted": {
           "title": "Self-hosted",
           "description": "Utilizzo del tuo server."
+        },
+        "switchedEnterprise": {
+          "title": "Cloud aziendale selezionato",
+          "description": "La dettatura ora usa la trascrizione gestita dalla tua organizzazione."
         }
       },
       "gpuDevice": {
@@ -2244,7 +2257,8 @@
             "info": "Audio esteso da un segmento al successivo per evitare tagli netti nella concatenazione."
           }
         }
-      }
+      },
+      "meetingEnterpriseOnly": "La tua organizzazione consente solo la trascrizione su cloud aziendale, che non copre ancora la registrazione delle riunioni."
     },
     "intelligence": {
       "gpuDevice": {
@@ -2527,7 +2541,7 @@
         "openai_gpt_4_1_mini": "Modello GPT-4.1 più piccolo",
         "openai_gpt_4_1_nano": "GPT-4.1 con la latenza più bassa",
         "anthropic_claude_fable_5": "Il modello più capace di Anthropic, classe Mythos",
-        "anthropic_claude_sonnet_5": "Modello agentico veloce e capace a costo inferiore",
+        "anthropic_claude_sonnet_5": "Modello assistente veloce e capace a costo inferiore",
         "anthropic_claude_sonnet_4_6": "Prestazioni bilanciate",
         "anthropic_claude_sonnet_4_5": "Generazione Sonnet precedente",
         "anthropic_claude_haiku_4_5": "Veloce con intelligenza quasi da frontiera",
@@ -2552,8 +2566,7 @@
         "anthropic_claude_opus_4_7": "Modello Opus potente",
         "anthropic_claude_opus_4_6": "Generazione Opus precedente, contesto da 1M",
         "anthropic_claude_opus_4_5": "Modello Opus meno recente",
-        "tinfoil_deepseek_v4_pro": "Ragionamento privato a contesto lungo in enclave sicure, contesto 800K",
-        "tinfoil_glm_5_2": "Modello privato di ingegneria agentica in enclave sicure, contesto 384K",
+        "tinfoil_glm_5_3": "Modello privato di coding agentico in enclave sicure, contesto 1M",
         "tinfoil_gemma4_31b": "Modello privato di ragionamento multilingue con chiamata di strumenti, contesto 256K",
         "tinfoil_gpt_oss_120b": "Modello privato di ragionamento open-weight con uso di strumenti, contesto 131K",
         "tinfoil_llama3_3_70b": "Modello privato conversazionale con chiamata di strumenti, contesto 128K",
@@ -2563,12 +2576,12 @@
         "corti_corti_s1_mini": "Modello clinico compatto con ragionamento a metà prezzo"
       },
       "enterprise": {
-        "bedrock_claude_fable_5": "Il modello Claude più capace. Ideale per i compiti più difficili della Modalità Agente.",
+        "bedrock_claude_fable_5": "Il modello Claude più capace. Ideale per i compiti di assistente più difficili.",
         "bedrock_claude_haiku_4_5": "Veloce ed economico. Ideale per ripulire il testo.",
-        "bedrock_claude_sonnet_5": "Equilibrato. Scelta predefinita per la Modalità Agente.",
-        "bedrock_claude_opus_4_8": "Massima intelligenza. Per compiti complessi in Modalità Agente.",
+        "bedrock_claude_sonnet_5": "Equilibrato. Scelta predefinita per i compiti di assistente.",
+        "bedrock_claude_opus_4_8": "Massima intelligenza. Per compiti di assistente complessi.",
         "bedrock_gpt_oss_120b": "Modello aperto di OpenAI. Ottimo ragionamento a basso costo.",
-        "bedrock_deepseek_v3_2": "Modello frontier a pesi aperti. Ottimo valore per la Modalità Agente.",
+        "bedrock_deepseek_v3_2": "Modello frontier a pesi aperti. Ottimo valore per i compiti di assistente.",
         "bedrock_qwen3_next_80b": "Modello aperto sparso. Veloce e multilingue.",
         "vertex_gemini_2_5_flash": "Fast multimodal model via Vertex",
         "vertex_gemini_2_5_pro": "Advanced reasoning via Vertex"
@@ -2897,6 +2910,7 @@
       "transcriptionComplete": "Trascrizione completata",
       "partialWarning": "Non è stato possibile trascrivere una parte dell'audio.",
       "partialWarningCount": "Non è stato possibile trascrivere {{failed}} sezioni audio su {{total}}.",
+      "diarizationWarning": "Non è stato possibile applicare l'identificazione dei parlanti. La trascrizione è stata salvata senza etichette dei parlanti.",
       "chunkLossExceeded": "Troppo audio è andato perso a causa di un problema di rete. Controlla la connessione e riprova.",
       "openNote": "Apri nota",
       "uploadAnother": "Carica un altro",
@@ -2968,11 +2982,26 @@
       "description": "Trascrizioni e riassunti strutturati",
       "back": "Indietro",
       "restrictedByOrg": "La trascrizione delle riunioni è limitata dalla tua organizzazione.",
+      "unsupportedSelfHosted": "La registrazione delle note non può ancora usare un endpoint self-hosted. Apri le Impostazioni e scegli Locale o un provider in streaming.",
+      "unsupportedProvider": "La registrazione delle note non può usare {{provider}} per la trascrizione dal vivo. Apri le Impostazioni e scegli Locale o un provider in streaming.",
+      "noProviderSelected": "Nessun provider selezionato per la registrazione delle note. Apri le Impostazioni e scegli Locale o un provider in streaming.",
       "autoEnded": "La registrazione si è interrotta automaticamente al termine della riunione.",
       "restartFailed": "Impossibile riavviare la registrazione della riunione.",
       "systemAudioSilent": {
         "title": "Nessun audio della riunione rilevato finora",
         "description": "Finora solo il tuo microfono ha captato suoni. Sei in una videochiamata? Verifica che l'audio della riunione venga riprodotto su questo computer e non sia disattivato. Stai registrando di persona? Puoi ignorare questo avviso: il tuo microfono cattura la stanza."
+      },
+      "systemAudioInterrupted": {
+        "title": "Audio della riunione interrotto",
+        "description": "L'acquisizione dell'audio di sistema si è interrotta e sta ripartendo. Alcuni secondi della chiamata potrebbero mancare nella trascrizione."
+      },
+      "systemAudioStopped": {
+        "title": "Audio della riunione fermo",
+        "description": "OpenWhispr non sta più captando gli altri partecipanti. Interrompi la registrazione e riavviala, oppure controlla il dispositivo di uscita audio."
+      },
+      "systemAudioQuiet": {
+        "title": "L'audio della riunione è diventato silenzioso",
+        "description": "Non si sente nessuno da qualche minuto. Se la chiamata è ancora in corso, controlla il dispositivo di uscita audio."
       }
     },
     "meetingPill": {
@@ -3162,6 +3191,7 @@
     "wordsReady_other": "{{count}} parole pronte",
     "import": "Importa",
     "yourDictionary": "Il tuo dizionario",
+    "promptLimitNotice": "Il tuo dizionario contiene {{chars}} caratteri. I modelli Groq e Whisper ne leggono solo le ultime centinaia di caratteri, quindi lì conviene un elenco più corto. Gli altri modelli ricevono l'elenco completo.",
     "exportDictionary": "Esporta dizionario",
     "exportFailed": "Esportazione non riuscita",
     "editWord": "Modifica {{word}}",
@@ -3202,7 +3232,47 @@
     "importList": "Importa un elenco",
     "agentDefault": "Aggiunto di default"
   },
+  "insights": {
+    "title": "Statistiche",
+    "description": "Una visione privata delle tue abitudini di dettatura e della tua costanza.",
+    "wordsSpoken": "Parole dettate",
+    "currentStreak": "Serie attuale",
+    "wordsPerMinute": "Parole al minuto",
+    "dictations": "Dettature",
+    "allTime": "Da sempre",
+    "days_one": "{{count}} giorno",
+    "days_other": "{{count}} giorni",
+    "longestStreak_one": "Record: {{count}} giorno",
+    "longestStreak_other": "Record: {{count}} giorni",
+    "wpmCoverage": "Basato sul {{count}} % delle parole misurate",
+    "activity": "Attività di dettatura",
+    "activityDescription": "Parole dettate negli ultimi 6 mesi",
+    "activityLabel": "Mappa di calore dell'attività di dettatura su 6 mesi",
+    "activityLess": "Meno",
+    "activityMore": "Più",
+    "dayTooltip_one": "{{date}}: {{count}} parola",
+    "dayTooltip_other": "{{date}}: {{count}} parole",
+    "dataRetentionDisabled": "La conservazione dei dati è disattivata, quindi le nuove dettature non vengono conteggiate nelle Statistiche: né su questo dispositivo né nel tuo account. I conteggi già sincronizzati restano nel tuo account.",
+    "onDevice": "Su questo dispositivo",
+    "synced": "Sincronizzato tra i dispositivi",
+    "syncFallback": "Dati del dispositivo — sincronizzazione non disponibile",
+    "syncPrompt": "Sincronizza contatori senza contenuti per combinare l'attività locale e quella cloud su tutti i dispositivi.",
+    "enableSync": "Attiva la sincronizzazione",
+    "claimTitle": "Includere le dettature precedenti?",
+    "claimDescription_one": "{{count}} dettatura è stata registrata su questo dispositivo prima dell'accesso. Includendola vengono inviati solo il conteggio delle parole, la data e l'ora esatta in cui è avvenuta, la sua durata e il tipo di modello, mai il contenuto delle trascrizioni.",
+    "claimDescription_other": "{{count}} dettature sono state registrate su questo dispositivo prima dell'accesso. Includendole vengono inviati solo i conteggi delle parole, la data e l'ora esatta di ciascuna, le durate e i tipi di modello, mai il contenuto delle trascrizioni.",
+    "claimInclude": "Includi",
+    "claimSkip": "Non ora",
+    "enableTitle": "Attivare la sincronizzazione di Insights?",
+    "enableConfirm": "Attiva sincronizzazione",
+    "enableDescription_one": "{{count}} dettatura già registrata su questo dispositivo verrà caricata sul tuo account. La sincronizzazione di Insights invia solo i conteggi delle parole, la data e l'ora esatta di ciascuna, le durate e i tipi di modello, mai il contenuto delle trascrizioni.",
+    "enableDescription_other": "{{count}} dettature già registrate su questo dispositivo verranno caricate sul tuo account. La sincronizzazione di Insights invia solo i conteggi delle parole, la data e l'ora esatta di ciascuna, le durate e i tipi di modello, mai il contenuto delle trascrizioni.",
+    "emptyTitle": "Ancora nessuna dettatura",
+    "emptyBody": "Inizia a dettare: qui compariranno le tue parole, le serie e l'attività quotidiana.",
+    "loadError": "Non è stato possibile leggere gli Insights da questo dispositivo."
+  },
   "sidebar": {
+    "insights": "Statistiche",
     "home": "Home",
     "notes": "Note",
     "upload": "Carica",
@@ -3335,7 +3405,7 @@
   },
   "dictationAgent": {
     "enabled": "Attiva assistente vocale",
-    "enabledDescription": "Detta istruzioni al tuo agente. Il testo evidenziato viene inviato al modello configurato e modificato sul posto. Attivalo dicendo \"{{agentName}}\".",
+    "enabledDescription": "Detta istruzioni al tuo assistente. Il testo evidenziato viene inviato al modello configurato e modificato sul posto. Attivalo dicendo \"{{agentName}}\".",
     "screenContext": {
       "title": "Contesto dello schermo",
       "description": "Allega uno screenshot dello schermo attivo ai comandi dell'assistente vocale.",
@@ -3350,7 +3420,7 @@
     },
     "modes": {
       "openwhispr": "OpenWhispr Cloud",
-      "openwhisprDesc": "Usa l'agente gestito da OpenWhispr, senza bisogno di chiave API.",
+      "openwhisprDesc": "Usa l'assistente gestito da OpenWhispr, senza bisogno di chiave API.",
       "providers": "Usa la tua chiave API",
       "providersDesc": "Connettiti a OpenAI, Anthropic, Gemini o Groq con la tua chiave API.",
       "local": "Locale",
@@ -3361,14 +3431,14 @@
       "enterpriseDesc": "Usa AWS Bedrock, Azure OpenAI o Google Vertex."
     },
     "prompt": {
-      "title": "Prompt dell'agente",
+      "title": "Prompt dell'assistente",
       "description": "Il prompt di sistema usato quando viene rilevata la parola di attivazione. In assenza, usa quello predefinito integrato."
     }
   },
   "agentMode": {
     "settings": {
       "systemPrompt": "Prompt di Sistema",
-      "systemPromptDescription": "Istruzioni personalizzate per l'agente",
+      "systemPromptDescription": "Istruzioni personalizzate per l'assistente",
       "systemPromptPlaceholder": "Inserisci un prompt di sistema personalizzato...",
       "modes": {
         "openwhispr": "OpenWhispr Cloud",
@@ -3520,7 +3590,7 @@
     },
     "cli": {
       "title": "Accesso da riga di comando",
-      "description": "Dai al tuo agente l'accesso alle note dal terminale.",
+      "description": "Dai al tuo assistente l'accesso alle note dal terminale.",
       "installLabel": "Installa",
       "learnMore": "Leggi la documentazione",
       "copyDocsLink": "Copia link della documentazione",

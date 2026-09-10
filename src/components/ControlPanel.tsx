@@ -48,6 +48,7 @@ import {
   isTranscriptionContextAllowed,
   isUpdateRequiredByOrg,
 } from "../stores/policyRules";
+import { getManagedTranscriptionResolution } from "../services/managedTranscription";
 import {
   useIsMeetingMode,
   useIsNarrowWindow,
@@ -101,6 +102,7 @@ const toggleIconClass =
 const SettingsModal = React.lazy(() => import("./SettingsModal"));
 const ReferralModal = React.lazy(() => import("./ReferralModal"));
 const PersonalNotesView = React.lazy(() => import("./notes/PersonalNotesView"));
+const InsightsView = React.lazy(() => import("./InsightsView"));
 const DictionaryView = React.lazy(() => import("./DictionaryView"));
 const UploadAudioView = React.lazy(() => import("./notes/UploadAudioView"));
 const IntegrationsView = React.lazy(() => import("./IntegrationsView"));
@@ -135,7 +137,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
-  const [showCloudMigrationBanner, setShowCloudMigrationBanner] = useState(false);
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
   const {
     collapsed: sidebarCollapsed,
@@ -160,12 +161,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(
     () => localStorage.getItem("gpuBannerDismissedUnified") === "true"
   );
-  const cloudMigrationProcessed = useRef(false);
   const updateReadyToastShown = useRef(false);
   const updateErrorToastShown = useRef<Error | null>(null);
   const { hotkey } = useHotkey();
   const { toast } = useToast();
-  const { useCleanupModel, setUseLocalWhisper, setCloudTranscriptionMode } = useSettings();
+  const { useCleanupModel } = useSettings();
   const { isSignedIn, isLoaded: authLoaded, user } = useAuth();
   // Suppressed while a deep-linked invitation is open so the two never stack.
   const {
@@ -398,19 +398,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   }, [authLoaded, isSignedIn]);
 
   useEffect(() => {
-    if (!authLoaded || !isSignedIn || cloudMigrationProcessed.current) return;
-    const isPending = localStorage.getItem("pendingCloudMigration") === "true";
-    const alreadyShown = localStorage.getItem("cloudMigrationShown") === "true";
-    if (!isPending || alreadyShown) return;
-
-    cloudMigrationProcessed.current = true;
-    setUseLocalWhisper(false);
-    setCloudTranscriptionMode("openwhispr");
-    localStorage.removeItem("pendingCloudMigration");
-    setShowCloudMigrationBanner(true);
-  }, [authLoaded, isSignedIn, setUseLocalWhisper, setCloudTranscriptionMode]);
-
-  useEffect(() => {
     const drain = async () => {
       const data = await window.electronAPI?.getPendingMeetingNoteNavigation?.();
       if (!data) return;
@@ -542,7 +529,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const clearAllTranscriptions = useCallback(() => {
     showConfirmDialog({
       title: t("controlPanel.history.clearAllTitle"),
-      description: t("controlPanel.history.clearAllDescription"),
+      description: t(
+        isSignedIn
+          ? "controlPanel.history.clearAllDescription"
+          : "controlPanel.history.clearAllDescriptionDevice"
+      ),
       onConfirm: async () => {
         try {
           const result = await window.electronAPI.clearTranscriptions();
@@ -569,7 +560,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
       },
       variant: "destructive",
     });
-  }, [showConfirmDialog, showAlertDialog, toast, t]);
+  }, [isSignedIn, showConfirmDialog, showAlertDialog, toast, t]);
 
   const showAudioInFolder = useCallback(
     async (id: number) => {
@@ -595,11 +586,20 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     async (id: number, options?: { isRecover?: boolean }) => {
       try {
         const s = getSettings();
-        if (!isTranscriptionContextAllowed(usePolicyStore.getState(), s, "dictation")) {
+        const managed = getManagedTranscriptionResolution();
+        if (managed?.kind === "error") {
+          toast({
+            title: managed.messageKey ? t(managed.messageKey) : managed.message,
+            variant: "destructive",
+          });
+          return;
+        }
+        if (!managed && !isTranscriptionContextAllowed(usePolicyStore.getState(), s, "dictation")) {
           toast({ title: t("common.managedByOrg"), variant: "default" });
           return;
         }
         const result = await window.electronAPI.retryTranscription(id, {
+          managed,
           useLocalWhisper: s.useLocalWhisper,
           localTranscriptionProvider: s.localTranscriptionProvider,
           cloudTranscriptionMode: s.cloudTranscriptionMode,
@@ -773,7 +773,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
         } else {
           toast({
             title: t("controlPanel.history.retryError"),
-            description: result.error,
+            description: result.messageKey ? t(result.messageKey) : result.error,
             variant: "destructive",
           });
         }
@@ -1025,6 +1025,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             {isSidePanelLayout && (
               <div
                 className={platform === "darwin" ? "ml-[84px] mt-[16px]" : "ml-2"}
+                data-no-window-drag=""
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
                 <Button
@@ -1040,7 +1041,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             )}
             <div className="flex-1" />
             {platform !== "darwin" && (
-              <div className="pr-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+              <div
+                className="pr-1"
+                data-no-window-drag=""
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              >
                 <WindowControls />
               </div>
             )}
@@ -1154,8 +1159,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 history={history}
                 isLoading={isLoading}
                 hotkey={hotkey}
-                showCloudMigrationBanner={showCloudMigrationBanner}
-                setShowCloudMigrationBanner={setShowCloudMigrationBanner}
                 aiCTADismissed={aiCTADismissed}
                 setAiCTADismissed={setAiCTADismissed}
                 useCleanupModel={useCleanupModel}
@@ -1172,6 +1175,11 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                 }}
                 onOpenIntegrations={() => setActiveView("integrations")}
               />
+            )}
+            {activeView === "insights" && (
+              <Suspense fallback={null}>
+                <InsightsView />
+              </Suspense>
             )}
             {activeView === "chat" && agentAllowedByPolicy && (
               <Suspense fallback={null}>
@@ -1230,6 +1238,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             className={`absolute z-40 flex h-10 items-center ${
               platform === "darwin" ? "left-21 top-2" : "left-2 top-0"
             }`}
+            data-no-window-drag=""
             style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
             onMouseEnter={sidebarCollapsed ? showSidebarPeek : undefined}
             onMouseLeave={sidebarCollapsed ? leaveSidebarToggle : undefined}
