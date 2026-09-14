@@ -1,6 +1,7 @@
 import modelDataRaw from "./modelRegistryData.json";
 import { isCloudCleanupMode, getSettings } from "../stores/settingsStore";
 import { readCachedTinfoilModels } from "./tinfoilModelCache";
+import { filterMeetingStreamingProviders } from "../helpers/meetingTranscriptionRouting";
 import type { InferenceMode } from "../types/electron";
 
 export interface ModelDefinition {
@@ -104,10 +105,16 @@ export interface ParakeetModelInfo {
   size: string;
   sizeMb: number;
   expectedSizeBytes?: number;
+  manifestUrl?: string;
   language: string;
   supportedLanguages: string[];
   runtime?: "offline" | "online";
   modelType?: "transducer" | "cohere-transcribe";
+  /** Verified sherpa decoder type; skips redundant encoder loading during detection. */
+  sherpaModelType?: "nemo_transducer";
+  organization?: { id: string; name: string };
+  license?: string;
+  modelCardUrl?: string;
   recommended?: boolean;
   downloadUrl: string;
   extractDir: string;
@@ -432,6 +439,12 @@ export function getStreamingTranscriptionProviders(): TranscriptionProviderData[
     .filter((p) => p.models.length > 0);
 }
 
+// Streaming providers note recording can actually run (see
+// meetingTranscriptionRouting.MEETING_STREAMING_PROVIDER_IDS).
+export function getMeetingStreamingTranscriptionProviders(): TranscriptionProviderData[] {
+  return filterMeetingStreamingProviders(getStreamingTranscriptionProviders());
+}
+
 export function getTranscriptionProvider(
   providerId: string
 ): TranscriptionProviderData | undefined {
@@ -449,7 +462,7 @@ export function getBatchTranscriptionModel(providerId: string): string | undefin
 
 export function getDefaultTranscriptionModel(providerId: string): string {
   const models = getTranscriptionModels(providerId);
-  return models[0]?.id || "gpt-4o-mini-transcribe";
+  return models[0]?.id || "gpt-transcribe";
 }
 
 export function getWhisperModels(): WhisperModelsMap {

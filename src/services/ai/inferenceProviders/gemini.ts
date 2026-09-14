@@ -1,10 +1,11 @@
 import type { InferenceProvider } from "./types";
 import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
-import { API_ENDPOINTS, TOKEN_LIMITS } from "../../../config/constants";
+import { API_ENDPOINTS } from "../../../config/constants";
 import { getLlmRequestTimeoutSeconds } from "../../../helpers/llmRequestTimeout.js";
 import { extractGeminiText } from "../../../helpers/geminiResponse.js";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 import { extractApiErrorMessage } from "../apiErrorMessage";
+import { emptyOutputError, truncatedOutputError } from "../chatRequestBody";
 import logger from "../../../utils/logger";
 
 interface GeminiResponse {
@@ -22,7 +23,6 @@ interface GeminiResponse {
 
 interface GeminiGenerationConfig {
   temperature: number;
-  maxOutputTokens: number;
   thinkingConfig?: {
     thinkingLevel?: "minimal" | "low";
     thinkingBudget?: number;
@@ -60,13 +60,10 @@ export const geminiProvider: InferenceProvider = {
       // Cleanup defers here; explicit overrides still win.
       // https://ai.google.dev/gemini-api/docs/gemini-3#temperature
       temperature: config.temperature ?? (isGemini3 ? 1 : config.systemPrompt ? 0.3 : 0),
-      // This cap includes thoughts. Leave headroom and scale for long transcripts.
-      maxOutputTokens:
-        config.maxTokens ??
-        Math.min(
-          isGemini ? 65536 : TOKEN_LIMITS.MAX_TOKENS_GEMINI,
-          Math.max(8192, text.length * TOKEN_LIMITS.TOKEN_MULTIPLIER + 4096)
-        ),
+      // No maxOutputTokens. Gemini bills thinking against it, so any budget sized
+      // for the text starved thinking models (#2091), and a caller's pinned budget
+      // is priced for the local path, not for Gemini (#2142). The model's own
+      // limit and the request timeout bound the reply.
     };
 
     if (config.disableThinking === true && minimalThinking[model]) {
@@ -156,6 +153,9 @@ export const geminiProvider: InferenceProvider = {
 
     const candidate = response.candidates?.[0];
     // Outside withRetry: don't repeat cutoffs/blocks; cleanup falls back to the original.
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      throw truncatedOutputError();
+    }
     if (candidate?.finishReason !== "STOP") {
       throw new Error(
         `Gemini returned incomplete output (${candidate?.finishReason || "missing finish reason"})`
@@ -167,7 +167,7 @@ export const geminiProvider: InferenceProvider = {
         model,
         finishReason: candidate?.finishReason,
       });
-      throw new Error("Gemini returned empty response");
+      throw emptyOutputError("Gemini returned empty response");
     }
 
     logger.logReasoning("GEMINI_RESPONSE", {

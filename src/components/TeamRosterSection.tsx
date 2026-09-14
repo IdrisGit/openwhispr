@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Mail, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Mail } from "./icons";
 import { Button } from "./ui/button";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "./ui/select";
+import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { useToast } from "./ui/useToast";
 import { cn } from "./lib/utils";
 import MemberAvatar from "./MemberAvatar";
@@ -12,6 +19,21 @@ import { orderMemberCandidates } from "../lib/memberCandidates";
 import { TeamsService } from "../services/TeamsService";
 import { addTeamMembers, removeTeamMember, setTeamMemberRole } from "../services/spaceActions";
 import type { TeamMember, TeamRole, WorkspaceMember } from "../types/electron";
+
+const ROLES: TeamRole[] = ["admin", "member"];
+const ROLE_LABEL_KEY: Record<TeamRole, string> = {
+  admin: "notes.spaces.members.roleAdmin",
+  member: "notes.spaces.members.roleMember",
+};
+const ROLE_DESCRIPTION_KEY: Record<TeamRole, string> = {
+  admin: "notes.spaces.members.roleAdminDescription",
+  member: "notes.spaces.members.roleMemberDescription",
+};
+// Quiet trigger: reads as the row's role text with a chevron, not a button.
+const ROLE_TRIGGER_CLASS =
+  "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-foreground/80 outline-none transition-colors " +
+  "hover:bg-foreground/5 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/30 data-[state=open]:bg-foreground/5 " +
+  "disabled:opacity-60 dark:hover:bg-white/5 dark:data-[state=open]:bg-white/5";
 
 interface TeamRosterSectionProps {
   teamId: string;
@@ -130,7 +152,7 @@ export default function TeamRosterSection({
       {loading && members.length === 0 ? (
         <div className="h-24 rounded-lg bg-foreground/5 dark:bg-white/5 animate-pulse" />
       ) : loadFailed && members.length === 0 ? (
-        <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 px-4 py-6 flex items-center justify-between gap-2">
+        <div className="rounded-lg border border-border/70 dark:border-border-subtle/70 bg-card/50 dark:bg-surface-2/50 px-4 py-6 flex items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
             {t("settingsPage.workspace.members.loadError")}
           </p>
@@ -139,7 +161,7 @@ export default function TeamRosterSection({
           </Button>
         </div>
       ) : (
-        <div className="rounded-lg border border-border/50 dark:border-border-subtle/70 divide-y divide-border/30 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50 max-h-64 overflow-y-auto">
+        <div className="rounded-lg border border-border/70 dark:border-border-subtle/70 divide-y divide-border/60 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50 max-h-64 overflow-y-auto">
           {members.map((member) => {
             const isSelf = member.user_id === currentUserId;
             const isBusy = busyUserIds.has(member.user_id);
@@ -147,68 +169,70 @@ export default function TeamRosterSection({
               <div key={member.user_id} className="flex items-center gap-3 px-4 h-14">
                 <MemberAvatar name={member.name} email={member.email} image={member.image} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-foreground truncate">
+                  <p dir="auto" className="text-xs font-medium text-foreground truncate">
                     {member.name || member.email}
                   </p>
                   {member.name && (
-                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                    <p dir="ltr" className="text-xs text-muted-foreground truncate">
+                      {member.email}
+                    </p>
                   )}
                 </div>
                 {canManage && !isSelf ? (
-                  <>
-                    <Select
-                      value={member.role}
-                      disabled={isBusy}
-                      onValueChange={(role) => handleRoleChange(member, role as TeamRole)}
-                    >
-                      <SelectTrigger className="h-7 w-25 px-2 text-xs rounded-md shrink-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="admin" className="text-xs">
-                          {t("notes.spaces.members.roleAdmin")}
-                        </SelectItem>
-                        <SelectItem value="member" className="text-xs">
-                          {t("notes.spaces.members.roleMember")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        removeConfirm(
-                          member,
-                          () =>
-                            void withRowBusy(member.user_id, async () => {
-                              await removeTeamMember(teamId, member.user_id);
-                              toast({
-                                title: t("notes.spaces.members.removedFromTeam", {
-                                  name: member.name || member.email,
-                                  team: teamName,
-                                }),
-                              });
-                            })
-                        )
-                      }
-                      disabled={isBusy}
-                      aria-label={t("notes.spaces.members.remove")}
-                      className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-primary/30 disabled:pointer-events-none"
-                    >
-                      {isBusy ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <X className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button type="button" disabled={isBusy} className={ROLE_TRIGGER_CLASS}>
+                        {t(ROLE_LABEL_KEY[member.role])}
+                        {isBusy ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          <ChevronDown size={12} className="text-foreground/45" />
+                        )}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-60">
+                      {ROLES.map((role) => (
+                        <DropdownMenuItem
+                          key={role}
+                          onClick={() => handleRoleChange(member, role)}
+                          className="flex-col items-start gap-0.5 rounded-md px-2 py-1.5"
+                        >
+                          <span className="flex w-full items-center text-xs font-medium">
+                            {t(ROLE_LABEL_KEY[role])}
+                            {member.role === role && (
+                              <Check size={12} className="ms-auto text-primary" />
+                            )}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {t(ROLE_DESCRIPTION_KEY[role])}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() =>
+                          removeConfirm(
+                            member,
+                            () =>
+                              void withRowBusy(member.user_id, async () => {
+                                await removeTeamMember(teamId, member.user_id);
+                                toast({
+                                  title: t("notes.spaces.members.removedFromTeam", {
+                                    name: member.name || member.email,
+                                    team: teamName,
+                                  }),
+                                });
+                              })
+                          )
+                        }
+                        className="rounded-md px-2 py-1.5 text-xs text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      >
+                        {t("notes.spaces.members.remove")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ) : (
-                  <RoleBadge
-                    label={
-                      member.role === "admin"
-                        ? t("notes.spaces.members.roleAdmin")
-                        : t("notes.spaces.members.roleMember")
-                    }
-                  />
+                  <RoleBadge label={t(ROLE_LABEL_KEY[member.role])} />
                 )}
               </div>
             );
@@ -224,9 +248,10 @@ export default function TeamRosterSection({
       {canManage && (
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground/50">
-            {t("notes.spaces.members.addPeopleToTeam", { team: teamName })}
+            {t("notes.spaces.members.addPeople")}
           </label>
           <MemberPickList
+            revealOnFocus
             members={addCandidates}
             search={addSearch}
             onSearchChange={setAddSearch}
@@ -243,7 +268,7 @@ export default function TeamRosterSection({
                     setAddSearch("");
                   }}
                   className={cn(
-                    "flex items-center gap-2 w-full px-2 h-8 rounded-md text-left",
+                    "flex items-center gap-2 w-full px-2 h-8 rounded-md text-start",
                     "transition-colors duration-150 outline-none",
                     "text-primary/80 hover:text-primary hover:bg-primary/8",
                     "focus-visible:ring-1 focus-visible:ring-ring/30"
@@ -251,7 +276,12 @@ export default function TeamRosterSection({
                 >
                   <Mail size={12} className="shrink-0" />
                   <span className="text-xs truncate">
-                    {t("notes.spaces.members.inviteFooter", { email: addSearch.trim() })}
+                    <BidiInterpolatedText
+                      text={t("notes.spaces.members.inviteFooter", {
+                        email: BIDI_VALUE_TOKEN,
+                      })}
+                      value={addSearch.trim()}
+                    />
                   </span>
                 </button>
               ) : undefined

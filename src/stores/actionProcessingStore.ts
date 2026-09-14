@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { STANDALONE_PROMPT_KEYS } from "../helpers/builtinActions";
 import reasoningService from "../services/ReasoningService";
 import { getSettings, selectResolvedNoteFormatting } from "./settingsStore";
 import { appendDictionarySuffix } from "../config/prompts";
@@ -6,6 +7,20 @@ import { generateNoteTitle } from "../utils/generateTitle";
 import { buildNoteFormattingOverrides } from "../helpers/noteFormattingOverrides";
 import { tagActionItemOwners, type MentionPerson } from "../utils/mentionMarkdown";
 import type { ActionItem } from "../types/electron";
+
+/**
+ * Output budget for a formatted note.
+ *
+ * Without an explicit value this inherited the generic 2048-token default from
+ * calculateMaxTokens — roughly 1,500 words — so summaries of long meetings were
+ * cut off and saved anyway, with nothing to say they were incomplete (#2142).
+ *
+ * Deliberately not paired with requireCompleteOutput: unlike a selection edit,
+ * where a partial replacement corrupts the user's own text, a clipped summary
+ * is still worth keeping. The context preflight counts this reservation, so
+ * asking for more output room can grow the window rather than squeeze it.
+ */
+export const NOTE_OUTPUT_MAX_TOKENS = 4096;
 
 export type ActionProcessingStatus = "idle" | "processing" | "success";
 
@@ -17,6 +32,9 @@ export interface NoteActionState {
 export interface ActionErrorEvent {
   noteId: number;
   message: string;
+  /** Set when the failure has a translatable form; the toast prefers it. */
+  messageKey?: string;
+  messageParams?: Record<string, string | number>;
 }
 
 interface ActionProcessingStoreState {
@@ -87,6 +105,15 @@ CONTENT RULES:
 
 Instructions: `;
 
+// Standalone built-in prompts are complete instructions, so they only get told
+// how the material is laid out instead of being wrapped in the generic prompts.
+const MEETING_INPUT_PREAMBLE = `The material is laid out as follows. Transcript lines are prefixed with the speaker's label: a real name when known, otherwise "You" (the note owner), "Them", or "Speaker N". A "## Meeting Context" block may identify the note owner and the invited participants; it is reference material, never something to reproduce. Manual notes the user took may precede the transcript.
+
+`;
+const NOTE_INPUT_PREAMBLE = `The material is the user's own notes, possibly voice-transcribed, rough, or unstructured. There is no transcript.
+
+`;
+
 export interface RunActionOptions {
   isCloudMode: boolean;
   modelId: string;
@@ -137,7 +164,15 @@ export function runBackgroundAction(
 
   (async () => {
     try {
-      const basePrompt = options.isMeetingNote ? MEETING_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT;
+      const standalone =
+        !!action.translation_key && STANDALONE_PROMPT_KEYS.has(action.translation_key);
+      const basePrompt = standalone
+        ? options.isMeetingNote
+          ? MEETING_INPUT_PREAMBLE
+          : NOTE_INPUT_PREAMBLE
+        : options.isMeetingNote
+          ? MEETING_SYSTEM_PROMPT
+          : BASE_SYSTEM_PROMPT;
       const providerOverrides = buildNoteFormattingOverrides(noteFormatting, options.isCloudMode);
       const systemPrompt = appendDictionarySuffix(
         basePrompt + action.prompt,
@@ -146,10 +181,17 @@ export function runBackgroundAction(
       );
       const enhanced = await reasoningService.processText(noteContent, modelId, null, {
         systemPrompt,
+        maxTokens: NOTE_OUTPUT_MAX_TOKENS,
         temperature: 0.3,
         disableThinking: settings.noteFormattingDisableThinking,
         ...providerOverrides,
       });
+
+      // IPC-bridged providers relay whatever the model returned; a blank
+      // result must not be saved as the enhanced note.
+      if (!enhanced.trim()) {
+        throw new Error("Model returned no text");
+      }
 
       if (cancelledFlags.get(noteId)) return;
 
@@ -184,7 +226,11 @@ export function runBackgroundAction(
       processingFlags.set(noteId, false);
       clearNoteState(noteId);
       const message = err instanceof Error ? err.message : labels.actionFailed;
-      pushErrorEvent({ noteId, message });
+      const { messageKey, messageParams } = (err ?? {}) as {
+        messageKey?: string;
+        messageParams?: Record<string, string | number>;
+      };
+      pushErrorEvent({ noteId, message, messageKey, messageParams });
     } finally {
       cancelledFlags.delete(noteId);
     }

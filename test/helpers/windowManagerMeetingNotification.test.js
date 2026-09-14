@@ -86,7 +86,14 @@ Module._load = function loadWindowManagerWithStubs(request, parent, isMain) {
       dialog: {},
     };
   }
-  if (request === "./debugLogger") return { warn: () => undefined };
+  if (request === "./debugLogger") {
+    return {
+      info: () => undefined,
+      warn: () => undefined,
+      debug: () => undefined,
+      error: () => undefined,
+    };
+  }
   if (request === "./hotkeyManager") return FakeHotkeyManager;
   if (request === "./dragManager") return FakeDragManager;
   if (request === "./menuManager") return {};
@@ -343,13 +350,10 @@ test("push-to-talk dictation follows the companion pill's availability", () => {
 
 test("window manager starts fail-closed and suppresses normal-app popup surfaces", async () => {
   const manager = new WindowManager();
-  const update = { version: "2.0.0", releaseDate: "2026-08-20" };
 
   assert.equal(manager.isMeetingInputAllowed(), false);
   assert.equal(await manager.showMeetingNotification({ detectionId: "onboarding" }), false);
   assert.equal(await manager.showTranscriptionPreview("partial transcript"), undefined);
-  assert.equal(await manager.showUpdateNotification(update), false);
-  assert.deepEqual(manager._deferredUpdateNotificationInfo, update);
   assert.deepEqual(createdWindows, []);
 });
 
@@ -361,6 +365,7 @@ test("window creation uses the auto-end dimensions and variant-aware position", 
       sessionId: "meeting-1",
       expiresAt: 70_000,
       reason: "silence",
+      canSummarize: true,
     });
     const notificationWindow = createdWindows[0];
 
@@ -374,12 +379,14 @@ test("window creation uses the auto-end dimensions and variant-aware position", 
       },
       { acceptFirstMouse: true, width: 620, height: 116, x: 380, y: 16 }
     );
-    // The reason rides along in the pending payload the overlay will fetch.
+    // The reason and the summary offer both ride along in the pending payload the
+    // overlay will fetch: dropping either here leaves the card unable to render it.
     assert.deepEqual(manager._pendingNotificationData, {
       kind: "auto-end",
       sessionId: "meeting-1",
       expiresAt: 70_000,
       reason: "silence",
+      canSummarize: true,
     });
 
     notificationWindow.loadDeferred.resolve();
@@ -765,4 +772,59 @@ test("a detection card whose load fails releases that detection", async () => {
   // would ever settle this detection.
   await assert.rejects(showPromise, /load failed/);
   assert.deepEqual(closedDetections, ["audio:sustained-audio"]);
+});
+
+test("manual meeting starts fail closed like the meeting hotkey", async () => {
+  let starts = 0;
+  const engine = { startManualMeeting: async () => (starts += 1) };
+
+  const onboarding = new WindowManager();
+  onboarding.meetingDetectionEngine = engine;
+  await onboarding.startManualMeeting();
+  assert.equal(starts, 0);
+
+  const manager = createNormalWindowManager();
+  manager.meetingDetectionEngine = engine;
+  manager.hotkeyManager.isInListeningMode = () => true;
+  await manager.startManualMeeting();
+  assert.equal(starts, 0);
+
+  manager.hotkeyManager.isInListeningMode = () => false;
+  await manager.startManualMeeting();
+  assert.equal(starts, 1);
+});
+
+// Only the renderer can open the assistant panel, and it owns the policy and
+// recording state the pill menu gates the item on, so nothing may be shown,
+// focused, or created before it accepts.
+test("the tray's Ask assistant asks the renderer without showing or focusing the pill", () => {
+  const fakeMainWindow = (events) => ({
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    isVisible: () => true,
+    focus: () => events.push("focus"),
+    show: () => events.push("show"),
+    showInactive: () => events.push("show"),
+    webContents: { send: (channel) => events.push(channel) },
+  });
+
+  const onboardingEvents = [];
+  const onboarding = new WindowManager();
+  onboarding.mainWindow = fakeMainWindow(onboardingEvents);
+  onboarding.sendOpenAssistantPanel();
+  assert.deepEqual(onboardingEvents, []);
+
+  const events = [];
+  const manager = createNormalWindowManager();
+  manager.mainWindow = fakeMainWindow(events);
+  manager.sendOpenAssistantPanel();
+  assert.deepEqual(events, ["open-assistant-panel"]);
+
+  // Capturing a hotkey swallows it, like every other input path.
+  const capturingEvents = [];
+  const capturing = createNormalWindowManager();
+  capturing.mainWindow = fakeMainWindow(capturingEvents);
+  capturing.hotkeyManager.isInListeningMode = () => true;
+  capturing.sendOpenAssistantPanel();
+  assert.deepEqual(capturingEvents, []);
 });

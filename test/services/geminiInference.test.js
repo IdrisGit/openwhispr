@@ -34,7 +34,7 @@ async function setup(
   };
 }
 
-test("Gemini cleanup uses native instructions, headroom, and metadata-only logs", async (t) => {
+test("Gemini cleanup uses native instructions and metadata-only logs", async (t) => {
   const usageMetadata = {
     promptTokenCount: 100,
     candidatesTokenCount: 20,
@@ -48,7 +48,6 @@ test("Gemini cleanup uses native instructions, headroom, and metadata-only logs"
   assert.equal(await call(), "Clean text.");
   assert.deepEqual(requests[0].generationConfig, {
     temperature: 1,
-    maxOutputTokens: 8192,
     thinkingConfig: { thinkingLevel: "minimal", includeThoughts: false },
   });
   assert.deepEqual(requests[0].systemInstruction, {
@@ -96,15 +95,15 @@ test("thinking suppression uses controls supported by each registered Gemini mod
   assert.equal(requests.at(-1).generationConfig.thinkingConfig, undefined);
 });
 
-test("long inputs scale to a bounded budget; explicit settings remain authoritative", async (t) => {
+test("long inputs remain uncapped while explicit temperature and prompts are preserved", async (t) => {
   const { call, requests } = await setup(t);
   await call({ text: "x".repeat(10000) });
-  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, 24096);
+  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, undefined);
   await call({ text: "x".repeat(100000) });
-  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, 65536);
+  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, undefined);
   await call({ config: { temperature: 0, maxTokens: 1234, systemPrompt: "Custom prompt" } });
   assert.equal(requests.at(-1).generationConfig.temperature, 0);
-  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, 1234);
+  assert.equal(requests.at(-1).generationConfig.maxOutputTokens, undefined);
   assert.equal(requests.at(-1).systemInstruction.parts[0].text, "Custom prompt");
   assert.equal(requests.at(-1).contents[0].parts[0].text, "private transcript");
 });
@@ -130,7 +129,14 @@ test("cleanup rejects incomplete responses without retrying", async (t) => {
   ]) {
     await t.test(name, async (t) => {
       const { call, requests } = await setup(t, { candidates: candidate ? [candidate] : [] });
-      await assert.rejects(call(), /Gemini returned incomplete output/);
+      await assert.rejects(call(), (error) => {
+        if (candidate?.finishReason === "MAX_TOKENS") {
+          assert.equal(error.messageKey, "hooks.audioRecording.errorDescriptions.cleanupTruncated");
+        } else {
+          assert.match(error.message, /Gemini returned incomplete output/);
+        }
+        return true;
+      });
       assert.equal(requests.length, 1);
     });
   }
