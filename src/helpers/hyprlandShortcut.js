@@ -522,7 +522,6 @@ class HyprlandShortcutManager {
       if (remainingLines.join("\n").trim()) {
         fs.writeFileSync(legacyBindsPath, remainingLines.join("\n"), "utf-8");
       } else {
-        fs.unlinkSync(legacyBindsPath);
         removeLegacySource = true;
       }
     } catch (err) {
@@ -544,6 +543,8 @@ class HyprlandShortcutManager {
     } catch (err) {
       if (err.code !== "ENOENT") throw err;
     }
+    // Keep the source target intact if removing its load directive fails.
+    fs.unlinkSync(legacyBindsPath);
   }
 
   _getConfig() {

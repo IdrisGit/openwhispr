@@ -640,6 +640,46 @@ test(
 );
 
 test(
+  "keeps the legacy source target intact until cleanup can be retried",
+  withTempHyprConfig(async (configDir) => {
+    const confPath = path.join(configDir, "hyprland.conf");
+    const legacyBindsPath = path.join(configDir, "openwhispr-binds.conf");
+    const legacyConfig = "# keep this comment\nsource = ./openwhispr-binds.conf\n";
+    const legacyBinds =
+      "# OpenWhispr keybinds (managed automatically)\n" +
+      `bind = CTRL SHIFT, Return, exec, ${DBUS_COMMAND}\n`;
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, "hyprland.lua"), "-- lua config\n");
+    fs.writeFileSync(confPath, legacyConfig);
+    fs.writeFileSync(legacyBindsPath, legacyBinds);
+    const HyprlandShortcutManager = loadManager(successfulHyprctl("lua").execFileSync);
+    const manager = new HyprlandShortcutManager();
+    const writeFileSync = fs.writeFileSync;
+    const failingWrite = test.mock.method(fs, "writeFileSync", (filePath, ...args) => {
+      if (filePath === confPath) {
+        throw Object.assign(new Error("read-only legacy config"), { code: "EACCES" });
+      }
+      return writeFileSync(filePath, ...args);
+    });
+
+    try {
+      assert.equal(await manager.registerKeybinding("F8"), true);
+      assert.equal(manager.persistencePending, true);
+      assert.equal(fs.readFileSync(confPath, "utf8"), legacyConfig);
+      assert.equal(fs.existsSync(legacyBindsPath), true);
+      assert.equal(fs.readFileSync(legacyBindsPath, "utf8"), legacyBinds);
+    } finally {
+      failingWrite.mock.restore();
+    }
+
+    assert.equal(await manager.registerKeybinding("F8"), true);
+    assert.equal(manager.persistencePending, false);
+    assert.equal(fs.readFileSync(confPath, "utf8"), "# keep this comment\n");
+    assert.equal(fs.existsSync(legacyBindsPath), false);
+  })
+);
+
+test(
   "removes stale managed legacy artifacts after migrating to Lua",
   withTempHyprConfig(async (configDir) => {
     const confPath = path.join(configDir, "hyprland.conf");
