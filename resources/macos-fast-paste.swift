@@ -12,13 +12,23 @@ let copyMode = CommandLine.arguments.contains("--copy")
 let shortcutCharacter = copyMode ? "c" : "v"
 let commandModifierState = UInt32(cmdKey) >> 8
 
-func lookupVirtualKey(for character: String) -> CGKeyCode? {
-    guard let inputSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+func keyboardLayoutData(from inputSource: TISInputSource?) -> Data? {
+    guard let inputSource = inputSource,
           let layoutDataPointer = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
         return nil
     }
 
-    let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataPointer).takeUnretainedValue() as Data
+    return Unmanaged<CFData>.fromOpaque(layoutDataPointer).takeUnretainedValue() as Data
+}
+
+func lookupVirtualKey(for character: String) -> CGKeyCode? {
+    // Non-ASCII layouts can define their own Command shortcuts. Use the last
+    // ASCII layout only when the active input method provides no layout data.
+    guard let layoutData = keyboardLayoutData(from: TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue())
+        ?? keyboardLayoutData(from: TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue()) else {
+        return nil
+    }
+
     return layoutData.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.baseAddress else { return nil }
         let keyboardLayout = baseAddress.assumingMemoryBound(to: UCKeyboardLayout.self)
