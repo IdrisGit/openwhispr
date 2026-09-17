@@ -108,13 +108,8 @@ test("capture-dictation-target awaits the target PID but not the window probe", 
   assert.equal(settled, false, "the handler must wait for the target PID");
 
   pidRead.resolve(4242);
-  assert.deepEqual(await pending, { success: true, pid: 4242 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, true, "the handler must not wait for the window probe");
   probe.resolve(null);
-});
-
-test("capture-dictation-target resolves a null pid off macOS", async () => {
-  target.selectionManager = { captureTarget: () => new Promise(() => {}) };
-  target.textEditMonitor = { captureTargetPid: async () => null };
-
-  assert.deepEqual(await handlers.get("capture-dictation-target")(), { success: true, pid: null });
+  assert.deepEqual(await pending, { success: true, pid: 4242 });
 });

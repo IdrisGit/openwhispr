@@ -456,8 +456,9 @@ test("start target captures share in-flight and recent work", async () => {
   resolvers[0]({ kind: "atspi-pid", id: "1" });
   await Promise.all([first, joined]);
 
-  await manager.captureTarget();
+  const reused = manager.captureTarget();
   assert.equal(calls, 1);
+  await reused;
 
   now += 250;
   const refreshed = manager.captureTarget();
@@ -567,8 +568,9 @@ test("an AT-SPI timeout opens a cooldown and retries after it expires", async (t
   assert.equal(spawns, 1);
   assert.equal(kills, 1);
 
-  assert.equal(await manager._getLinuxAtspiTarget(), null);
-  assert.equal(spawns, 1);
+  const cooledTarget = manager._getLinuxAtspiTarget();
+  assert.equal(spawns, 1, "a target probe must not spawn during the cooldown");
+  assert.equal(await cooledTarget, null);
   const cooledSelection = manager._readLinuxAtspiSelection("/tmp/linux-fast-paste", {
     kind: "atspi-pid",
     id: "42",
@@ -592,8 +594,9 @@ test("an AT-SPI timeout opens a cooldown and retries after it expires", async (t
   assert.equal((await selection).status, "unavailable");
   assert.equal(spawns, 3);
   assert.equal(kills, 3);
-  assert.equal(await manager._getLinuxAtspiTarget(), null);
-  assert.equal(spawns, 3);
+  const cooledBySelection = manager._getLinuxAtspiTarget();
+  assert.equal(spawns, 3, "a selection timeout must cool down target probes too");
+  assert.equal(await cooledBySelection, null);
 });
 
 test("older AT-SPI timeouts cannot cool down a newer successful probe", async (t) => {
