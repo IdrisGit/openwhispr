@@ -71,40 +71,6 @@ test("captures an exact selection in an opaque session", async () => {
   assert.ok(result.sessionId);
 });
 
-test("macOS selection capture joins the target PID capture", async () => {
-  let resolvePid;
-  let reads = 0;
-  const textEditMonitor = {
-    lastTargetPid: null,
-    captureTargetPid: () =>
-      new Promise((resolve) => {
-        resolvePid = (pid) => {
-          textEditMonitor.lastTargetPid = pid;
-          resolve(pid);
-        };
-      }),
-    getSelectedText: async () => {
-      reads += 1;
-      return { state: "selected", text: "picked" };
-    },
-  };
-  const manager = new SelectionManager({
-    clipboardManager: { runClipboardOperation: (operation) => operation() },
-    textEditMonitor,
-    platform: "darwin",
-    now: () => 1000,
-  });
-
-  const pending = manager.captureSelectedText();
-  await Promise.resolve();
-  assert.equal(reads, 0);
-
-  resolvePid(42);
-  const result = await pending;
-  assert.equal(result.status, "selected");
-  assert.equal(result.text, "picked");
-});
-
 test("captures a verified writable caret in an opaque delivery session", async () => {
   const { manager } = makeHarness({ selections: [{ state: "none", editable: true }] });
   const result = await manager.captureSelectedText({ probeEditable: true });
@@ -498,22 +464,6 @@ test("start target captures share in-flight and recent work", async () => {
   assert.equal(calls, 2);
   resolvers[1]({ kind: "atspi-pid", id: "2" });
   await refreshed;
-});
-
-test("target probe failures are contained", async () => {
-  const manager = new SelectionManager({
-    clipboardManager: {},
-    textEditMonitor: {},
-    platform: "linux",
-    now: () => 1000,
-  });
-  manager._probeTarget = async () => {
-    throw new Error("probe failed");
-  };
-
-  await manager.captureTarget();
-  assert.equal(manager.lastTarget, null);
-  assert.equal(manager._captureTargetPromise, null);
 });
 
 test("a forced probe stays fresh and older work cannot overwrite it", async () => {

@@ -124,12 +124,9 @@ class SelectionManager {
     this.lastTarget = null;
     const probe = this._probeTarget();
     this._captureTargetPromise = probe;
-    let target = null;
-    try {
-      target = await probe;
-    } catch (error) {
-      debugLogger.warn("Target probe failed", { error: error.message });
-    }
+    const target = await probe;
+    // A newer toggle press may have started its own probe while this one ran;
+    // only the latest probe's result may land in lastTarget.
     if (this._captureTargetPromise === probe) {
       this.lastTarget = target;
       this._lastTargetCaptureAt = this.now();
@@ -176,9 +173,6 @@ class SelectionManager {
     // on); without it the probe's binary spawn would be pure waste.
     const probeEditable = options.probeEditable === true;
     return this.clipboardManager.runClipboardOperation(async () => {
-      if (this.platform === "darwin") {
-        await this.textEditMonitor?.captureTargetPid?.();
-      }
       // captureTarget() fires on every toggle press, including stop. Fast
       // cloud transcription can get here before the stop-press probe lands
       // (~1s on Wayland AT-SPI), when lastTarget is still nulled from the

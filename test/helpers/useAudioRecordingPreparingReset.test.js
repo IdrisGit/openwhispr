@@ -39,13 +39,12 @@ export default class FakeAudioManager {
   cancelPreparedMicCapture() {}
   cleanup() {}
   async startRecording() {
-    globalThis.__openWhisprStartRecording?.();
     return false;
   }
 }
 `;
 
-test("dictation start does not wait for target capture and resets a failed start", async (t) => {
+test("a failed dictation start reports the lifecycle back to idle instead of sticking on preparing", async (t) => {
   // t.after hooks run in registration order, so this unmount must be
   // registered before installBrowserGlobals/installHookDom's own cleanup —
   // otherwise window/document are already torn down when unmount runs.
@@ -55,17 +54,6 @@ test("dictation start does not wait for target capture and resets a failed start
   });
 
   const reported = [];
-  let startCalled = false;
-  let resolveTargetCapture;
-  const targetCapture = new Promise((resolve) => {
-    resolveTargetCapture = resolve;
-  });
-  globalThis.__openWhisprStartRecording = () => {
-    startCalled = true;
-  };
-  t.after(() => {
-    delete globalThis.__openWhisprStartRecording;
-  });
   const noopDispose = () => () => {};
   installBrowserGlobals(t, {
     window: {
@@ -81,7 +69,6 @@ test("dictation start does not wait for target capture and resets a failed start
         onPrepareDictation: noopDispose,
         onCancelDictationPreparation: noopDispose,
         onStopDictation: noopDispose,
-        captureDictationTarget: () => targetCapture,
         dictationLifecycleStateChanged: (state, inputKind) =>
           reported.push(`${state}:${inputKind}`),
       },
@@ -120,15 +107,8 @@ test("dictation start does not wait for target capture and resets a failed start
   reported.length = 0;
 
   let started;
-  let startPromise;
   await React.act(async () => {
-    startPromise = api.startRecording();
-    await new Promise((resolve) => setImmediate(resolve));
-  });
-  assert.equal(startCalled, true);
-  resolveTargetCapture({ success: true, pid: null });
-  await React.act(async () => {
-    started = await startPromise;
+    started = await api.startRecording();
   });
 
   assert.equal(started, false);
