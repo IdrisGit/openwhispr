@@ -107,9 +107,12 @@ function getAtspiFlags() {
       stdio: "pipe",
     });
     if (cflags.status === 0 && libs.status === 0) {
+      // atspi-2.pc lists gobject-2.0 under Requires.private, so plain --libs
+      // omits -lgobject-2.0; add it explicitly for --as-needed linkers.
       return [
         ...cflags.stdout.toString().trim().split(/\s+/),
         ...libs.stdout.toString().trim().split(/\s+/),
+        "-lgobject-2.0",
       ].filter(Boolean);
     }
   } catch {}
@@ -182,7 +185,7 @@ if (gioAvailable) {
 
 if (atspiAvailable) {
   log("atspi-2 found, enabling AT-SPI2 terminal detection");
-  compileArgs.push("-DHAVE_ATSPI", ...getAtspiFlags(), "-lgobject-2.0");
+  compileArgs.push("-DHAVE_ATSPI", ...getAtspiFlags());
 } else {
   log("atspi-2 not found, building without AT-SPI2 terminal detection");
 }
