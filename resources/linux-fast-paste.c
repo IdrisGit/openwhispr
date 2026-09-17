@@ -413,7 +413,7 @@ static int init_atspi(void) {
 }
 
 static int detect_terminal_atspi(void) {
-    init_atspi();
+    if (init_atspi() != 0) return -1;
     AtspiAccessible *desktop = atspi_get_desktop(0);
     if (!desktop) return -1;
 

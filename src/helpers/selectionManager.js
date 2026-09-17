@@ -105,7 +105,7 @@ class SelectionManager {
     this.sessions = new Map();
     this.lastTarget = null;
     this._captureTargetPromise = null;
-    this._lastTargetCaptureAt = null;
+    this._lastTargetCaptureAt = 0;
     this._atspiCooldownUntil = 0;
     this._atspiProbeGeneration = 0;
   }
@@ -115,7 +115,7 @@ class SelectionManager {
     if (!force) {
       if (this._captureTargetPromise) return this._captureTargetPromise;
       if (
-        this._lastTargetCaptureAt !== null &&
+        this.lastTarget !== null &&
         this.now() - this._lastTargetCaptureAt < TARGET_CAPTURE_FRESHNESS_MS
       ) {
         return;
