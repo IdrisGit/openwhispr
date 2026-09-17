@@ -152,6 +152,21 @@ async function waitForCall(calls, index) {
   return calls[index];
 }
 
+async function waitForMatchingCall(calls, predicate, description) {
+  for (let i = 0; i < 50; i += 1) {
+    const call = calls.find(predicate);
+    if (call) return call;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`expected ${description}, saw ${calls.length} spawn calls`);
+}
+
+const targetsPlayer = (call, player) =>
+  call.args.includes(`--dest=org.mpris.MediaPlayer2.${player}`);
+const invokesMpris = (call, method) =>
+  call.args.includes(`org.mpris.MediaPlayer2.Player.${method}`);
+const queriesPlaybackStatus = (call) => call.args.includes("string:PlaybackStatus");
+
 const WIN_STDIO = ["ignore", "pipe", "pipe"];
 
 test("win32: GSMTC pause runs through async spawn and records the apps it paused", async () => {
@@ -444,44 +459,164 @@ test("darwin: resume waits for an in-flight pause instead of no-oping on _didPau
 
 // Linux has the same hazard: dbus-send and playerctl ran through spawnSync on
 // the same main thread (#2073).
-test("linux: pauses only Playing MPRIS players and resumes exactly those", async () => {
+test("linux: a slow player does not delay another player's pause", async () => {
   const { mediaPlayer, calls } = loadMediaPlayer("linux");
 
-  const pausing = mediaPlayer.pauseMedia();
+  let pauseSettled = false;
+  const pausing = mediaPlayer.pauseMedia().then((result) => {
+    pauseSettled = true;
+    return result;
+  });
 
   const list = await waitForCall(calls, 0);
   assert.equal(list.cmd, "dbus-send");
   assert.ok(list.args.includes("org.freedesktop.DBus.ListNames"));
   list.child.finish(
     0,
-    'string "org.mpris.MediaPlayer2.spotify"\nstring "org.mpris.MediaPlayer2.vlc"\n'
+    'string "org.mpris.MediaPlayer2.slow"\nstring "org.mpris.MediaPlayer2.healthy"\n'
   );
 
-  const spotifyStatus = await waitForCall(calls, 1);
-  assert.ok(spotifyStatus.args.includes("--dest=org.mpris.MediaPlayer2.spotify"));
-  assert.ok(spotifyStatus.args.includes("string:PlaybackStatus"));
-  spotifyStatus.child.finish(0, 'variant string "Playing"\n');
+  const slowStatus = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && queriesPlaybackStatus(call),
+    "slow player status query"
+  );
+  const healthyStatus = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && queriesPlaybackStatus(call),
+    "healthy player status query"
+  );
 
-  const spotifyPause = await waitForCall(calls, 2);
-  assert.ok(spotifyPause.args.includes("org.mpris.MediaPlayer2.Player.Pause"));
-  spotifyPause.child.finish(0);
-
-  const vlcStatus = await waitForCall(calls, 3);
-  assert.ok(vlcStatus.args.includes("--dest=org.mpris.MediaPlayer2.vlc"));
-  vlcStatus.child.finish(0, 'variant string "Paused"\n');
-
-  assert.equal(await pausing, true);
-  assert.equal(calls.length, 4);
-  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.spotify"]);
+  healthyStatus.child.finish(0, 'variant string "Playing"\n');
+  const healthyPause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Pause"),
+    "healthy player Pause"
+  );
+  healthyPause.child.finish(0);
 
   const resuming = mediaPlayer.resumeMedia();
-  const play = await waitForCall(calls, 4);
-  assert.ok(play.args.includes("--dest=org.mpris.MediaPlayer2.spotify"));
-  assert.ok(play.args.includes("org.mpris.MediaPlayer2.Player.Play"));
-  play.child.finish(0);
+  await drain();
+  assert.equal(pauseSettled, false, "the whole pause waits for every player chain");
+  assert.equal(
+    calls.some((call) => invokesMpris(call, "Play")),
+    false,
+    "queued resume cannot overtake the unresolved pause"
+  );
 
+  slowStatus.child.finish(0, 'variant string "Paused"\n');
+  assert.equal(await pausing, true);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.healthy"]);
+
+  const play = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Play"),
+    "healthy player Play"
+  );
+  play.child.finish(0);
   assert.equal(await resuming, true);
-  assert.equal(calls.length, 5);
+  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+});
+
+test("linux: concurrent player failures and non-playing states do not block healthy pauses", async () => {
+  const { mediaPlayer, calls } = loadMediaPlayer("linux");
+  const players = ["first", "second", "paused", "stopped", "malformed", "failed"];
+  const pausing = mediaPlayer.pauseMedia();
+
+  (await waitForCall(calls, 0)).child.finish(
+    0,
+    players.map((player) => `string "org.mpris.MediaPlayer2.${player}"`).join("\n")
+  );
+  const statuses = Object.fromEntries(
+    await Promise.all(
+      players.map(async (player) => [
+        player,
+        await waitForMatchingCall(
+          calls,
+          (call) => targetsPlayer(call, player) && queriesPlaybackStatus(call),
+          `${player} status query`
+        ),
+      ])
+    )
+  );
+
+  statuses.first.child.finish(0, 'variant string "Playing"\n');
+  statuses.second.child.finish(0, 'variant string "Playing"\n');
+  statuses.paused.child.finish(0, 'variant string "Paused"\n');
+  statuses.stopped.child.finish(0, 'variant string "Stopped"\n');
+  statuses.malformed.child.finish(0, "variant boolean true\n");
+  statuses.failed.child.finish(1, "", "player vanished");
+
+  const firstPause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "first") && invokesMpris(call, "Pause"),
+    "first player Pause"
+  );
+  const secondPause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "second") && invokesMpris(call, "Pause"),
+    "second player Pause"
+  );
+  secondPause.child.finish(1, "", "pause failed");
+  firstPause.child.finish(0);
+
+  assert.equal(await pausing, true);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.first"]);
+  assert.equal(
+    calls.filter((call) => invokesMpris(call, "Pause")).length,
+    2,
+    "only Playing players receive Pause"
+  );
+});
+
+test("linux: an unexpected player-chain rejection is isolated", async () => {
+  const { mediaPlayer, calls } = loadMediaPlayer("linux");
+  mediaPlayer._getMprisPlaybackStatus = async (dest) => {
+    if (dest.endsWith("broken")) throw new Error("unexpected status failure");
+    return "Playing";
+  };
+
+  const pausing = mediaPlayer.pauseMedia();
+  (await waitForCall(calls, 0)).child.finish(
+    0,
+    'string "org.mpris.MediaPlayer2.broken"\nstring "org.mpris.MediaPlayer2.healthy"\n'
+  );
+  const pause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Pause"),
+    "healthy player Pause"
+  );
+  pause.child.finish(0);
+
+  assert.equal(await pausing, true);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.healthy"]);
+});
+
+test("linux: a timed-out status cannot mutate tracking after the operation settles", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, calls } = loadMediaPlayer("linux");
+  const pausing = mediaPlayer.pauseMedia();
+
+  (await waitForCall(calls, 0)).child.finish(0, 'string "org.mpris.MediaPlayer2.slow"\n');
+  const status = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && queriesPlaybackStatus(call),
+    "slow player status query"
+  );
+  t.mock.timers.tick(2000);
+
+  const fallback = await waitForMatchingCall(
+    calls,
+    (call) => call.cmd === "playerctl" && call.args[0] === "pause",
+    "current playerctl pause fallback"
+  );
+  fallback.child.finish(1);
+  assert.equal(await pausing, false);
+  assert.deepEqual(status.child.killSignals, ["SIGKILL"]);
+
+  status.child.finish(0, 'variant string "Playing"\n');
+  await drain();
+  assert.equal(calls.length, 3, "a late close cannot dispatch Pause after settlement");
   assert.deepEqual(mediaPlayer._pausedPlayers, []);
 });
 

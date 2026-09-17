@@ -328,27 +328,29 @@ class MediaPlayer {
     const players = await this._listMprisPlayers();
     if (!players || players.length === 0) return false;
 
-    for (const dest of players) {
-      const status = await this._getMprisPlaybackStatus(dest);
-      if (status !== "Playing") continue;
+    await Promise.allSettled(
+      players.map(async (dest) => {
+        const status = await this._getMprisPlaybackStatus(dest);
+        if (status !== "Playing") return;
 
-      const result = await spawnAsync(
-        "dbus-send",
-        [
-          "--session",
-          "--type=method_call",
-          `--dest=${dest}`,
-          "/org/mpris/MediaPlayer2",
-          "org.mpris.MediaPlayer2.Player.Pause",
-        ],
-        { timeout: 2000 }
-      );
+        const result = await spawnAsync(
+          "dbus-send",
+          [
+            "--session",
+            "--type=method_call",
+            `--dest=${dest}`,
+            "/org/mpris/MediaPlayer2",
+            "org.mpris.MediaPlayer2.Player.Pause",
+          ],
+          { timeout: 2000 }
+        );
 
-      if (result.status === 0) {
-        debugLogger.debug("Media paused via MPRIS", { player: dest }, "media");
-        this._pausedPlayers.push(dest);
-      }
-    }
+        if (result.status === 0) {
+          debugLogger.debug("Media paused via MPRIS", { player: dest }, "media");
+          this._pausedPlayers.push(dest);
+        }
+      })
+    );
     return this._pausedPlayers.length > 0;
   }
 
