@@ -460,7 +460,7 @@ test("darwin: resume waits for an in-flight pause instead of no-oping on _didPau
 // Linux has the same hazard: dbus-send and playerctl ran through spawnSync on
 // the same main thread (#2073).
 test("linux: a slow player does not delay another player's pause", async () => {
-  const { mediaPlayer, calls } = loadMediaPlayer("linux");
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
 
   let pauseSettled = false;
   const pausing = mediaPlayer.pauseMedia().then((result) => {
@@ -493,6 +493,14 @@ test("linux: a slow player does not delay another player's pause", async () => {
     (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Pause"),
     "healthy player Pause"
   );
+  assert.ok(healthyPause.args.includes("--print-reply"));
+  assert.ok(healthyPause.args.includes("--reply-timeout=2000"));
+  assert.ok(logs.some((entry) => entry.message === "MPRIS Pause dispatched"));
+  assert.equal(
+    logs.some((entry) => entry.message === "MPRIS Pause acknowledged"),
+    false,
+    "dispatch is not logged as acknowledgment"
+  );
   healthyPause.child.finish(0);
 
   const resuming = mediaPlayer.resumeMedia();
@@ -513,9 +521,169 @@ test("linux: a slow player does not delay another player's pause", async () => {
     (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Play"),
     "healthy player Play"
   );
+  assert.ok(play.args.includes("--print-reply"));
+  assert.ok(play.args.includes("--reply-timeout=2000"));
   play.child.finish(0);
   assert.equal(await resuming, true);
+  assert.ok(logs.some((entry) => entry.message === "MPRIS Pause acknowledged"));
+  assert.ok(logs.some((entry) => entry.message === "MPRIS Play acknowledged"));
   assert.deepEqual(mediaPlayer._pausedPlayers, []);
+});
+
+test("linux: a delayed Pause reply does not block another player's acknowledgment", async () => {
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+  let settled = false;
+  const pausing = mediaPlayer._pauseMpris().then((result) => {
+    settled = true;
+    return result;
+  });
+
+  (await waitForCall(calls, 0)).child.finish(
+    0,
+    'string "org.mpris.MediaPlayer2.slow"\nstring "org.mpris.MediaPlayer2.healthy"\n'
+  );
+  const slowStatus = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && queriesPlaybackStatus(call),
+    "slow player status query"
+  );
+  const healthyStatus = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && queriesPlaybackStatus(call),
+    "healthy player status query"
+  );
+  slowStatus.child.finish(0, 'variant string "Playing"\n');
+  healthyStatus.child.finish(0, 'variant string "Playing"\n');
+
+  const slowPause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && invokesMpris(call, "Pause"),
+    "slow player Pause"
+  );
+  const healthyPause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "healthy") && invokesMpris(call, "Pause"),
+    "healthy player Pause"
+  );
+  healthyPause.child.finish(0);
+  await drain();
+
+  assert.equal(settled, false, "the aggregate remains pending for the delayed reply");
+  assert.ok(
+    logs.some(
+      (entry) =>
+        entry.message === "MPRIS Pause acknowledged" &&
+        entry.meta.player === "org.mpris.MediaPlayer2.healthy"
+    ),
+    "the healthy acknowledgment is handled independently"
+  );
+
+  slowPause.child.finish(
+    1,
+    "",
+    "Error org.freedesktop.DBus.Error.UnknownMethod: no such method Pause"
+  );
+  assert.equal(await pausing, true);
+  assert.deepEqual(mediaPlayer._pausedPlayers, ["org.mpris.MediaPlayer2.healthy"]);
+  const failure = logs.find(
+    (entry) =>
+      entry.message === "MPRIS Pause not acknowledged" &&
+      entry.meta.player === "org.mpris.MediaPlayer2.slow"
+  );
+  assert.equal(failure.meta.status, 1);
+  assert.equal(failure.meta.timedOut, false);
+  assert.match(failure.meta.stderr, /UnknownMethod/);
+});
+
+test("linux: a missing dbus-send is not treated as a Pause acknowledgment", async () => {
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+  const pausing = mediaPlayer._pauseMpris();
+
+  (await waitForCall(calls, 0)).child.finish(0, 'string "org.mpris.MediaPlayer2.vlc"\n');
+  const status = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "vlc") && queriesPlaybackStatus(call),
+    "vlc status query"
+  );
+  status.child.finish(0, 'variant string "Playing"\n');
+  const pause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "vlc") && invokesMpris(call, "Pause"),
+    "vlc Pause"
+  );
+  pause.child.fail(new Error("spawn dbus-send ENOENT"));
+
+  assert.equal(await pausing, false);
+  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  const failure = logs.find((entry) => entry.message === "MPRIS Pause not acknowledged");
+  assert.equal(failure.meta.status, null);
+  assert.equal(failure.meta.timedOut, false);
+  assert.match(failure.meta.stderr, /ENOENT/);
+});
+
+test("linux: a hard Pause timeout remains unknown and ignores a late reply", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+  const pausing = mediaPlayer._pauseMpris();
+
+  (await waitForCall(calls, 0)).child.finish(0, 'string "org.mpris.MediaPlayer2.slow"\n');
+  const status = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && queriesPlaybackStatus(call),
+    "slow player status query"
+  );
+  status.child.finish(0, 'variant string "Playing"\n');
+  const pause = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "slow") && invokesMpris(call, "Pause"),
+    "slow player Pause"
+  );
+
+  t.mock.timers.tick(2499);
+  assert.deepEqual(pause.child.killSignals, [], "the helper gets a 500 ms exit margin");
+  t.mock.timers.tick(1);
+
+  assert.equal(await pausing, false);
+  assert.deepEqual(pause.child.killSignals, ["SIGKILL"]);
+  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  const failure = logs.find((entry) => entry.message === "MPRIS Pause not acknowledged");
+  assert.equal(failure.meta.status, null);
+  assert.equal(failure.meta.timedOut, true);
+
+  pause.child.finish(0);
+  await drain();
+  assert.deepEqual(mediaPlayer._pausedPlayers, [], "a late reply cannot become resumable");
+  assert.equal(await mediaPlayer._resumeMpris(), false);
+  assert.equal(
+    calls.some((call) => invokesMpris(call, "Play")),
+    false,
+    "an unknown Pause outcome is not compensated with Play"
+  );
+});
+
+test("linux: a failed Play reply is reported instead of logged as resumed", async () => {
+  const { mediaPlayer, calls, logs } = loadMediaPlayer("linux");
+  mediaPlayer._pausedPlayers = ["org.mpris.MediaPlayer2.vlc"];
+
+  const resuming = mediaPlayer._resumeMpris();
+  const play = await waitForMatchingCall(
+    calls,
+    (call) => targetsPlayer(call, "vlc") && invokesMpris(call, "Play"),
+    "vlc Play"
+  );
+  assert.ok(play.args.includes("--print-reply"));
+  assert.ok(play.args.includes("--reply-timeout=2000"));
+  play.child.finish(1, "", "Error org.freedesktop.DBus.Error.AccessDenied: denied");
+
+  assert.equal(await resuming, false);
+  assert.equal(
+    logs.some((entry) => entry.message === "MPRIS Play acknowledged"),
+    false
+  );
+  const failure = logs.find((entry) => entry.message === "MPRIS Play not acknowledged");
+  assert.equal(failure.meta.status, 1);
+  assert.equal(failure.meta.timedOut, false);
+  assert.match(failure.meta.stderr, /AccessDenied/);
 });
 
 test("linux: concurrent player failures and non-playing states do not block healthy pauses", async () => {

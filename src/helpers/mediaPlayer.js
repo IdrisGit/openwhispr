@@ -8,6 +8,8 @@ const { killProcess } = require("../utils/process");
 // that bound: these helpers emit a few KB, and an unbounded buffer would let a
 // runaway one grow main-process memory until its deadline.
 const MAX_OUTPUT_BYTES = 1024 * 1024;
+const MPRIS_REPLY_TIMEOUT_MS = 2000;
+const MPRIS_HELPER_TIMEOUT_MS = MPRIS_REPLY_TIMEOUT_MS + 500;
 
 // Runs `cmd args` asynchronously and resolves with
 // { status, stdout, stderr, timedOut }. Times out after `timeout` ms; on
@@ -333,21 +335,37 @@ class MediaPlayer {
         const status = await this._getMprisPlaybackStatus(dest);
         if (status !== "Playing") return;
 
-        const result = await spawnAsync(
+        const pause = spawnAsync(
           "dbus-send",
           [
             "--session",
             "--type=method_call",
+            "--print-reply",
+            `--reply-timeout=${MPRIS_REPLY_TIMEOUT_MS}`,
             `--dest=${dest}`,
             "/org/mpris/MediaPlayer2",
             "org.mpris.MediaPlayer2.Player.Pause",
           ],
-          { timeout: 2000 }
+          { timeout: MPRIS_HELPER_TIMEOUT_MS }
         );
+        debugLogger.debug("MPRIS Pause dispatched", { player: dest }, "media");
+        const result = await pause;
 
         if (result.status === 0) {
-          debugLogger.debug("Media paused via MPRIS", { player: dest }, "media");
           this._pausedPlayers.push(dest);
+          debugLogger.debug("MPRIS Pause acknowledged", { player: dest }, "media");
+        } else {
+          const stderr = result.stderr.trim();
+          debugLogger.debug(
+            "MPRIS Pause not acknowledged",
+            {
+              player: dest,
+              status: result.status,
+              timedOut: result.timedOut,
+              stderr: stderr ? stderr.slice(0, 200) : undefined,
+            },
+            "media"
+          );
         }
       })
     );
@@ -358,21 +376,37 @@ class MediaPlayer {
     let resumed = false;
     for (const dest of this._pausedPlayers) {
       if (dest === "playerctl") continue;
-      const result = await spawnAsync(
+      const play = spawnAsync(
         "dbus-send",
         [
           "--session",
           "--type=method_call",
+          "--print-reply",
+          `--reply-timeout=${MPRIS_REPLY_TIMEOUT_MS}`,
           `--dest=${dest}`,
           "/org/mpris/MediaPlayer2",
           "org.mpris.MediaPlayer2.Player.Play",
         ],
-        { timeout: 2000 }
+        { timeout: MPRIS_HELPER_TIMEOUT_MS }
       );
+      debugLogger.debug("MPRIS Play dispatched", { player: dest }, "media");
+      const result = await play;
 
       if (result.status === 0) {
-        debugLogger.debug("Media resumed via MPRIS", { player: dest }, "media");
         resumed = true;
+        debugLogger.debug("MPRIS Play acknowledged", { player: dest }, "media");
+      } else {
+        const stderr = result.stderr.trim();
+        debugLogger.debug(
+          "MPRIS Play not acknowledged",
+          {
+            player: dest,
+            status: result.status,
+            timedOut: result.timedOut,
+            stderr: stderr ? stderr.slice(0, 200) : undefined,
+          },
+          "media"
+        );
       }
     }
     return resumed;
