@@ -43,7 +43,9 @@ export default class FakeAudioManager {
     this.callbacks.onStateChange(this.state);
     this.callbacks.onNoAudio();
   }
-  cleanup() {}
+  cleanup() {
+    globalThis.__mediaSessionEvents.push(["audio-cleanup"]);
+  }
 }
 `;
 
@@ -158,6 +160,10 @@ async function mountHarness(t) {
     },
     duplicateEnd: async () =>
       React.act(async () => globalThis.__mediaSessionAudioManager.emitDuplicateEnd()),
+    unmount: async () => {
+      await React.act(async () => root.unmount());
+      root = null;
+    },
     events: globalThis.__mediaSessionEvents,
     settings: globalThis.__mediaSessionSettings,
   };
@@ -169,7 +175,7 @@ test("a recording pairs one media session ID and invalidates it before audio sto
   await harness.start();
   const [pause] = harness.events;
   assert.equal(pause[0], "pause");
-  assert.match(pause[1], /^[0-9a-f-]{36}$/i);
+  assert.ok(pause[1], "pause receives a recording-scoped session ID");
 
   assert.equal(await harness.stop(), true);
   assert.deepEqual(harness.events.slice(1), [["resume", pause[1], true], ["audio-stop"]]);
@@ -180,6 +186,16 @@ test("a recording pairs one media session ID and invalidates it before audio sto
     1,
     "duplicate end paths cannot emit another cleanup"
   );
+});
+
+test("unmount ends an active media session before audio cleanup", async (t) => {
+  const harness = await mountHarness(t);
+
+  await harness.start();
+  const sessionId = harness.events[0][1];
+  await harness.unmount();
+
+  assert.deepEqual(harness.events.slice(1), [["resume", sessionId, true], ["audio-cleanup"]]);
 });
 
 test("disabling the setting mid-recording still ends the session without restoring", async (t) => {

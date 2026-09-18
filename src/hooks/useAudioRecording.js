@@ -831,6 +831,7 @@ export const useAudioRecording = (toast, options = {}) => {
     // Cleanup
     return () => {
       reportLifecycle("idle");
+      endMediaPauseSession();
       unsubscribePolicy();
       disposeToggle?.();
       disposeVoiceAgentToggle?.();

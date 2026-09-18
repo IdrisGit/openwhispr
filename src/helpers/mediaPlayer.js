@@ -141,7 +141,7 @@ class MediaPlayer {
     ) {
       return null;
     }
-    const session = { id, active: true, restore: true, pausedPlayers: [] };
+    const session = { active: true, restore: true, pausedPlayers: [] };
     this._mediaSessions.set(id, session);
     return session;
   }
@@ -152,14 +152,6 @@ class MediaPlayer {
     session.active = false;
     session.restore = restore === true;
     return session;
-  }
-
-  _hasActiveMediaSession() {
-    return [...this._mediaSessions.values()].some((session) => session.active);
-  }
-
-  _clearMprisResumeRecords() {
-    for (const session of this._mediaSessions.values()) session.pausedPlayers = [];
   }
 
   async _runLinuxOperation(operation) {
@@ -193,13 +185,6 @@ class MediaPlayer {
     let bus;
     try {
       bus = require("@homebridge/dbus-native").sessionBus();
-      if (
-        typeof bus?.invoke !== "function" ||
-        typeof bus?.connection?.on !== "function" ||
-        typeof bus?.connection?.end !== "function"
-      ) {
-        throw new Error("dbus-native returned an invalid session bus");
-      }
 
       const generation = ++this._mprisGeneration;
       const state = { bus, generation };
@@ -310,7 +295,7 @@ class MediaPlayer {
 
     this._mprisBus = null;
     // Unique names can be reused after a bus restart, so acknowledged targets expire here too.
-    this._clearMprisResumeRecords();
+    for (const session of this._mediaSessions.values()) session.pausedPlayers = [];
     if (this._mprisRecycleGeneration === generation) this._mprisRecycleGeneration = null;
     for (const pending of this._mprisPending.values()) {
       if (pending.generation === generation) pending.reject(reason);
@@ -471,7 +456,7 @@ class MediaPlayer {
     return this._serialize(async () => {
       try {
         if (process.platform === "linux") {
-          return await this._runLinuxOperation(() => this._pauseLinux(session));
+          return await this._runLinuxOperation(() => this._pauseMpris(session));
         } else if (process.platform === "darwin") {
           return await this._pauseMacOS();
         } else if (process.platform === "win32") {
@@ -526,24 +511,24 @@ class MediaPlayer {
 
   // --- Linux: MPRIS-aware pause/resume ---
 
-  async _pauseLinux(session) {
-    return this._pauseMpris(session);
-  }
-
   async _resumeLinux() {
     // A stale end from recording A must not resume media while recording B is active.
-    if (this._hasActiveMediaSession()) return false;
+    if ([...this._mediaSessions.values()].some((session) => session.active)) return false;
 
     const players = new Set();
     for (const [id, session] of this._mediaSessions) {
-      if (session.active) continue;
-      if (session.restore) {
-        for (const owner of session.pausedPlayers) players.add(owner);
+      if (!session.restore || session.pausedPlayers.length === 0) {
+        this._mediaSessions.delete(id);
+        continue;
       }
-      this._mediaSessions.delete(id);
+      for (const owner of session.pausedPlayers) players.add(owner);
     }
     if (players.size === 0) return false;
-    return this._resumeMpris([...players]);
+    const resumed = await this._resumeMpris([...players]);
+    for (const [id, session] of this._mediaSessions) {
+      if (!session.active && session.pausedPlayers.length === 0) this._mediaSessions.delete(id);
+    }
+    return resumed;
   }
 
   async _pauseMpris(session) {
@@ -588,7 +573,18 @@ class MediaPlayer {
   async _resumeMpris(players) {
     let resumed = false;
     for (const owner of players) {
-      if (!this._isMprisOperationCurrent()) break;
+      if (
+        !this._isMprisOperationCurrent() ||
+        [...this._mediaSessions.values()].some((session) => session.active)
+      ) {
+        break;
+      }
+      // Once dispatched, the remote action cannot be canceled or safely retried.
+      for (const session of this._mediaSessions.values()) {
+        if (!session.active && session.restore) {
+          session.pausedPlayers = session.pausedPlayers.filter((candidate) => candidate !== owner);
+        }
+      }
       debugLogger.debug("MPRIS Play dispatched", { owner }, "media");
       try {
         await this._invokeMpris({

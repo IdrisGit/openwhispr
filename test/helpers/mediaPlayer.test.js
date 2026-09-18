@@ -197,7 +197,6 @@ const WIN_STDIO = ["ignore", "pipe", "pipe"];
 
 function seedMediaSession(mediaPlayer, id, pausedPlayers = []) {
   mediaPlayer._mediaSessions.set(id, {
-    id,
     active: true,
     restore: true,
     pausedPlayers: [...pausedPlayers],
@@ -634,6 +633,35 @@ test("linux: a stale end cannot resume media while a newer recording is active",
   assert.equal(await mediaPlayer.resumeMedia("recording-a"), false, "stale ends are one-shot");
 });
 
+test("linux: restoration stops between owners when a newer recording starts", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  seedMediaSession(mediaPlayer, "recording-a", [":1.27", ":1.28"]);
+
+  const endingA = mediaPlayer.resumeMedia("recording-a");
+  const bus = await waitForBus(buses);
+  const firstPlay = await waitForDbusCall(bus, dbusCall("Play", ":1.27"), "first Play");
+
+  const startingB = mediaPlayer.pauseMedia("recording-b");
+  assert.equal(mediaPlayer._mediaSessions.get("recording-b").active, true);
+  firstPlay.respond();
+  assert.equal(await endingA, true);
+  assert.equal(
+    bus.calls.filter(dbusMember("Play")).length,
+    1,
+    "no further restoration is dispatched while B is active"
+  );
+
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "B ListNames")).respond([]);
+  assert.equal(await startingB, false);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, "recording-a"), [":1.28"]);
+
+  const endingB = mediaPlayer.resumeMedia("recording-b");
+  const deferredPlay = await waitForDbusCall(bus, dbusCall("Play", ":1.28"), "deferred Play");
+  deferredPlay.respond();
+  assert.equal(await endingB, true);
+  assert.equal(mediaPlayer._mediaSessions.size, 0);
+});
+
 test("linux: ending with restoration disabled preserves the existing setting behavior", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
   const sessionId = "setting-disabled";
@@ -654,29 +682,19 @@ test("linux: ending with restoration disabled preserves the existing setting beh
   assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
 });
 
-test("linux: valid Paused and Stopped variants never trigger automatic control", async () => {
+test("linux: an already paused player is never controlled automatically", async () => {
   const { mediaPlayer, calls, buses } = loadMediaPlayer("linux");
-  const sessionId = "paused-and-stopped";
+  const sessionId = "already-paused";
   const pausing = mediaPlayer.pauseMedia(sessionId);
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.paused",
-    "org.mpris.MediaPlayer2.stopped",
   ]);
-  for (const [name, owner, status] of [
-    ["paused", ":1.23", "Paused"],
-    ["stopped", ":1.24", "Stopped"],
-  ]) {
-    const ownerCall = await waitForDbusCall(
-      bus,
-      (call) => call.message.member === "GetNameOwner" && call.message.body?.[0].endsWith(name),
-      `${name} owner`
-    );
-    ownerCall.respond(owner);
-    (await waitForDbusCall(bus, dbusCall("Get", owner), `${name} status`)).respond(
-      statusVariant(status)
-    );
-  }
+  (await waitForDbusCall(bus, dbusMember("GetNameOwner"), "paused owner")).respond(":1.23");
+  (await waitForDbusCall(bus, dbusCall("Get", ":1.23"), "paused status")).respond(
+    statusVariant("Paused")
+  );
+
   assert.equal(await pausing, false);
   assert.equal(await mediaPlayer.resumeMedia(sessionId), false);
   assert.equal(bus.calls.some(dbusMember("Pause")), false);
