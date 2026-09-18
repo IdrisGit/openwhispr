@@ -299,12 +299,12 @@ export const useAudioRecording = (toast, options = {}) => {
       if (!currentState.isRecording && !currentState.isStreamingStartInProgress) return false;
 
       window.electronAPI?.unregisterCancelHotkey?.();
-      endMediaPauseSession();
       setIsPreparing(false);
       setIsStopping(true);
       // Contract to the stable thinking state before MediaRecorder/streaming
       // finalization can occupy the renderer on slower Windows machines.
       await waitForVisualFrames();
+      endMediaPauseSession();
 
       if (currentState.isStreaming || currentState.isStreamingStartInProgress) {
         void playStopCue();

@@ -573,40 +573,44 @@ class MediaPlayer {
   }
 
   async _resumeMpris(players) {
-    let resumed = false;
-    for (const owner of players) {
-      if (
-        !this._isMprisOperationCurrent() ||
-        [...this._mediaSessions.values()].some((session) => session.active)
-      ) {
-        break;
-      }
-      // Once dispatched, the remote action cannot be canceled or safely retried.
-      for (const session of this._mediaSessions.values()) {
-        if (!session.active && session.restore) {
-          session.pausedPlayers = session.pausedPlayers.filter((candidate) => candidate !== owner);
+    const results = await Promise.all(
+      players.map(async (owner) => {
+        if (
+          !this._isMprisOperationCurrent() ||
+          [...this._mediaSessions.values()].some((session) => session.active)
+        ) {
+          return false;
         }
-      }
-      debugLogger.debug("MPRIS Play dispatched", { owner }, "media");
-      try {
-        await this._invokeMpris({
-          destination: owner,
-          path: MPRIS_PLAYER_PATH,
-          interface: MPRIS_PLAYER_INTERFACE,
-          member: "Play",
-        });
-        if (!this._isMprisOperationCurrent()) break;
-        resumed = true;
-        debugLogger.debug("MPRIS Play acknowledged", { owner }, "media");
-      } catch (err) {
-        debugLogger.debug(
-          "MPRIS Play not acknowledged",
-          this._mprisErrorMeta(err, { owner }),
-          "media"
-        );
-      }
-    }
-    return resumed;
+        // Once dispatched, the remote action cannot be canceled or safely retried.
+        for (const session of this._mediaSessions.values()) {
+          if (!session.active && session.restore) {
+            session.pausedPlayers = session.pausedPlayers.filter(
+              (candidate) => candidate !== owner
+            );
+          }
+        }
+        debugLogger.debug("MPRIS Play dispatched", { owner }, "media");
+        try {
+          await this._invokeMpris({
+            destination: owner,
+            path: MPRIS_PLAYER_PATH,
+            interface: MPRIS_PLAYER_INTERFACE,
+            member: "Play",
+          });
+          if (!this._isMprisOperationCurrent()) return false;
+          debugLogger.debug("MPRIS Play acknowledged", { owner }, "media");
+          return true;
+        } catch (err) {
+          debugLogger.debug(
+            "MPRIS Play not acknowledged",
+            this._mprisErrorMeta(err, { owner }),
+            "media"
+          );
+          return false;
+        }
+      })
+    );
+    return results.some(Boolean);
   }
 
   async _listMprisPlayers() {

@@ -633,32 +633,19 @@ test("linux: a stale end cannot resume media while a newer recording is active",
   assert.equal(await mediaPlayer.resumeMedia("recording-a"), false, "stale ends are one-shot");
 });
 
-test("linux: restoration stops between owners when a newer recording starts", async () => {
+test("linux: a stuck player does not delay healthy restoration", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
   seedMediaSession(mediaPlayer, "recording-a", [":1.27", ":1.28"]);
 
   const endingA = mediaPlayer.resumeMedia("recording-a");
   const bus = await waitForBus(buses);
-  const firstPlay = await waitForDbusCall(bus, dbusCall("Play", ":1.27"), "first Play");
+  await waitForDbusCall(bus, dbusCall("Play", ":1.27"), "stuck Play");
+  const healthyPlay = await waitForDbusCall(bus, dbusCall("Play", ":1.28"), "healthy Play");
+  healthyPlay.respond();
 
-  const startingB = mediaPlayer.pauseMedia("recording-b");
-  assert.equal(mediaPlayer._mediaSessions.get("recording-b").active, true);
-  firstPlay.respond();
+  t.mock.timers.tick(2000);
   assert.equal(await endingA, true);
-  assert.equal(
-    bus.calls.filter(dbusMember("Play")).length,
-    1,
-    "no further restoration is dispatched while B is active"
-  );
-
-  (await waitForDbusCall(bus, dbusMember("ListNames"), "B ListNames")).respond([]);
-  assert.equal(await startingB, false);
-  assert.deepEqual(pausedPlayersFor(mediaPlayer, "recording-a"), [":1.28"]);
-
-  const endingB = mediaPlayer.resumeMedia("recording-b");
-  const deferredPlay = await waitForDbusCall(bus, dbusCall("Play", ":1.28"), "deferred Play");
-  deferredPlay.respond();
-  assert.equal(await endingB, true);
   assert.equal(mediaPlayer._mediaSessions.size, 0);
 });
 
@@ -939,10 +926,11 @@ test("linux: disconnect during multi-owner resume cannot reconnect within the op
   const resuming = mediaPlayer.resumeMedia(sessionId);
   const bus = await waitForBus(buses);
   await waitForDbusCall(bus, dbusCall("Play", ":1.55"), "first Play");
+  await waitForDbusCall(bus, dbusCall("Play", ":1.56"), "second Play");
 
   bus.connection.emit("end");
   assert.equal(await resuming, false);
-  assert.equal(bus.calls.filter(dbusMember("Play")).length, 1);
+  assert.equal(bus.calls.filter(dbusMember("Play")).length, 2);
   assert.equal(buses.length, 1);
   assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
 
@@ -1087,17 +1075,18 @@ test("linux: close is idempotent and terminal for pending, queued, and future wo
   assert.equal(mediaPlayer._mediaSessions.size, 0);
 });
 
-test("linux: close during multi-owner resume cannot reconnect for the next owner", async () => {
+test("linux: close during multi-owner resume rejects every pending request", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
   const sessionId = "shutdown-resume";
   seedMediaSession(mediaPlayer, sessionId, [":1.62", ":1.63"]);
   const resuming = mediaPlayer.resumeMedia(sessionId);
   const bus = await waitForBus(buses);
   await waitForDbusCall(bus, dbusCall("Play", ":1.62"), "first Play");
+  await waitForDbusCall(bus, dbusCall("Play", ":1.63"), "second Play");
 
   mediaPlayer.close();
   assert.equal(await resuming, false);
-  assert.equal(bus.calls.filter(dbusMember("Play")).length, 1);
+  assert.equal(bus.calls.filter(dbusMember("Play")).length, 2);
   assert.equal(buses.length, 1);
   assert.equal(mediaPlayer._mediaSessions.size, 0);
 });

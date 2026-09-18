@@ -114,8 +114,11 @@ async function mountHarness(t) {
     },
   });
   const container = installHookDom(t);
+  let holdFrames = false;
+  const pendingFrames = [];
   globalThis.requestAnimationFrame = (callback) => {
-    callback();
+    if (holdFrames) pendingFrames.push(callback);
+    else callback();
     return 1;
   };
 
@@ -166,10 +169,17 @@ async function mountHarness(t) {
     },
     events: globalThis.__mediaSessionEvents,
     settings: globalThis.__mediaSessionSettings,
+    holdFrames: () => {
+      holdFrames = true;
+    },
+    releaseFrames: () => {
+      holdFrames = false;
+      while (pendingFrames.length) pendingFrames.shift()(0);
+    },
   };
 }
 
-test("a recording pairs one media session ID and invalidates it before audio stop", async (t) => {
+test("a recording keeps media paused until immediately before audio stop", async (t) => {
   const harness = await mountHarness(t);
 
   await harness.start();
@@ -177,7 +187,12 @@ test("a recording pairs one media session ID and invalidates it before audio sto
   assert.equal(pause[0], "pause");
   assert.ok(pause[1], "pause receives a recording-scoped session ID");
 
-  assert.equal(await harness.stop(), true);
+  harness.holdFrames();
+  const stopping = harness.stop();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(harness.events.slice(1), [], "media stays paused during the visual wait");
+  harness.releaseFrames();
+  assert.equal(await stopping, true);
   assert.deepEqual(harness.events.slice(1), [["resume", pause[1], true], ["audio-stop"]]);
 
   await harness.duplicateEnd();
