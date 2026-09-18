@@ -662,7 +662,7 @@ test("linux: restoration stops between owners when a newer recording starts", as
   assert.equal(mediaPlayer._mediaSessions.size, 0);
 });
 
-test("linux: ending with restoration disabled preserves the existing setting behavior", async () => {
+test("linux: ending with restoration disabled also releases a pending timeout recycle", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
   const sessionId = "setting-disabled";
   const pausing = mediaPlayer.pauseMedia(sessionId);
@@ -677,9 +677,12 @@ test("linux: ending with restoration disabled preserves the existing setting beh
   (await waitForDbusCall(bus, dbusCall("Pause", ":1.26"), "Pause")).respond();
   assert.equal(await pausing, true);
 
+  // An unrelated timed-out call can leave this connection waiting for its saved owners.
+  mediaPlayer._mprisRecycleGeneration = mediaPlayer._mprisBus.generation;
   assert.equal(await mediaPlayer.resumeMedia(sessionId, false), false);
   assert.equal(bus.calls.some(dbusMember("Play")), false);
   assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+  assert.equal(bus.connection.endCount, 1);
 });
 
 test("linux: an already paused player is never controlled automatically", async () => {
@@ -803,7 +806,7 @@ test("linux: only acknowledged Pauses are restored once and D-Bus errors stay tr
   assert.deepEqual(calls, []);
 });
 
-test("linux: timeout is unknown, siblings settle before recycle, and late callbacks are stale", async (t) => {
+test("linux: timeout preserves healthy restoration before recycling and ignores late replies", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { mediaPlayer, calls, buses, logs } = loadMediaPlayer("linux");
   const sessionId = "timeout";
@@ -847,12 +850,8 @@ test("linux: timeout is unknown, siblings settle before recycle, and late callba
   assert.equal(bus.connection.endCount, 0, "timeout recycle waits for the operation boundary");
   healthyPause.respond();
   assert.equal(await pausing, true, "the healthy Pause was still acknowledged");
-  assert.equal(bus.connection.endCount, 1);
-  assert.deepEqual(
-    pausedPlayersFor(mediaPlayer, sessionId),
-    [],
-    "boundary recycle discards every owner from the old connection"
-  );
+  assert.equal(bus.connection.endCount, 0, "healthy restoration keeps its original connection");
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, sessionId), [":1.51"]);
   const timeoutLog = logs.find(
     (entry) => entry.message === "MPRIS Pause not acknowledged" && entry.meta.owner === ":1.50"
   );
@@ -861,15 +860,38 @@ test("linux: timeout is unknown, siblings settle before recycle, and late callba
 
   slowPause.respond();
   await drain();
-  assert.deepEqual(pausedPlayersFor(mediaPlayer, sessionId), []);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, sessionId), [":1.51"]);
+  const resuming = mediaPlayer.resumeMedia(sessionId);
+  const play = await waitForDbusCall(bus, dbusCall("Play", ":1.51"), "healthy Play");
+  assert.equal(buses.length, 1, "restoration never crosses connections");
+  assert.equal(bus.connection.endCount, 0);
+  play.respond();
+  assert.equal(await resuming, true);
+  assert.equal(bus.calls.filter(dbusMember("Play")).length, 1, "unknown Pause is not restored");
+  assert.equal(bus.connection.endCount, 1, "recycle follows completed restoration");
   assert.equal(await mediaPlayer.resumeMedia(sessionId), false);
-  assert.equal(buses.length, 1, "resume with no safe records does not reconnect");
 
   const nextPause = mediaPlayer.pauseMedia("after-timeout");
   const nextBus = await waitForBus(buses, 1);
   (await waitForDbusCall(nextBus, dbusMember("ListNames"), "fresh ListNames")).respond([]);
-  assert.equal(await nextPause, false, "a later operation can reconnect safely");
+  assert.equal(await nextPause, false);
   assert.deepEqual(calls, []);
+});
+
+test("linux: a timeout without acknowledged owners recycles immediately", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const pausing = mediaPlayer.pauseMedia("timeout-no-owners");
+  const bus = await waitForBus(buses);
+  const list = await waitForDbusCall(bus, dbusMember("ListNames"), "pending discovery");
+  t.mock.timers.tick(2000);
+  assert.equal(await pausing, false);
+  assert.equal(bus.connection.endCount, 1);
+  list.respond(["org.mpris.MediaPlayer2.late"]);
+  await drain();
+  assert.equal(bus.calls.length, 1, "late discovery cannot send player requests");
+  assert.equal(await mediaPlayer.resumeMedia("timeout-no-owners"), false);
+  assert.equal(buses.length, 1);
 });
 
 test("linux: connection error, end, and stream close reject pending work and reconnect", async () => {

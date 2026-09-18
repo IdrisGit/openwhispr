@@ -309,6 +309,8 @@ class MediaPlayer {
   _recycleMprisConnection() {
     const generation = this._mprisRecycleGeneration;
     if (generation === null) return;
+    // Restore on the original connection; actual disconnects still discard unsafe owners.
+    if ([...this._mediaSessions.values()].some((session) => session.pausedPlayers.length)) return;
     this._mprisRecycleGeneration = null;
     if (this._mprisBus?.generation !== generation) return;
     this._invalidateMprisConnection(generation, new Error("MPRIS connection recycled"));
