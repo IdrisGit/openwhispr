@@ -195,6 +195,18 @@ const MPRIS_PLAYER_PATH = "/org/mpris/MediaPlayer2";
 const MPRIS_PLAYER_INTERFACE = "org.mpris.MediaPlayer2.Player";
 const WIN_STDIO = ["ignore", "pipe", "pipe"];
 
+function seedMediaSession(mediaPlayer, id, pausedPlayers = []) {
+  mediaPlayer._mediaSessions.set(id, {
+    id,
+    active: true,
+    restore: true,
+    pausedPlayers: [...pausedPlayers],
+  });
+}
+
+const pausedPlayersFor = (mediaPlayer, id) =>
+  mediaPlayer._mediaSessions.get(id)?.pausedPlayers ?? [];
+
 test("win32: GSMTC pause runs asynchronously and records acknowledged apps", async () => {
   const { mediaPlayer, calls } = loadMediaPlayer("win32");
   const pausing = mediaPlayer.pauseMedia();
@@ -390,8 +402,9 @@ test("linux: one lazy bus is reused and a slow owner does not delay a healthy Pa
   const { mediaPlayer, calls, buses, logs } = loadMediaPlayer("linux");
   assert.equal(buses.length, 0, "importing the helper must not connect");
 
+  const sessionId = "slow-and-healthy";
   let pauseSettled = false;
-  const pausing = mediaPlayer.pauseMedia().then((result) => {
+  const pausing = mediaPlayer.pauseMedia(sessionId).then((result) => {
     pauseSettled = true;
     return result;
   });
@@ -458,7 +471,7 @@ test("linux: one lazy bus is reused and a slow owner does not delay a healthy Pa
   );
   pause.respond();
 
-  const resuming = mediaPlayer.resumeMedia();
+  const resuming = mediaPlayer.resumeMedia(sessionId);
   await drain();
   assert.equal(pauseSettled, false);
   assert.equal(bus.calls.some(dbusMember("Play")), false);
@@ -476,9 +489,10 @@ test("linux: one lazy bus is reused and a slow owner does not delay a healthy Pa
   play.respond();
   assert.equal(await resuming, true);
   assert.equal(buses.length, 1, "pause and resume reuse the media-owned bus");
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
 
-  const nextPause = mediaPlayer.pauseMedia();
+  const nextSessionId = "next";
+  const nextPause = mediaPlayer.pauseMedia(nextSessionId);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "next ListNames", 1)).respond([
     "org.mpris.MediaPlayer2.next",
   ]);
@@ -493,14 +507,157 @@ test("linux: one lazy bus is reused and a slow owner does not delay a healthy Pa
   );
   (await waitForDbusCall(bus, dbusCall("Pause", ":1.22"), "next Pause")).respond();
   assert.equal(await nextPause, true);
-  assert.deepEqual(mediaPlayer._pausedPlayers, [":1.22"]);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, nextSessionId), [":1.22"]);
   assert.equal(buses.length, 1, "the next serialized operation still reuses the bus");
   assert.deepEqual(calls, [], "automatic Linux MPRIS never spawns a helper");
 });
 
+test("linux: ending before queued pause work starts avoids opening D-Bus", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const sessionId = "ended-before-start";
+
+  const pausing = mediaPlayer.pauseMedia(sessionId);
+  const resuming = mediaPlayer.resumeMedia(sessionId);
+
+  assert.equal(await pausing, false);
+  assert.equal(await resuming, false);
+  assert.equal(buses.length, 0);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+});
+
+test("linux: ending during discovery or owner lookup stops that session's chain", async () => {
+  for (const stage of ["discovery", "owner"]) {
+    const { mediaPlayer, buses } = loadMediaPlayer("linux");
+    const sessionId = `quick-stop-${stage}`;
+    const pausing = mediaPlayer.pauseMedia(sessionId);
+    const bus = await waitForBus(buses);
+    const list = await waitForDbusCall(bus, dbusMember("ListNames"), `${stage} ListNames`);
+
+    if (stage === "discovery") {
+      const resuming = mediaPlayer.resumeMedia(sessionId);
+      list.respond(["org.mpris.MediaPlayer2.slow"]);
+      assert.equal(await pausing, false);
+      assert.equal(await resuming, false);
+      assert.equal(bus.calls.some(dbusMember("GetNameOwner")), false);
+    } else {
+      list.respond(["org.mpris.MediaPlayer2.slow"]);
+      const owner = await waitForDbusCall(bus, dbusMember("GetNameOwner"), "pending owner");
+      const resuming = mediaPlayer.resumeMedia(sessionId);
+      owner.respond(":1.22");
+      assert.equal(await pausing, false);
+      assert.equal(await resuming, false);
+      assert.equal(bus.calls.some(dbusMember("Get")), false);
+    }
+    assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+    mediaPlayer.close();
+  }
+});
+
+test("linux: ending a session during status lookup suppresses its unsent Pause", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const sessionId = "quick-stop-before-pause";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
+  const bus = await waitForBus(buses);
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
+    "org.mpris.MediaPlayer2.slow",
+  ]);
+  (await waitForDbusCall(bus, dbusMember("GetNameOwner"), "GetNameOwner")).respond(":1.23");
+  const status = await waitForDbusCall(bus, dbusCall("Get", ":1.23"), "pending status");
+
+  const resuming = mediaPlayer.resumeMedia(sessionId);
+  status.respond(statusVariant("Playing"));
+
+  assert.equal(await pausing, false);
+  assert.equal(await resuming, false);
+  assert.equal(bus.calls.some(dbusMember("Pause")), false);
+  assert.equal(bus.calls.some(dbusMember("Play")), false);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+});
+
+test("linux: ending after Pause dispatch restores only after its acknowledgment", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const sessionId = "quick-stop-after-dispatch";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
+  const bus = await waitForBus(buses);
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
+    "org.mpris.MediaPlayer2.healthy",
+  ]);
+  (await waitForDbusCall(bus, dbusMember("GetNameOwner"), "GetNameOwner")).respond(":1.24");
+  (await waitForDbusCall(bus, dbusCall("Get", ":1.24"), "status")).respond(
+    statusVariant("Playing")
+  );
+  const pause = await waitForDbusCall(bus, dbusCall("Pause", ":1.24"), "pending Pause");
+
+  const resuming = mediaPlayer.resumeMedia(sessionId);
+  pause.respond();
+  assert.equal(await pausing, true);
+  const play = await waitForDbusCall(bus, dbusCall("Play", ":1.24"), "targeted Play");
+  play.respond();
+
+  assert.equal(await resuming, true);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+});
+
+test("linux: a stale end cannot resume media while a newer recording is active", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const firstPause = mediaPlayer.pauseMedia("recording-a");
+  const bus = await waitForBus(buses);
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "A ListNames")).respond([
+    "org.mpris.MediaPlayer2.zen",
+  ]);
+  (await waitForDbusCall(bus, dbusMember("GetNameOwner"), "A owner")).respond(":1.25");
+  (await waitForDbusCall(bus, dbusCall("Get", ":1.25"), "A status")).respond(
+    statusVariant("Playing")
+  );
+  (await waitForDbusCall(bus, dbusCall("Pause", ":1.25"), "A Pause")).respond();
+  assert.equal(await firstPause, true);
+
+  const secondPause = mediaPlayer.pauseMedia("recording-b");
+  const staleResume = mediaPlayer.resumeMedia("recording-a");
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "B ListNames", 1)).respond([
+    "org.mpris.MediaPlayer2.zen",
+  ]);
+  const secondOwner = await waitForDbusCall(bus, dbusMember("GetNameOwner"), "B owner", 1);
+  secondOwner.respond(":1.25");
+  (await waitForDbusCall(bus, dbusCall("Get", ":1.25"), "B status", 1)).respond(
+    statusVariant("Paused")
+  );
+
+  assert.equal(await secondPause, false);
+  assert.equal(await staleResume, false);
+  assert.equal(bus.calls.some(dbusMember("Play")), false, "A cannot resume during B");
+
+  const finalResume = mediaPlayer.resumeMedia("recording-b");
+  const play = await waitForDbusCall(bus, dbusCall("Play", ":1.25"), "Play after B ends");
+  play.respond();
+  assert.equal(await finalResume, true);
+  assert.equal(await mediaPlayer.resumeMedia("recording-a"), false, "stale ends are one-shot");
+});
+
+test("linux: ending with restoration disabled preserves the existing setting behavior", async () => {
+  const { mediaPlayer, buses } = loadMediaPlayer("linux");
+  const sessionId = "setting-disabled";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
+  const bus = await waitForBus(buses);
+  (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
+    "org.mpris.MediaPlayer2.zen",
+  ]);
+  (await waitForDbusCall(bus, dbusMember("GetNameOwner"), "owner")).respond(":1.26");
+  (await waitForDbusCall(bus, dbusCall("Get", ":1.26"), "status")).respond(
+    statusVariant("Playing")
+  );
+  (await waitForDbusCall(bus, dbusCall("Pause", ":1.26"), "Pause")).respond();
+  assert.equal(await pausing, true);
+
+  assert.equal(await mediaPlayer.resumeMedia(sessionId, false), false);
+  assert.equal(bus.calls.some(dbusMember("Play")), false);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
+});
+
 test("linux: valid Paused and Stopped variants never trigger automatic control", async () => {
   const { mediaPlayer, calls, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const sessionId = "paused-and-stopped";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.paused",
@@ -521,7 +678,7 @@ test("linux: valid Paused and Stopped variants never trigger automatic control",
     );
   }
   assert.equal(await pausing, false);
-  assert.equal(await mediaPlayer.resumeMedia(), false);
+  assert.equal(await mediaPlayer.resumeMedia(sessionId), false);
   assert.equal(bus.calls.some(dbusMember("Pause")), false);
   assert.equal(bus.calls.some(dbusMember("Play")), false);
   assert.deepEqual(calls, []);
@@ -529,7 +686,7 @@ test("linux: valid Paused and Stopped variants never trigger automatic control",
 
 test("linux: aliases deduplicate unique owners and malformed owners or variants fail closed", async () => {
   const { mediaPlayer, calls, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const pausing = mediaPlayer.pauseMedia("aliases");
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.alias_one",
@@ -567,7 +724,8 @@ test("linux: aliases deduplicate unique owners and malformed owners or variants 
 
 test("linux: only acknowledged Pauses are restored once and D-Bus errors stay truthful", async () => {
   const { mediaPlayer, calls, buses, logs } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const sessionId = "acknowledged-only";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.first",
@@ -598,7 +756,7 @@ test("linux: only acknowledged Pauses are restored once and D-Bus errors stay tr
   secondPause.respond();
   failedPause.fail("org.freedesktop.DBus.Error.AccessDenied", "denied".repeat(100));
   assert.equal(await pausing, true);
-  assert.deepEqual(new Set(mediaPlayer._pausedPlayers), new Set([":1.40", ":1.41"]));
+  assert.deepEqual(new Set(pausedPlayersFor(mediaPlayer, sessionId)), new Set([":1.40", ":1.41"]));
 
   const failure = logs.find(
     (entry) => entry.message === "MPRIS Pause not acknowledged" && entry.meta.owner === ":1.42"
@@ -608,7 +766,7 @@ test("linux: only acknowledged Pauses are restored once and D-Bus errors stay tr
   assert.equal(failure.meta.error.length, 200, "D-Bus error logs stay bounded");
   assert.equal(failure.meta.timedOut, false);
 
-  const resuming = mediaPlayer.resumeMedia();
+  const resuming = mediaPlayer.resumeMedia(sessionId);
   const firstPlay = await waitForDbusCall(bus, dbusMember("Play"), "first Play");
   firstPlay.respond();
   const secondPlay = await waitForDbusCall(bus, dbusMember("Play"), "second Play", 1);
@@ -622,7 +780,7 @@ test("linux: only acknowledged Pauses are restored once and D-Bus errors stay tr
   );
 
   const callCount = bus.calls.length;
-  assert.equal(await mediaPlayer.resumeMedia(), false);
+  assert.equal(await mediaPlayer.resumeMedia(sessionId), false);
   assert.equal(bus.calls.length, callCount, "resume records are consumed before Play");
   assert.deepEqual(calls, []);
 });
@@ -630,8 +788,9 @@ test("linux: only acknowledged Pauses are restored once and D-Bus errors stay tr
 test("linux: timeout is unknown, siblings settle before recycle, and late callbacks are stale", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const { mediaPlayer, calls, buses, logs } = loadMediaPlayer("linux");
+  const sessionId = "timeout";
   let settled = false;
-  const pausing = mediaPlayer.pauseMedia().then((result) => {
+  const pausing = mediaPlayer.pauseMedia(sessionId).then((result) => {
     settled = true;
     return result;
   });
@@ -672,7 +831,7 @@ test("linux: timeout is unknown, siblings settle before recycle, and late callba
   assert.equal(await pausing, true, "the healthy Pause was still acknowledged");
   assert.equal(bus.connection.endCount, 1);
   assert.deepEqual(
-    mediaPlayer._pausedPlayers,
+    pausedPlayersFor(mediaPlayer, sessionId),
     [],
     "boundary recycle discards every owner from the old connection"
   );
@@ -684,11 +843,11 @@ test("linux: timeout is unknown, siblings settle before recycle, and late callba
 
   slowPause.respond();
   await drain();
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
-  assert.equal(await mediaPlayer.resumeMedia(), false);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, sessionId), []);
+  assert.equal(await mediaPlayer.resumeMedia(sessionId), false);
   assert.equal(buses.length, 1, "resume with no safe records does not reconnect");
 
-  const nextPause = mediaPlayer.pauseMedia();
+  const nextPause = mediaPlayer.pauseMedia("after-timeout");
   const nextBus = await waitForBus(buses, 1);
   (await waitForDbusCall(nextBus, dbusMember("ListNames"), "fresh ListNames")).respond([]);
   assert.equal(await nextPause, false, "a later operation can reconnect safely");
@@ -705,7 +864,7 @@ test("linux: connection error, end, and stream close reject pending work and rec
   const staleCalls = [];
 
   for (let index = 0; index < events.length; index += 1) {
-    const pausing = mediaPlayer.pauseMedia();
+    const pausing = mediaPlayer.pauseMedia(`disconnect-${index}`);
     const bus = await waitForBus(buses, index);
     const list = await waitForDbusCall(bus, dbusMember("ListNames"), "pending ListNames");
     staleCalls.push(list);
@@ -713,7 +872,7 @@ test("linux: connection error, end, and stream close reject pending work and rec
     assert.equal(await pausing, false);
   }
 
-  const finalPause = mediaPlayer.pauseMedia();
+  const finalPause = mediaPlayer.pauseMedia("after-disconnects");
   const finalBus = await waitForBus(buses, 3);
   (await waitForDbusCall(finalBus, dbusMember("ListNames"), "reconnected ListNames")).respond([]);
   assert.equal(await finalPause, false);
@@ -721,7 +880,9 @@ test("linux: connection error, end, and stream close reject pending work and rec
 
   for (const call of staleCalls) call.respond(["org.mpris.MediaPlayer2.stale"]);
   await drain();
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  for (const session of mediaPlayer._mediaSessions.values()) {
+    assert.deepEqual(session.pausedPlayers, []);
+  }
   const disconnectLogs = logs.filter((entry) => entry.message === "MPRIS D-Bus connection lost");
   assert.equal(disconnectLogs.length, 3);
   assert.deepEqual(
@@ -733,8 +894,9 @@ test("linux: connection error, end, and stream close reject pending work and rec
 
 test("linux: disconnect during multi-owner resume cannot reconnect within the operation", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  mediaPlayer._pausedPlayers = [":1.55", ":1.56"];
-  const resuming = mediaPlayer.resumeMedia();
+  const sessionId = "multi-owner-resume";
+  seedMediaSession(mediaPlayer, sessionId, [":1.55", ":1.56"]);
+  const resuming = mediaPlayer.resumeMedia(sessionId);
   const bus = await waitForBus(buses);
   await waitForDbusCall(bus, dbusCall("Play", ":1.55"), "first Play");
 
@@ -742,9 +904,9 @@ test("linux: disconnect during multi-owner resume cannot reconnect within the op
   assert.equal(await resuming, false);
   assert.equal(bus.calls.filter(dbusMember("Play")).length, 1);
   assert.equal(buses.length, 1);
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.has(sessionId), false);
 
-  const nextPause = mediaPlayer.pauseMedia();
+  const nextPause = mediaPlayer.pauseMedia("after-resume-disconnect");
   const nextBus = await waitForBus(buses, 1);
   (await waitForDbusCall(nextBus, dbusMember("ListNames"), "fresh ListNames")).respond([]);
   assert.equal(await nextPause, false);
@@ -752,7 +914,8 @@ test("linux: disconnect during multi-owner resume cannot reconnect within the op
 
 test("linux: disconnect after a Pause reply cannot repopulate restoration tracking", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const sessionId = "pause-reply-disconnect";
+  const pausing = mediaPlayer.pauseMedia(sessionId);
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.vlc",
@@ -766,13 +929,13 @@ test("linux: disconnect after a Pause reply cannot repopulate restoration tracki
   bus.connection.emit("end");
 
   assert.equal(await pausing, false);
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, sessionId), []);
   assert.equal(buses.length, 1);
 });
 
 test("linux: disconnect after status resolution cannot dispatch Pause on a new connection", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const pausing = mediaPlayer.pauseMedia("status-disconnect");
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.vlc",
@@ -789,7 +952,8 @@ test("linux: disconnect after status resolution cannot dispatch Pause on a new c
 
 test("linux: idle disconnect clears records and stale events cannot clear new records", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  const firstPause = mediaPlayer.pauseMedia();
+  const firstSessionId = "first-idle-disconnect";
+  const firstPause = mediaPlayer.pauseMedia(firstSessionId);
   const firstBus = await waitForBus(buses);
   (await waitForDbusCall(firstBus, dbusMember("ListNames"), "first ListNames")).respond([
     "org.mpris.MediaPlayer2.first",
@@ -800,14 +964,15 @@ test("linux: idle disconnect clears records and stale events cannot clear new re
   );
   (await waitForDbusCall(firstBus, dbusCall("Pause", ":1.59"), "first Pause")).respond();
   assert.equal(await firstPause, true);
-  assert.deepEqual(mediaPlayer._pausedPlayers, [":1.59"]);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, firstSessionId), [":1.59"]);
 
   firstBus.connection.emit("end");
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
-  assert.equal(await mediaPlayer.resumeMedia(), false);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, firstSessionId), []);
+  assert.equal(await mediaPlayer.resumeMedia(firstSessionId), false);
   assert.equal(buses.length, 1);
 
-  const secondPause = mediaPlayer.pauseMedia();
+  const secondSessionId = "second-idle-disconnect";
+  const secondPause = mediaPlayer.pauseMedia(secondSessionId);
   const secondBus = await waitForBus(buses, 1);
   (await waitForDbusCall(secondBus, dbusMember("ListNames"), "second ListNames")).respond([
     "org.mpris.MediaPlayer2.second",
@@ -818,11 +983,11 @@ test("linux: idle disconnect clears records and stale events cannot clear new re
   );
   (await waitForDbusCall(secondBus, dbusCall("Pause", ":1.60"), "second Pause")).respond();
   assert.equal(await secondPause, true);
-  assert.deepEqual(mediaPlayer._pausedPlayers, [":1.60"]);
+  assert.deepEqual(pausedPlayersFor(mediaPlayer, secondSessionId), [":1.60"]);
 
   firstBus.connection.stream.emit("close");
   assert.deepEqual(
-    mediaPlayer._pausedPlayers,
+    pausedPlayersFor(mediaPlayer, secondSessionId),
     [":1.60"],
     "a delayed old-generation event cannot clear current records"
   );
@@ -860,18 +1025,17 @@ test("linux: disconnect during linux-fast-paste prevents playerctl fallback", as
 
 test("linux: close is idempotent and terminal for pending, queued, and future work", async () => {
   const { mediaPlayer, calls, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const pausing = mediaPlayer.pauseMedia("shutdown");
   const queuedToggle = mediaPlayer.toggleMedia();
   const bus = await waitForBus(buses);
   const list = await waitForDbusCall(bus, dbusMember("ListNames"), "pending ListNames");
-  mediaPlayer._pausedPlayers = [":1.60"];
 
   mediaPlayer.close();
   assert.equal(bus.connection.endCount, 1);
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.size, 0);
   assert.equal(await pausing, false);
   assert.equal(await queuedToggle, false);
-  assert.equal(await mediaPlayer.pauseMedia(), false);
+  assert.equal(await mediaPlayer.pauseMedia("after-shutdown"), false);
   assert.equal(await mediaPlayer.toggleMedia(), false);
   assert.equal(buses.length, 1, "shutdown work cannot reconnect");
   assert.deepEqual(calls, [], "shutdown work cannot spawn explicit fallbacks");
@@ -880,13 +1044,14 @@ test("linux: close is idempotent and terminal for pending, queued, and future wo
   assert.equal(bus.connection.endCount, 1);
   list.respond(["org.mpris.MediaPlayer2.stale"]);
   await drain();
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.size, 0);
 });
 
 test("linux: close during multi-owner resume cannot reconnect for the next owner", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  mediaPlayer._pausedPlayers = [":1.62", ":1.63"];
-  const resuming = mediaPlayer.resumeMedia();
+  const sessionId = "shutdown-resume";
+  seedMediaSession(mediaPlayer, sessionId, [":1.62", ":1.63"]);
+  const resuming = mediaPlayer.resumeMedia(sessionId);
   const bus = await waitForBus(buses);
   await waitForDbusCall(bus, dbusCall("Play", ":1.62"), "first Play");
 
@@ -894,12 +1059,12 @@ test("linux: close during multi-owner resume cannot reconnect for the next owner
   assert.equal(await resuming, false);
   assert.equal(bus.calls.filter(dbusMember("Play")).length, 1);
   assert.equal(buses.length, 1);
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.size, 0);
 });
 
 test("linux: close after a Pause reply cannot restore tracking", async () => {
   const { mediaPlayer, buses } = loadMediaPlayer("linux");
-  const pausing = mediaPlayer.pauseMedia();
+  const pausing = mediaPlayer.pauseMedia("shutdown-after-pause");
   const bus = await waitForBus(buses);
   (await waitForDbusCall(bus, dbusMember("ListNames"), "ListNames")).respond([
     "org.mpris.MediaPlayer2.vlc",
@@ -913,7 +1078,7 @@ test("linux: close after a Pause reply cannot restore tracking", async () => {
   mediaPlayer.close();
 
   assert.equal(await pausing, false);
-  assert.deepEqual(mediaPlayer._pausedPlayers, []);
+  assert.equal(mediaPlayer._mediaSessions.size, 0);
   assert.equal(bus.connection.endCount, 1);
 });
 
@@ -933,7 +1098,7 @@ test("linux: close during native toggle never starts an explicit fallback", asyn
 
 test("linux: package failure keeps explicit fallback while automatic control fails closed", async () => {
   const missing = loadMediaPlayer("linux", { dbusLoadError: new Error("module missing") });
-  assert.equal(await missing.mediaPlayer.pauseMedia(), false);
+  assert.equal(await missing.mediaPlayer.pauseMedia("missing-package"), false);
   assert.equal(missing.buses.length, 0);
   assert.deepEqual(missing.calls, []);
 
@@ -957,7 +1122,7 @@ test("linux: package failure keeps explicit fallback while automatic control fai
       return bus;
     },
   });
-  assert.equal(await throwing.mediaPlayer.pauseMedia(), false);
+  assert.equal(await throwing.mediaPlayer.pauseMedia("throwing-invoke"), false);
   assert.equal(throwing.mediaPlayer._mprisPending.size, 0);
   assert.deepEqual(throwing.calls, []);
   throwing.mediaPlayer.close();

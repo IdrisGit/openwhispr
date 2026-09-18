@@ -103,7 +103,7 @@ class MediaPlayer {
     this._nircmdPath = null;
     this._macBinaryChecked = false;
     this._macBinaryPath = null;
-    this._pausedPlayers = []; // MPRIS unique owners we paused (Linux)
+    this._mediaSessions = new Map(); // recording ID -> active/restore state and acknowledged owners
     this._mprisBus = null;
     this._mprisGeneration = 0;
     this._mprisPending = new Map();
@@ -129,6 +129,37 @@ class MediaPlayer {
     const run = this._queue.then(() => (this._closed ? false : operation()));
     this._queue = run.catch(() => {});
     return run;
+  }
+
+  _beginMediaSession(id) {
+    if (
+      this._closed ||
+      typeof id !== "string" ||
+      id.length === 0 ||
+      id.length > 128 ||
+      this._mediaSessions.has(id)
+    ) {
+      return null;
+    }
+    const session = { id, active: true, restore: true, pausedPlayers: [] };
+    this._mediaSessions.set(id, session);
+    return session;
+  }
+
+  _endMediaSession(id, restore) {
+    const session = this._mediaSessions.get(id);
+    if (!session?.active) return null;
+    session.active = false;
+    session.restore = restore === true;
+    return session;
+  }
+
+  _hasActiveMediaSession() {
+    return [...this._mediaSessions.values()].some((session) => session.active);
+  }
+
+  _clearMprisResumeRecords() {
+    for (const session of this._mediaSessions.values()) session.pausedPlayers = [];
   }
 
   async _runLinuxOperation(operation) {
@@ -279,7 +310,7 @@ class MediaPlayer {
 
     this._mprisBus = null;
     // Unique names can be reused after a bus restart, so acknowledged targets expire here too.
-    this._pausedPlayers = [];
+    this._clearMprisResumeRecords();
     if (this._mprisRecycleGeneration === generation) this._mprisRecycleGeneration = null;
     for (const pending of this._mprisPending.values()) {
       if (pending.generation === generation) pending.reject(reason);
@@ -303,7 +334,7 @@ class MediaPlayer {
 
   close() {
     this._closed = true;
-    this._pausedPlayers = [];
+    this._mediaSessions.clear();
     const state = this._mprisBus;
     if (state) {
       this._invalidateMprisConnection(
@@ -433,11 +464,14 @@ class MediaPlayer {
     return this._adapterPaths;
   }
 
-  pauseMedia() {
+  pauseMedia(sessionId) {
+    const session = process.platform === "linux" ? this._beginMediaSession(sessionId) : null;
+    if (process.platform === "linux" && !session) return Promise.resolve(false);
+
     return this._serialize(async () => {
       try {
         if (process.platform === "linux") {
-          return await this._runLinuxOperation(() => this._pauseLinux());
+          return await this._runLinuxOperation(() => this._pauseLinux(session));
         } else if (process.platform === "darwin") {
           return await this._pauseMacOS();
         } else if (process.platform === "win32") {
@@ -450,7 +484,13 @@ class MediaPlayer {
     });
   }
 
-  resumeMedia() {
+  resumeMedia(sessionId, restore = true) {
+    if (process.platform === "linux") {
+      if (!this._endMediaSession(sessionId, restore)) return Promise.resolve(false);
+    } else if (!restore) {
+      return Promise.resolve(false);
+    }
+
     return this._serialize(async () => {
       try {
         if (process.platform === "linux") {
@@ -486,29 +526,40 @@ class MediaPlayer {
 
   // --- Linux: MPRIS-aware pause/resume ---
 
-  async _pauseLinux() {
-    this._pausedPlayers = [];
-    return this._pauseMpris();
+  async _pauseLinux(session) {
+    return this._pauseMpris(session);
   }
 
   async _resumeLinux() {
-    if (this._pausedPlayers.length === 0) return false;
-    return this._resumeMpris();
+    // A stale end from recording A must not resume media while recording B is active.
+    if (this._hasActiveMediaSession()) return false;
+
+    const players = new Set();
+    for (const [id, session] of this._mediaSessions) {
+      if (session.active) continue;
+      if (session.restore) {
+        for (const owner of session.pausedPlayers) players.add(owner);
+      }
+      this._mediaSessions.delete(id);
+    }
+    if (players.size === 0) return false;
+    return this._resumeMpris([...players]);
   }
 
-  async _pauseMpris() {
+  async _pauseMpris(session) {
+    if (!session.active) return false;
     const players = await this._listMprisPlayers();
-    if (players.length === 0) return false;
+    if (!session.active || players.length === 0) return false;
     const seenOwners = new Set();
 
     await Promise.allSettled(
       players.map(async (player) => {
         const owner = await this._getMprisOwner(player);
-        if (!owner || seenOwners.has(owner)) return;
+        if (!session.active || !owner || seenOwners.has(owner)) return;
         seenOwners.add(owner);
 
         const status = await this._getMprisPlaybackStatus(player, owner);
-        if (!this._isMprisOperationCurrent() || status !== "Playing") return;
+        if (!session.active || !this._isMprisOperationCurrent() || status !== "Playing") return;
 
         debugLogger.debug("MPRIS Pause dispatched", { player, owner }, "media");
         try {
@@ -519,7 +570,8 @@ class MediaPlayer {
             member: "Pause",
           });
           if (!this._isMprisOperationCurrent()) return;
-          this._pausedPlayers.push(owner);
+          // The end may arrive after dispatch; an acknowledged Pause still needs restoration.
+          session.pausedPlayers.push(owner);
           debugLogger.debug("MPRIS Pause acknowledged", { player, owner }, "media");
         } catch (err) {
           debugLogger.debug(
@@ -530,12 +582,10 @@ class MediaPlayer {
         }
       })
     );
-    return this._pausedPlayers.length > 0;
+    return session.pausedPlayers.length > 0;
   }
 
-  async _resumeMpris() {
-    const players = this._pausedPlayers;
-    this._pausedPlayers = [];
+  async _resumeMpris(players) {
     let resumed = false;
     for (const owner of players) {
       if (!this._isMprisOperationCurrent()) break;
