@@ -14,21 +14,25 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__selectSpeechTab;
     delete globalThis.__selectedSpeechTab;
+    delete globalThis.__speechTabProviders;
+    delete globalThis.__speechT;
   });
   installBrowserGlobals(t);
   const container = installHostDom(t);
+  globalThis.__speechT = (key) => key;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-speech-tabs-test-",
     noExternal: ["react-i18next"],
     mockModules: {
       "react-i18next": `
-        export function useTranslation() { return { t: (key) => key }; }
+        export function useTranslation() { return { t: globalThis.__speechT }; }
         export const initReactI18next = { type: "3rdParty", init() {} };
       `,
       "/ui/ProviderTabs": `
-        export function ProviderTabs({ onSelect, selectedId }) {
+        export function ProviderTabs({ onSelect, selectedId, providers }) {
           globalThis.__selectSpeechTab = onSelect;
           globalThis.__selectedSpeechTab = selectedId;
+          globalThis.__speechTabProviders = providers;
           return null;
         }
       `,
@@ -73,6 +77,7 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
   await React.act(async () => globalThis.__selectSpeechTab("upload"));
   await React.act(async () => globalThis.__selectSpeechTab("dictation"));
   assert.deepEqual([dictationRenders, noteRenders, uploadRenders], [2, 1, 1]);
+  const providersBeforeParentUpdate = globalThis.__speechTabProviders;
   await React.act(async () =>
     root.render(
       React.createElement(SpeechToTextTabs, {
@@ -83,6 +88,23 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
     )
   );
   assert.equal(dictationRenders, 3, "parent settings changes still reach the picker");
+  assert.equal(
+    globalThis.__speechTabProviders,
+    providersBeforeParentUpdate,
+    "unchanged tab descriptors do not restart the indicator observer"
+  );
+  globalThis.__speechT = (key) => `translated:${key}`;
+  await React.act(async () =>
+    root.render(
+      React.createElement(SpeechToTextTabs, {
+        dictation: React.createElement(Dictation),
+        noteRecording: React.createElement(Note),
+        upload: React.createElement(Upload),
+      })
+    )
+  );
+  assert.notEqual(globalThis.__speechTabProviders, providersBeforeParentUpdate);
+  assert.match(globalThis.__speechTabProviders[0].name, /^translated:/);
   const request = {};
   await React.act(async () =>
     root.render(

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FileAudio, Mic, Upload } from "../icons";
 import { useVisitedTabs } from "../../hooks/useVisitedTabs";
@@ -34,11 +34,15 @@ export default function SpeechToTextTabs({
     request
   );
 
-  const subTabs = [
-    { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
-    { id: "noteRecording", name: t("settingsPage.speechToText.tabs.noteRecording") },
-    { id: "upload", name: t("settingsPage.speechToText.tabs.upload") },
-  ];
+  // ProviderTabs observes the indicator; keep its list stable until labels change.
+  const subTabs = useMemo(
+    () => [
+      { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
+      { id: "noteRecording", name: t("settingsPage.speechToText.tabs.noteRecording") },
+      { id: "upload", name: t("settingsPage.speechToText.tabs.upload") },
+    ],
+    [t]
+  );
 
   return (
     <div className="space-y-4">
