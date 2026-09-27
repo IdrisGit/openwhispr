@@ -13,6 +13,7 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__selectSpeechTab;
+    delete globalThis.__selectedSpeechTab;
   });
   installBrowserGlobals(t);
   const container = installHostDom(t);
@@ -25,8 +26,9 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
         export const initReactI18next = { type: "3rdParty", init() {} };
       `,
       "/ui/ProviderTabs": `
-        export function ProviderTabs({ onSelect }) {
+        export function ProviderTabs({ onSelect, selectedId }) {
           globalThis.__selectSpeechTab = onSelect;
+          globalThis.__selectedSpeechTab = selectedId;
           return null;
         }
       `,
@@ -81,4 +83,30 @@ test("Speech tab switches preserve hidden panels without rerendering them", asyn
     )
   );
   assert.equal(dictationRenders, 3, "parent settings changes still reach the picker");
+  const request = {};
+  await React.act(async () =>
+    root.render(
+      React.createElement(SpeechToTextTabs, {
+        initialTab: "upload",
+        request,
+        dictation: React.createElement(Dictation),
+        noteRecording: React.createElement(Note),
+        upload: React.createElement(Upload),
+      })
+    )
+  );
+  assert.equal(globalThis.__selectedSpeechTab, "upload");
+  await React.act(async () => globalThis.__selectSpeechTab("dictation"));
+  await React.act(async () =>
+    root.render(
+      React.createElement(SpeechToTextTabs, {
+        initialTab: "upload",
+        request: {},
+        dictation: React.createElement(Dictation),
+        noteRecording: React.createElement(Note),
+        upload: React.createElement(Upload),
+      })
+    )
+  );
+  assert.equal(globalThis.__selectedSpeechTab, "upload", "repeat route restores requested tab");
 });

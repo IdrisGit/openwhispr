@@ -165,6 +165,7 @@ interface SettingsPageProps {
   onNavigateToSection?: (section: SettingsSectionType) => void;
   /** When a legacy section ID was used (e.g. `meetings`), land on the matching sub-tab. */
   initialSubTab?: string;
+  subTabRequest?: object;
 }
 
 const UI_LANGUAGE_OPTIONS: import("./ui/LanguageSelector").LanguageOption[] = [
@@ -877,6 +878,7 @@ export default function SettingsPage({
   activeSection = "general",
   onNavigateToSection,
   initialSubTab,
+  subTabRequest,
 }: SettingsPageProps) {
   const { isCompact } = useSettingsLayout();
   const {
@@ -4745,6 +4747,7 @@ EOF`,
                 ? (initialSubTab as SpeechTab | undefined)
                 : undefined
             }
+            request={activeSection === "speechToText" && initialSubTab ? subTabRequest : undefined}
             dictation={
               <div className="space-y-6">
                 <TranscriptionSection
@@ -4802,6 +4805,7 @@ EOF`,
       <LlmsKeepAlive
         active={activeSection === "llms"}
         initialTab={activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined}
+        request={activeSection === "llms" && initialSubTab ? subTabRequest : undefined}
       />
       {renderSectionContent()}
     </>

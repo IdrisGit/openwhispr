@@ -97,7 +97,13 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     );
     await flush();
   });
-  assert.equal(globalThis.__settingsModalProps.initialSection, "transcription");
+  // React.lazy's mocked module may resolve after the initial Suspense commit.
+  for (let i = 0; i < 50 && !globalThis.__settingsModalProps; i++) {
+    await React.act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  assert.equal(globalThis.__settingsModalProps.sectionRequest.section, "transcription");
   assert.equal(childRenders, 1);
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
@@ -106,7 +112,20 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     openSettings("intelligence");
     await flush();
   });
-  assert.equal(globalThis.__settingsModalProps.initialSection, "intelligence");
+  assert.equal(globalThis.__settingsModalProps.sectionRequest.section, "intelligence");
+  const firstRequest = globalThis.__settingsModalProps.sectionRequest;
+  await React.act(async () => openSettings("intelligence"));
+  assert.notEqual(
+    globalThis.__settingsModalProps.sectionRequest,
+    firstRequest,
+    "repeat route is a new request"
+  );
+  await React.act(async () => openSettings());
+  assert.equal(
+    globalThis.__settingsModalProps.sectionRequest.section,
+    "intelligence",
+    "plain open leaves selection alone"
+  );
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   await React.act(async () => {
@@ -115,7 +134,7 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     assert.equal(prevented, true);
     await flush();
   });
-  assert.equal(globalThis.__settingsModalProps.initialSection, undefined);
+  assert.equal(globalThis.__settingsModalProps.sectionRequest, undefined);
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   await React.act(async () => {

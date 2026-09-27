@@ -40,11 +40,17 @@ test("requested LLM tabs and policy fallbacks persist without writes during rend
 
   let options = ALL_TABS;
   let initialTab = "noteFormatting";
+  let request;
   let state;
   function Harness() {
     rendering = true;
     try {
-      const [tab, selectTab, visited] = useVisitedTabs("settings.llmsTab", options, initialTab);
+      const [tab, selectTab, visited] = useVisitedTabs(
+        "settings.llmsTab",
+        options,
+        initialTab,
+        request
+      );
       state = { tab, selectTab, visited };
       return null;
     } finally {
@@ -61,6 +67,9 @@ test("requested LLM tabs and policy fallbacks persist without writes during rend
 
   await React.act(async () => state.selectTab("dictationAgent"));
   assert.equal(state.tab, "dictationAgent");
+  request = {};
+  await render();
+  assert.equal(state.tab, "noteFormatting", "a repeated route restores its selected tab");
 
   initialTab = "dictationTranslation";
   await render();
@@ -214,8 +223,10 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
   );
 
   root = createRoot(container);
-  const render = async (active, initialTab) =>
-    React.act(async () => root.render(React.createElement(LlmsKeepAlive, { active, initialTab })));
+  const render = async (active, initialTab, request) =>
+    React.act(async () =>
+      root.render(React.createElement(LlmsKeepAlive, { active, initialTab, request }))
+    );
 
   await render(false);
   assert.equal(globalThis.__llmCounts.cleanupMounts, 0, "an unvisited section mounts no editor");
@@ -285,4 +296,11 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
   assert.equal(globalThis.__selectedLlmTab, "dictationTranslation");
   assert.equal(globalThis.__llmCounts.translationMounts, 1, "a new route mounts only its editor");
   assert.equal(globalThis.__llmCounts.chatMounts, 0);
+  await React.act(async () => globalThis.__selectLlmTab("dictationAgent"));
+  await render(true, "dictationTranslation", {});
+  assert.equal(
+    globalThis.__selectedLlmTab,
+    "dictationTranslation",
+    "repeat deep link selects retained tab"
+  );
 });

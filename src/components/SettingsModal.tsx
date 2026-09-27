@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import type { SettingsSectionRequest } from "./SettingsHostContext";
 import { useTranslation } from "react-i18next";
 import { usePolicyStore } from "../stores/policyStore";
 import {
@@ -54,10 +55,10 @@ const LEGACY_SUB_TAB: Record<string, string> = {
 interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialSection?: string;
+  sectionRequest?: SettingsSectionRequest;
 }
 
-export default function SettingsModal({ open, onOpenChange, initialSection }: SettingsModalProps) {
+export default function SettingsModal({ open, onOpenChange, sectionRequest }: SettingsModalProps) {
   const { t } = useTranslation();
   const { isSignedIn, user } = useAuth();
   const policyManaged = usePolicyStore((s) => s.managed);
@@ -136,20 +137,19 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
   };
 
   const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(() =>
-    resolveSection(initialSection)
+    resolveSection(sectionRequest?.section)
   );
   const [initialSubTab, setInitialSubTab] = useState<string | undefined>(() =>
-    initialSection ? LEGACY_SUB_TAB[initialSection] : undefined
+    sectionRequest ? LEGACY_SUB_TAB[sectionRequest.section] : undefined
   );
-  const [prevOpen, setPrevOpen] = useState(open);
+  const [previousRequest, setPreviousRequest] = useState(sectionRequest);
 
-  if (open && !prevOpen && initialSection) {
-    setPrevOpen(open);
-    setActiveSection(resolveSection(initialSection));
-    setInitialSubTab(LEGACY_SUB_TAB[initialSection]);
-  } else if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (!open) setInitialSubTab(undefined);
+  if (sectionRequest !== previousRequest) {
+    setPreviousRequest(sectionRequest);
+    if (sectionRequest) {
+      setActiveSection(resolveSection(sectionRequest.section));
+      setInitialSubTab(LEGACY_SUB_TAB[sectionRequest.section]);
+    }
   }
 
   const handleSectionChange = (section: SettingsSectionType) => {
@@ -193,6 +193,7 @@ export default function SettingsModal({ open, onOpenChange, initialSection }: Se
         activeSection={activeSection}
         onNavigateToSection={handleSectionChange}
         initialSubTab={initialSubTab}
+        subTabRequest={sectionRequest}
       />
     </SidebarModal>
   );

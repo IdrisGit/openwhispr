@@ -14,7 +14,8 @@ function persistTab<T extends string>(storageKey: string, tab: T): boolean {
 export function useVisitedTabs<T extends string>(
   storageKey: string,
   options: readonly T[],
-  initial?: T
+  initial?: T,
+  request?: object
 ) {
   const [storedTab, setStoredTab] = useState<T>(() => {
     let persisted: T | undefined;
@@ -25,11 +26,14 @@ export function useVisitedTabs<T extends string>(
     return selected && options.includes(selected) ? selected : options[0];
   });
   const [previousInitial, setPreviousInitial] = useState(initial);
-  const requested = initial !== previousInitial && initial ? initial : storedTab;
+  const [previousRequest, setPreviousRequest] = useState(request);
+  const requested =
+    (initial !== previousInitial || request !== previousRequest) && initial ? initial : storedTab;
   const tab = options.includes(requested) ? requested : options[0];
   const [visited, setVisited] = useState<ReadonlySet<T>>(() => new Set([tab]));
 
   if (initial !== previousInitial) setPreviousInitial(initial);
+  if (request !== previousRequest) setPreviousRequest(request);
   if (storedTab !== tab) {
     setStoredTab(tab);
     setVisited((current) => (current.has(tab) ? current : new Set(current).add(tab)));

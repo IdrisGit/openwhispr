@@ -141,14 +141,21 @@ function TabPanel({
   );
 }
 
-const LlmsTabs = memo(function LlmsTabs({ initialTab }: { initialTab?: LlmTab }) {
+const LlmsTabs = memo(function LlmsTabs({
+  initialTab,
+  request,
+}: {
+  initialTab?: LlmTab;
+  request?: object;
+}) {
   const { t } = useTranslation();
   const agentAllowed = usePolicyStore(isAgentAllowed);
   const visibleTabIds = agentAllowed ? LLM_TABS : NON_AGENT_LLM_TABS;
   const [tab, selectTab, visitedTabs] = useVisitedTabs<LlmTab>(
     "settings.llmsTab",
     visibleTabIds,
-    initialTab
+    initialTab,
+    request
   );
   const rootRef = useRef<HTMLDivElement>(null);
   const previousAgentAllowed = useRef(agentAllowed);
@@ -219,19 +226,23 @@ const LlmsTabs = memo(function LlmsTabs({ initialTab }: { initialTab?: LlmTab })
 export default function LlmsKeepAlive({
   active,
   initialTab,
+  request,
 }: {
   active: boolean;
   initialTab?: LlmTab;
+  request?: object;
 }) {
   const [mounted, setMounted] = useState(active);
   const [requestedTab, setRequestedTab] = useState(initialTab);
+  const [requestedRequest, setRequestedRequest] = useState(request);
+  if (active && request && requestedRequest !== request) setRequestedRequest(request);
   if (active && initialTab && requestedTab !== initialTab) setRequestedTab(initialTab);
   if (active && !mounted) setMounted(true);
 
   if (!mounted) return null;
   return (
     <div hidden={!active}>
-      <LlmsTabs initialTab={requestedTab} />
+      <LlmsTabs initialTab={requestedTab} request={requestedRequest} />
     </div>
   );
 }

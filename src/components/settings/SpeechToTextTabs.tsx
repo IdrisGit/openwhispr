@@ -15,11 +15,13 @@ export function TabPanel({ active, children }: { active: boolean; children: Reac
 
 export default function SpeechToTextTabs({
   initialTab,
+  request,
   dictation,
   noteRecording,
   upload,
 }: {
   initialTab?: SpeechTab;
+  request?: object;
   dictation: ReactNode;
   noteRecording: ReactNode;
   upload: ReactNode;
@@ -28,7 +30,8 @@ export default function SpeechToTextTabs({
   const [tab, setTab] = useVisitedTabs<SpeechTab>(
     "settings.speechToTextTab",
     SPEECH_TABS,
-    initialTab
+    initialTab,
+    request
   );
 
   const subTabs = [

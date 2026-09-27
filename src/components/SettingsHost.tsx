@@ -38,7 +38,7 @@ export function SettingsHost({
   children: ReactNode;
   initialSection?: string;
 }) {
-  const { showSettings, settingsSection, openSettings, setSettingsOpen } =
+  const { showSettings, sectionRequest, openSettings, setSettingsOpen } =
     useSettingsModalState(initialSection);
   const [gpuBannerDismissed, setGpuBannerDismissed] = useState(
     () => localStorage.getItem("gpuBannerDismissedUnified") === "true"
@@ -99,7 +99,7 @@ export function SettingsHost({
           <SettingsModal
             open={showSettings}
             onOpenChange={setSettingsOpen}
-            initialSection={settingsSection}
+            sectionRequest={sectionRequest}
           />
         </Suspense>
       )}
