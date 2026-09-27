@@ -16,7 +16,7 @@ interface WorkspaceState {
   setActiveWorkspaceId: (id: string | null) => void;
   resetForAccountChange: () => void;
   refresh: () => Promise<void>;
-  createWorkspace: (name: string) => Promise<Workspace>;
+  createWorkspace: (name: string) => Promise<Workspace | null>;
   refreshMembers: (workspaceId: string) => Promise<void>;
 }
 
@@ -147,9 +147,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   createWorkspace: async (name) => {
     const generation = accountGeneration;
     const workspace = await WorkspacesService.create(name);
-    if (generation === accountGeneration) {
-      set((s) => ({ workspaces: [...s.workspaces, workspace] }));
-    }
+    if (generation !== accountGeneration) return null;
+    set((s) => ({ workspaces: [...s.workspaces, workspace] }));
     return workspace;
   },
 

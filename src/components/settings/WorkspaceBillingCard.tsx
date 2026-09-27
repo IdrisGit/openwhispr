@@ -75,7 +75,7 @@ export default function WorkspaceBillingCard({ workspace, onRefreshEntitlement }
   }
 
   async function confirmSeatIncrease() {
-    if (!seatPreview) return;
+    if (!seatPreview || !isOwner || !canAddSeats || busy !== null) return;
     setBusy("seats");
     try {
       await WorkspacesService.updateSeats(workspace.id, seatPreview.next_quantity);
@@ -224,7 +224,10 @@ export default function WorkspaceBillingCard({ workspace, onRefreshEntitlement }
 
       <EnterpriseConsoleRow workspace={workspace} />
 
-      <Dialog open={seatPreview !== null} onOpenChange={(open) => !open && setSeatPreview(null)}>
+      <Dialog
+        open={isOwner && canAddSeats && seatPreview !== null}
+        onOpenChange={(open) => !open && setSeatPreview(null)}
+      >
         <DialogContent className="sm:max-w-90">
           <DialogHeader>
             <DialogTitle>{t("settingsPage.unifiedBilling.confirmSeats.title")}</DialogTitle>

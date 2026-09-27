@@ -47,6 +47,10 @@ export default function CreateWorkspaceDialog({
     setSubmitting(true);
     try {
       const workspace = await createWorkspace(name.trim());
+      if (!workspace) {
+        onOpenChange(false);
+        return;
+      }
       setActive(workspace.id);
       onOpenChange(false);
       toast({

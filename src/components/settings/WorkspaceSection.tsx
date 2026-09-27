@@ -222,7 +222,8 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
         </div>
       </div>
 
-      <div className="pt-1">
+      {/* Workspace/role-owned drafts, rosters and one-time keys must not survive a switch. */}
+      <div key={`${workspace.id}:${workspace.role}`} className="pt-1">
         {tab === "general" && <GeneralTab workspace={workspace} />}
         {tab === "members" && <WorkspaceMembersTab workspace={workspace} />}
         {tab === "teams" && <WorkspaceTeamsTab workspace={workspace} />}

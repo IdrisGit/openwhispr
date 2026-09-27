@@ -1571,6 +1571,8 @@ export default function SettingsPage({
   });
   const [checkoutTier, setCheckoutTier] = useState<string | null>(null);
   const [switchPreview, setSwitchPreview] = useState<{
+    accountId: string;
+    authGeneration: number;
     plan: "monthly" | "annual";
     tier: "pro" | "business";
     immediateAmount: number;
@@ -1583,9 +1585,13 @@ export default function SettingsPage({
 
   const handleSwitchPlan = useCallback(
     async (plan: "monthly" | "annual", tier: "pro" | "business") => {
+      const accountId = user?.id;
+      const authGeneration = getValidatedAuthGeneration();
+      if (!accountId || authGeneration == null || usage?.status !== "success") return;
       setPreviewLoading(true);
       try {
         const preview = await usage.previewSwitchPlan({ plan, tier });
+        if (authGeneration !== getValidatedAuthGeneration()) return;
         if (!preview.success) {
           toast({
             title: t("settingsPage.account.checkout.couldNotOpenTitle"),
@@ -1599,6 +1605,8 @@ export default function SettingsPage({
           return;
         }
         setSwitchPreview({
+          accountId,
+          authGeneration,
           plan,
           tier,
           immediateAmount: preview.immediateAmount ?? 0,
@@ -1611,11 +1619,20 @@ export default function SettingsPage({
         setPreviewLoading(false);
       }
     },
-    [usage, toast, t]
+    [usage, user?.id, toast, t]
   );
 
   const confirmSwitchPlan = useCallback(async () => {
     if (!switchPreview) return;
+    if (
+      !isSignedIn ||
+      usage?.status !== "success" ||
+      switchPreview.accountId !== user?.id ||
+      switchPreview.authGeneration !== getValidatedAuthGeneration()
+    ) {
+      setSwitchPreview(null);
+      return;
+    }
     const { plan, tier } = switchPreview;
     setSwitchPreview(null);
     const result = await usage.switchPlan({ plan, tier });
@@ -1627,7 +1644,7 @@ export default function SettingsPage({
         description: result.error || t("settingsPage.account.checkout.couldNotOpenDescription"),
       });
     }
-  }, [switchPreview, usage, toast, t]);
+  }, [switchPreview, isSignedIn, user?.id, usage, toast, t]);
 
   const handleCheckout = useCallback(
     async (plan: "monthly" | "annual", tier: "pro" | "business") => {
@@ -1889,6 +1906,7 @@ export default function SettingsPage({
               <>
                 <SectionHeader title={t("settingsPage.account.title")} />
                 <ProfileSection
+                  key={user.id}
                   name={user.name || ""}
                   onSessionRefresh={() => {
                     void refetch();

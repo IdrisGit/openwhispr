@@ -69,6 +69,10 @@ export interface UseUsageResult {
   }>;
 }
 
+// Checkout can outlive the Settings owner that opened the browser. Any still-mounted
+// useUsage owner in this renderer can consume its return-focus refresh.
+let pendingBillingRefetchAccountId: string | null = null;
+
 async function fetchUsageResponse(): Promise<UsageResponse> {
   const cloudUsage = window.electronAPI?.cloudUsage;
   if (!cloudUsage) throw new Error("App not ready");
@@ -88,12 +92,14 @@ export function useUsage(): UseUsageResult | null {
   const state = useSyncExternalStore(subscribeUsage, getUsageState);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const checkoutInFlightRef = useRef(false);
-  const pendingRefetchRef = useRef(false);
 
   const accountId = isSignedIn ? (user?.id ?? null) : null;
 
   useEffect(() => {
     if (!isLoaded) return;
+    if (pendingBillingRefetchAccountId && pendingBillingRefetchAccountId !== accountId) {
+      pendingBillingRefetchAccountId = null;
+    }
     setUsageAccount(accountId);
   }, [isLoaded, accountId]);
 
@@ -103,8 +109,8 @@ export function useUsage(): UseUsageResult | null {
     void loadUsage(fetchUsageResponse);
 
     const handleFocus = () => {
-      if (!pendingRefetchRef.current) return;
-      pendingRefetchRef.current = false;
+      if (pendingBillingRefetchAccountId !== accountId) return;
+      pendingBillingRefetchAccountId = null;
       void loadUsage(fetchUsageResponse, { force: true });
     };
     const handleUsageChanged = () => {
@@ -141,7 +147,7 @@ export function useUsage(): UseUsageResult | null {
       try {
         const result = await window.electronAPI.cloudCheckout(opts);
         if (result.success && result.url) {
-          pendingRefetchRef.current = true;
+          pendingBillingRefetchAccountId = accountId;
           await window.electronAPI.openExternal(result.url);
           return { success: true };
         }
@@ -151,7 +157,7 @@ export function useUsage(): UseUsageResult | null {
         setCheckoutLoading(false);
       }
     },
-    []
+    [accountId]
   );
 
   const openBillingPortal = useCallback(async (): Promise<{
@@ -168,7 +174,7 @@ export function useUsage(): UseUsageResult | null {
     try {
       const result = await window.electronAPI.cloudBillingPortal();
       if (result.success && result.url) {
-        pendingRefetchRef.current = true;
+        pendingBillingRefetchAccountId = accountId;
         await window.electronAPI.openExternal(result.url);
         return { success: true };
       }
@@ -181,7 +187,7 @@ export function useUsage(): UseUsageResult | null {
       checkoutInFlightRef.current = false;
       setCheckoutLoading(false);
     }
-  }, []);
+  }, [accountId]);
 
   const switchPlan = useCallback(
     async (opts: {

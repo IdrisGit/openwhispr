@@ -78,7 +78,10 @@ export default function EnterpriseCheckoutDialog({
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [submitting, setSubmitting] = useState(false);
-  const [upgradePreview, setUpgradePreview] = useState<EnterpriseUpgradePreview | null>(null);
+  const [upgradePreviewResult, setUpgradePreviewResult] = useState<{
+    workspaceId: string;
+    value: EnterpriseUpgradePreview;
+  } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState(0);
@@ -113,15 +116,17 @@ export default function EnterpriseCheckoutDialog({
   }, [seatsInUse]);
 
   const selectedId = selected?.id ?? null;
+  const upgradePreview =
+    upgradePreviewResult?.workspaceId === selectedId ? upgradePreviewResult.value : null;
   useEffect(() => {
-    setUpgradePreview(null);
+    setUpgradePreviewResult(null);
     setPreviewError(null);
     if (!open || !isUpgrade || !selectedId) return;
     let stale = false;
     setPreviewLoading(true);
     WorkspacesService.previewEnterpriseUpgrade(selectedId)
       .then((preview) => {
-        if (!stale) setUpgradePreview(preview);
+        if (!stale) setUpgradePreviewResult({ workspaceId: selectedId, value: preview });
       })
       .catch((error: unknown) => {
         if (!stale) setPreviewError(billingErrorMessage(error, t));
@@ -159,7 +164,7 @@ export default function EnterpriseCheckoutDialog({
   }
 
   async function handleUpgrade() {
-    if (submitting || !selected) return;
+    if (submitting || !isUpgrade || !selected || !upgradePreview) return;
     setSubmitting(true);
     try {
       await WorkspacesService.upgradeToEnterprise(selected.id);
