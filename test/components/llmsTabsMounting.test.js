@@ -90,6 +90,7 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
     for (const key of [
       "__llmCounts",
       "__llmPolicyStore",
+      "__llmSettingsStore",
       "__selectLlmTab",
       "__selectedLlmTab",
       "__agentDraft",
@@ -143,7 +144,9 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
           setUseCleanupModel: (value) => set({ useCleanupModel: value }),
           autoGenerateNoteTitle: false,
           setAutoGenerateNoteTitle: (value) => set({ autoGenerateNoteTitle: value }),
+          modelVersion: 0,
         }));
+        globalThis.__llmSettingsStore = useSettingsStore;
       `,
       "/ui/ProviderTabs": `
         export function ProviderTabs({ selectedId, onSelect }) {
@@ -199,6 +202,7 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
       "/GpuDeviceSelector": `export default function GpuDeviceSelector() { return null; }`,
       "/InferenceConfigEditor": `
         export default function InferenceConfigEditor() {
+          globalThis.__llmSettingsStore((state) => state.modelVersion);
           globalThis.__llmCounts.editorRenders += 1;
           return null;
         }
@@ -220,10 +224,35 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
   assert.equal(globalThis.__llmCounts.cleanupMounts, 1, "first entry mounts one editor");
   assert.equal(globalThis.__llmCounts.agentMounts, 0);
 
+  const cleanupBeforeSwitch = globalThis.__llmCounts.cleanupRenders;
+  const editorBeforeSwitch = globalThis.__llmCounts.editorRenders;
   await React.act(async () => globalThis.__selectLlmTab("dictationAgent"));
   assert.equal(globalThis.__selectedLlmTab, "dictationAgent");
   assert.equal(globalThis.__llmCounts.cleanupMounts, 1);
   assert.equal(globalThis.__llmCounts.agentMounts, 1, "a later first visit mounts only its editor");
+  assert.equal(globalThis.__llmCounts.cleanupRenders, cleanupBeforeSwitch);
+  assert.equal(
+    globalThis.__llmCounts.editorRenders,
+    editorBeforeSwitch,
+    "hidden cards do not rerender on tab selection"
+  );
+
+  await React.act(async () => globalThis.__llmSettingsStore.setState({ modelVersion: 1 }));
+  assert.equal(
+    globalThis.__llmCounts.editorRenders,
+    editorBeforeSwitch + 1,
+    "hidden editor receives live model updates"
+  );
+  const agentBeforeSwitch = globalThis.__llmCounts.agentRenders;
+  await React.act(async () => globalThis.__selectLlmTab("dictationCleanup"));
+  await React.act(async () => globalThis.__selectLlmTab("dictationAgent"));
+  assert.equal(globalThis.__llmCounts.agentRenders, agentBeforeSwitch);
+  assert.equal(globalThis.__llmCounts.cleanupRenders, cleanupBeforeSwitch);
+  assert.equal(
+    globalThis.__llmCounts.editorRenders,
+    editorBeforeSwitch + 1,
+    "repeat visits do not rerender the cards"
+  );
 
   await React.act(async () => globalThis.__setAgentDraft("retained"));
   const rendersBeforeLeaving = {

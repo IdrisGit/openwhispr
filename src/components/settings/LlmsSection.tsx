@@ -117,6 +117,14 @@ function NoteFormattingSettings() {
   );
 }
 
+const LLM_CONTENT = {
+  dictationCleanup: <CleanupSettings />,
+  dictationAgent: <DictationAgentSettings />,
+  dictationTranslation: <DictationTranslationSettings />,
+  noteFormatting: <NoteFormattingSettings />,
+  chatIntelligence: <ChatAgentSettings />,
+};
+
 function TabPanel({
   active,
   children,
@@ -184,28 +192,24 @@ const LlmsTabs = memo(function LlmsTabs({ initialTab }: { initialTab?: LlmTab })
         }}
       />
       {(tab === "dictationCleanup" || visitedTabs.has("dictationCleanup")) && (
-        <TabPanel active={tab === "dictationCleanup"}>
-          <CleanupSettings />
-        </TabPanel>
+        <TabPanel active={tab === "dictationCleanup"}>{LLM_CONTENT.dictationCleanup}</TabPanel>
       )}
       {agentAllowed && (tab === "dictationAgent" || visitedTabs.has("dictationAgent")) && (
         <TabPanel active={tab === "dictationAgent"} policyAgent>
-          <DictationAgentSettings />
+          {LLM_CONTENT.dictationAgent}
         </TabPanel>
       )}
       {(tab === "dictationTranslation" || visitedTabs.has("dictationTranslation")) && (
         <TabPanel active={tab === "dictationTranslation"}>
-          <DictationTranslationSettings />
+          {LLM_CONTENT.dictationTranslation}
         </TabPanel>
       )}
       {(tab === "noteFormatting" || visitedTabs.has("noteFormatting")) && (
-        <TabPanel active={tab === "noteFormatting"}>
-          <NoteFormattingSettings />
-        </TabPanel>
+        <TabPanel active={tab === "noteFormatting"}>{LLM_CONTENT.noteFormatting}</TabPanel>
       )}
       {agentAllowed && (tab === "chatIntelligence" || visitedTabs.has("chatIntelligence")) && (
         <TabPanel active={tab === "chatIntelligence"} policyAgent>
-          <ChatAgentSettings />
+          {LLM_CONTENT.chatIntelligence}
         </TabPanel>
       )}
     </div>
