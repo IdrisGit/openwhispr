@@ -36,6 +36,7 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
   onMicWarmHoldSecondsChange,
 }) => {
   const { t } = useTranslation();
+  const inputLabelId = React.useId();
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,10 +112,11 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
     <div className="space-y-4">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-foreground">
+          <span id={inputLabelId} className="text-sm font-medium text-foreground">
             {t("microphoneSettings.inputDevice")}
-          </label>
+          </span>
           <Button
+            aria-label={t("common.refresh")}
             variant="ghost"
             size="icon"
             onClick={loadDevices}
@@ -145,7 +147,11 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
               onSelectionModeChange("specific");
             }}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger
+              id={`${inputLabelId}-trigger`}
+              aria-labelledby={`${inputLabelId} ${inputLabelId}-trigger`}
+              className="w-full"
+            >
               <SelectValue placeholder={t("microphoneSettings.selectPlaceholder")}>
                 {microphoneSelectionMode === "system"
                   ? `${t("microphoneSettings.systemDefault")}${systemDefaultLabel ? ` — ${systemDefaultLabel}` : ""}`
@@ -205,7 +211,7 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
           value={String(micWarmHoldSeconds)}
           onValueChange={(value) => onMicWarmHoldSecondsChange(Number(value))}
         >
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-40" aria-label={t("microphoneSettings.warmHold.label")}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

@@ -50,6 +50,7 @@ export default function SidebarModal<T extends string>({
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
 
   const [isCompact, setIsCompact] = React.useState(false);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
   const observerRef = React.useRef<ResizeObserver | null>(null);
 
   const containerRef = React.useCallback((el: HTMLDivElement | null) => {
@@ -117,8 +118,17 @@ export default function SidebarModal<T extends string>({
           // Radix focuses the first tabbable on open, which is the close button;
           // focus the dialog itself so the X doesn't open wearing a focus ring.
           onOpenAutoFocus={(e) => {
+            previousFocusRef.current = document.activeElement as HTMLElement | null;
             e.preventDefault();
             (e.currentTarget as HTMLElement).focus();
+          }}
+          onCloseAutoFocus={(e) => {
+            // This dialog has no Radix Trigger, so Radix cannot restore focus itself.
+            const previous = previousFocusRef.current;
+            if (previous && previous !== document.body && previous.isConnected) {
+              e.preventDefault();
+              previous.focus({ preventScroll: true });
+            }
           }}
           onEscapeKeyDown={(e) => {
             if (document.querySelector("[data-capturing]")) e.preventDefault();
@@ -173,7 +183,9 @@ export default function SidebarModal<T extends string>({
                               data-section-id={item.id}
                               onClick={() => onSectionChange(item.id)}
                               title={isCompact ? item.label : undefined}
-                              className={`group relative w-full flex items-center text-start text-xs rounded-md transition-colors duration-100 outline-none ${
+                              aria-label={isCompact ? item.label : undefined}
+                              aria-current={isActive ? "page" : undefined}
+                              className={`group relative w-full flex items-center text-start text-xs rounded-md transition-colors duration-100 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset ${
                                 isCompact ? "justify-center px-0 py-2" : "gap-2 px-2 py-1.5"
                               } ${
                                 isActive
