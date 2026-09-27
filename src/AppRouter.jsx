@@ -5,6 +5,7 @@ import AgentDictationPillOverlay from "./components/dictation/AgentDictationPill
 import MeetingNotificationOverlay from "./components/MeetingNotificationOverlay.tsx";
 import ReauthenticationScreen from "./components/ReauthenticationScreen.tsx";
 import BackgroundModelDownloadTray from "./components/onboarding/BackgroundModelDownloadTray.tsx";
+import { SettingsHost } from "./components/SettingsHost.tsx";
 import { LEGACY_ONBOARDING_STEP_KEY, ONBOARDING_SESSION_KEY } from "./components/onboarding/flow";
 import { useAuth } from "./hooks/useAuth";
 import { useControlPanelWindowDrag } from "./hooks/useControlPanelWindowDrag";
@@ -223,7 +224,9 @@ function MainApp() {
 
   return isControlPanel ? (
     <Suspense fallback={<LoadingFallback />}>
-      <ControlPanel initialSettingsSection={postOnboardingSettingsSection} />
+      <SettingsHost initialSection={postOnboardingSettingsSection}>
+        <ControlPanel />
+      </SettingsHost>
       <BackgroundModelDownloadTray />
     </Suspense>
   ) : (

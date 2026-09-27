@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
@@ -32,11 +33,8 @@ import {
   Copy,
   Trash2,
   Info,
-  MessageSquare,
   FileAudio,
-  Wand2,
   Upload,
-  Languages,
 } from "./icons";
 import { useAuth } from "../hooks/useAuth";
 import { AUTH_URL, signOut } from "../lib/auth";
@@ -62,7 +60,7 @@ import {
   DialogFooter,
 } from "./ui/dialog";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
-import { useSettings } from "../hooks/useSettings";
+import { useAutoLearnCorrections } from "../hooks/useSettings";
 import { useDialogs } from "../hooks/useDialogs";
 import { useInsightsSyncOptIn } from "../hooks/useInsightsSyncOptIn";
 import { useLeaderboardParticipation } from "../hooks/useLeaderboardParticipation";
@@ -72,12 +70,11 @@ import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { useClipboard } from "../hooks/useClipboard";
 import { useUpdater } from "../hooks/useUpdater";
 
-import PromptStudio from "./ui/PromptStudio";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import { useHotkeyRegistration } from "../hooks/useHotkeyRegistration";
 import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
-import { useLocalStorage } from "../hooks/useLocalStorage";
+import { useVisitedTabs } from "../hooks/useVisitedTabs";
 import { validateHotkeyForSlot } from "../utils/hotkeyValidation";
 import { getPlatform, getCachedPlatform } from "../utils/platform";
 import { formatHotkeyLabel } from "../utils/hotkeys";
@@ -90,10 +87,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import LinuxPttSetupInfo from "./ui/LinuxPttSetupInfo";
 import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
-import ChatAgentSettings from "./settings/ChatAgentSettings";
-import DictationAgentSettings from "./settings/DictationAgentSettings";
-import DictationTranslationSettings from "./settings/DictationTranslationSettings";
-import InferenceConfigEditor from "./settings/InferenceConfigEditor";
+import GpuDeviceSelector from "./settings/GpuDeviceSelector";
+import LlmsKeepAlive, { type LlmTab } from "./settings/LlmsSection";
 import { MeetingTranscriptionPanel } from "./settings/MeetingSettings";
 import { UploadTranscriptionPanel } from "./settings/UploadSettings";
 import LanguageSelector from "./ui/LanguageSelector";
@@ -103,7 +98,6 @@ import { useToast } from "./ui/useToast";
 import { useTheme } from "../hooks/useTheme";
 import type {
   ChineseScriptPreference,
-  GpuDevice,
   LocalTranscriptionProvider,
   InferenceMode,
 } from "../types/electron";
@@ -822,110 +816,9 @@ function TranscriptionSection({
   );
 }
 
-interface AiModelsSectionProps {
-  useCleanupModel: boolean;
-  setUseCleanupModel: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
-}
-
-const CLEANUP_MODE_TOAST_KEY: Record<InferenceMode, string> = {
-  openwhispr: "switchedCloud",
-  providers: "switchedProviders",
-  local: "switchedLocal",
-  "self-hosted": "switchedSelfHosted",
-  enterprise: "switchedEnterprise",
-};
-
-function NoteFormattingSettings() {
-  const { t } = useTranslation();
-  const autoGenerateNoteTitle = useSettingsStore((s) => s.autoGenerateNoteTitle);
-  const setAutoGenerateNoteTitle = useSettingsStore((s) => s.setAutoGenerateNoteTitle);
-
-  return (
-    <div className="space-y-4">
-      <SettingsPanel>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.noteFormatting.autoGenerateTitle")}
-            description={t("settingsPage.noteFormatting.autoGenerateTitleDescription")}
-          >
-            <Toggle checked={autoGenerateNoteTitle} onChange={setAutoGenerateNoteTitle} />
-          </SettingsRow>
-        </SettingsPanelRow>
-      </SettingsPanel>
-      <InferenceConfigEditor scope="noteFormatting" />
-    </div>
-  );
-}
-
-function AiModelsSection({ useCleanupModel, setUseCleanupModel, toast }: AiModelsSectionProps) {
-  const { t } = useTranslation();
-
-  const handleCleanupModeChange = (mode: InferenceMode) => {
-    const toastKey = CLEANUP_MODE_TOAST_KEY[mode];
-    toast({
-      title: t(`settingsPage.aiModels.toasts.${toastKey}.title`),
-      description: t(`settingsPage.aiModels.toasts.${toastKey}.description`),
-      variant: "success",
-      duration: 3000,
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      <SettingsPanel>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.aiModels.enableTextCleanup")}
-            description={t("settingsPage.aiModels.enableTextCleanupDescription")}
-          >
-            <Toggle checked={useCleanupModel} onChange={setUseCleanupModel} />
-          </SettingsRow>
-        </SettingsPanelRow>
-      </SettingsPanel>
-
-      {useCleanupModel && (
-        <>
-          <InferenceConfigEditor scope="dictationCleanup" onModeChange={handleCleanupModeChange} />
-          <GpuDeviceSelector purpose="intelligence" />
-        </>
-      )}
-    </div>
-  );
-}
-
 type SpeechTab = "dictation" | "noteRecording" | "upload";
-type LlmTab =
-  | "dictationCleanup"
-  | "dictationAgent"
-  | "dictationTranslation"
-  | "noteFormatting"
-  | "chatIntelligence";
 
 const SPEECH_TABS: SpeechTab[] = ["dictation", "noteRecording", "upload"];
-const LLM_TABS: LlmTab[] = [
-  "dictationCleanup",
-  "dictationAgent",
-  "dictationTranslation",
-  "noteFormatting",
-  "chatIntelligence",
-];
-const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
-
-function useSubTab<T extends string>(storageKey: string, options: readonly T[], initial?: T) {
-  const [tab, setTab] = useLocalStorage<T>(storageKey, initial ?? options[0]);
-  useEffect(() => {
-    if (initial && initial !== tab) setTab(initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial]);
-  const safeTab = options.includes(tab) ? tab : options[0];
-  return [safeTab, setTab] as const;
-}
 
 function VADLabelWithInfo({ label, description }: { label: string; description: string }) {
   return (
@@ -1003,7 +896,11 @@ function SpeechToTextTabs({
   renderUpload: () => React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useSubTab<SpeechTab>("settings.speechToTextTab", SPEECH_TABS, initialTab);
+  const [tab, setTab] = useVisitedTabs<SpeechTab>(
+    "settings.speechToTextTab",
+    SPEECH_TABS,
+    initialTab
+  );
 
   const subTabs = [
     { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
@@ -1038,131 +935,6 @@ function SpeechToTextTabs({
   );
 }
 
-function LlmsTabs({
-  initialTab,
-  renderDictationCleanup,
-  renderDictationAgent,
-  renderDictationTranslation,
-  renderNoteFormatting,
-  renderChatIntelligence,
-}: {
-  initialTab?: LlmTab;
-  renderDictationCleanup: () => React.ReactNode;
-  renderDictationAgent: () => React.ReactNode;
-  renderDictationTranslation: () => React.ReactNode;
-  renderNoteFormatting: () => React.ReactNode;
-  renderChatIntelligence: () => React.ReactNode;
-}) {
-  const { t } = useTranslation();
-  const agentAllowed = usePolicyStore(isAgentAllowed);
-  const visibleTabIds = agentAllowed
-    ? LLM_TABS
-    : LLM_TABS.filter((tabId) => !AGENT_LLM_TABS.has(tabId));
-  const [tab, setTab] = useSubTab<LlmTab>("settings.llmsTab", visibleTabIds, initialTab);
-
-  const subTabs = [
-    { id: "dictationCleanup", name: t("settingsPage.llms.tabs.dictationCleanup") },
-    { id: "dictationAgent", name: t("settingsPage.llms.tabs.dictationAgent") },
-    { id: "dictationTranslation", name: t("settingsPage.llms.tabs.dictationTranslation") },
-    { id: "noteFormatting", name: t("settingsPage.llms.tabs.noteFormatting") },
-    { id: "chatIntelligence", name: t("settingsPage.llms.tabs.chatIntelligence") },
-  ].filter((item) => visibleTabIds.includes(item.id as LlmTab));
-
-  return (
-    <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.llms.title")}
-        description={t("settingsPage.llms.description")}
-      />
-      <ProviderTabs
-        providers={subTabs}
-        selectedId={tab}
-        onSelect={(id) => setTab(id as LlmTab)}
-        renderIcon={(id) => {
-          if (id === "dictationCleanup") return <Wand2 className="w-3.5 h-3.5" />;
-          if (id === "dictationAgent") return <Sparkles className="w-3.5 h-3.5" />;
-          if (id === "dictationTranslation") return <Languages className="w-3.5 h-3.5" />;
-          if (id === "noteFormatting") return <BookOpen className="w-3.5 h-3.5" />;
-          return <MessageSquare className="w-3.5 h-3.5" />;
-        }}
-      />
-      <TabPanel active={tab === "dictationCleanup"}>{renderDictationCleanup()}</TabPanel>
-      {agentAllowed && (
-        <TabPanel active={tab === "dictationAgent"}>{renderDictationAgent()}</TabPanel>
-      )}
-      <TabPanel active={tab === "dictationTranslation"}>{renderDictationTranslation()}</TabPanel>
-      <TabPanel active={tab === "noteFormatting"}>{renderNoteFormatting()}</TabPanel>
-      {agentAllowed && (
-        <TabPanel active={tab === "chatIntelligence"}>{renderChatIntelligence()}</TabPanel>
-      )}
-    </div>
-  );
-}
-
-function GpuDeviceSelector({ purpose }: { purpose: "transcription" | "intelligence" }) {
-  const { t } = useTranslation();
-  const [gpus, setGpus] = useState<GpuDevice[]>([]);
-  const [selectedUuid, setSelectedUuid] = useState("");
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    Promise.all([
-      window.electronAPI?.listGpus?.() ?? Promise.resolve([]),
-      window.electronAPI?.getGpuDeviceIndex?.(purpose) ?? Promise.resolve(""),
-    ])
-      .then(([gpuList, savedUuid]) => {
-        setGpus(gpuList);
-        setSelectedUuid(savedUuid || gpuList[0]?.uuid || "");
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, [purpose]);
-
-  if (!loaded || gpus.length < 2) return null;
-
-  return (
-    <div className="border-t border-border/70 pt-4 mt-4">
-      <SectionHeader
-        title={t(`settingsPage.${purpose}.gpuDevice.title`)}
-        description={t(`settingsPage.${purpose}.gpuDevice.description`)}
-      />
-      <SettingsPanel>
-        <SettingsPanelRow>
-          <div className="relative w-full">
-            <select
-              value={selectedUuid}
-              onChange={async (e) => {
-                const uuid = e.target.value;
-                setSelectedUuid(uuid);
-                await window.electronAPI?.setGpuDeviceIndex?.(purpose, uuid);
-              }}
-              className="w-full appearance-none rounded-md border border-border bg-background px-3 pe-10 py-2 text-sm"
-            >
-              {gpus.map((gpu) => (
-                <option key={gpu.uuid} value={gpu.uuid}>
-                  GPU {gpu.index}: {gpu.name} ({Math.round(gpu.vramMb / 1024)}GB)
-                </option>
-              ))}
-            </select>
-            <svg
-              className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </div>
-        </SettingsPanelRow>
-      </SettingsPanel>
-    </div>
-  );
-}
-
 export default function SettingsPage({
   activeSection = "general",
   onNavigateToSection,
@@ -1178,6 +950,7 @@ export default function SettingsPage({
     hideAlertDialog,
   } = useDialogs();
 
+  const { autoLearnCorrections, setAutoLearnCorrections } = useAutoLearnCorrections();
   const {
     useLocalWhisper,
     whisperModel,
@@ -1190,7 +963,6 @@ export default function SettingsPage({
     cloudTranscriptionProvider,
     cloudTranscriptionModel,
     cloudTranscriptionBaseUrl,
-    useCleanupModel,
     dictationKey,
     activationMode,
     setActivationMode,
@@ -1210,16 +982,12 @@ export default function SettingsPage({
     setCloudTranscriptionProvider,
     setCloudTranscriptionModel,
     setCloudTranscriptionBaseUrl,
-    setUseCleanupModel,
     setDictationKey,
     meetingKey,
     setMeetingKey,
     meetingHotkeyLayoutMode,
     setMeetingHotkeyLayoutMode,
-    autoLearnCorrections,
-    setAutoLearnCorrections,
     updateTranscriptionSettings,
-    updateCleanupSettings,
     cloudTranscriptionMode,
     setCloudTranscriptionMode,
     transcriptionMode,
@@ -1288,7 +1056,114 @@ export default function SettingsPage({
     setWhisperVadSpeechPadMs,
     whisperVadSamplesOverlap,
     setWhisperVadSamplesOverlap,
-  } = useSettings();
+  } = useSettingsStore(
+    useShallow((settings) => ({
+      useLocalWhisper: settings.useLocalWhisper,
+      whisperModel: settings.whisperModel,
+      localTranscriptionProvider: settings.localTranscriptionProvider,
+      parakeetModel: settings.parakeetModel,
+      cohereModel: settings.cohereModel,
+      uiLanguage: settings.uiLanguage,
+      preferredLanguage: settings.preferredLanguage,
+      chineseScriptPreference: settings.chineseScriptPreference,
+      cloudTranscriptionProvider: settings.cloudTranscriptionProvider,
+      cloudTranscriptionModel: settings.cloudTranscriptionModel,
+      cloudTranscriptionBaseUrl: settings.cloudTranscriptionBaseUrl,
+      dictationKey: settings.dictationKey,
+      activationMode: settings.activationMode,
+      setActivationMode: settings.setActivationMode,
+      microphoneSelectionMode: settings.microphoneSelectionMode,
+      selectedMicDeviceId: settings.selectedMicDeviceId,
+      selectedMicDeviceLabel: settings.selectedMicDeviceLabel,
+      micWarmHoldSeconds: settings.micWarmHoldSeconds,
+      setMicrophoneSelectionMode: settings.setMicrophoneSelectionMode,
+      setSelectedMicDevice: settings.setSelectedMicDevice,
+      setMicWarmHoldSeconds: settings.setMicWarmHoldSeconds,
+      setUseLocalWhisper: settings.setUseLocalWhisper,
+      setUiLanguage: settings.setUiLanguage,
+      setWhisperModel: settings.setWhisperModel,
+      setLocalTranscriptionProvider: settings.setLocalTranscriptionProvider,
+      setParakeetModel: settings.setParakeetModel,
+      setCohereModel: settings.setCohereModel,
+      setCloudTranscriptionProvider: settings.setCloudTranscriptionProvider,
+      setCloudTranscriptionModel: settings.setCloudTranscriptionModel,
+      setCloudTranscriptionBaseUrl: settings.setCloudTranscriptionBaseUrl,
+      setDictationKey: settings.setDictationKey,
+      meetingKey: settings.meetingKey,
+      setMeetingKey: settings.setMeetingKey,
+      meetingHotkeyLayoutMode: settings.meetingHotkeyLayoutMode,
+      setMeetingHotkeyLayoutMode: settings.setMeetingHotkeyLayoutMode,
+      updateTranscriptionSettings: settings.updateTranscriptionSettings,
+      cloudTranscriptionMode: settings.cloudTranscriptionMode,
+      setCloudTranscriptionMode: settings.setCloudTranscriptionMode,
+      transcriptionMode: settings.transcriptionMode,
+      setTranscriptionMode: settings.setTranscriptionMode,
+      remoteTranscriptionUrl: settings.remoteTranscriptionUrl,
+      setRemoteTranscriptionUrl: settings.setRemoteTranscriptionUrl,
+      remoteTranscriptionModel: settings.remoteTranscriptionModel,
+      setRemoteTranscriptionModel: settings.setRemoteTranscriptionModel,
+      notificationsEnabled: settings.notificationsEnabled,
+      setNotificationsEnabled: settings.setNotificationsEnabled,
+      notifyMeetingDetection: settings.notifyMeetingDetection,
+      setNotifyMeetingDetection: settings.setNotifyMeetingDetection,
+      notifyCalendarReminders: settings.notifyCalendarReminders,
+      setNotifyCalendarReminders: settings.setNotifyCalendarReminders,
+      autoUpdatesEnabled: settings.autoUpdatesEnabled,
+      setAutoUpdatesEnabled: settings.setAutoUpdatesEnabled,
+      audioCuesEnabled: settings.audioCuesEnabled,
+      setAudioCuesEnabled: settings.setAudioCuesEnabled,
+      pauseMediaOnDictation: settings.pauseMediaOnDictation,
+      setPauseMediaOnDictation: settings.setPauseMediaOnDictation,
+      showTranscriptionPreview: settings.showTranscriptionPreview,
+      setShowTranscriptionPreview: settings.setShowTranscriptionPreview,
+      autoPasteEnabled: settings.autoPasteEnabled,
+      setAutoPasteEnabled: settings.setAutoPasteEnabled,
+      keepTranscriptionInClipboard: settings.keepTranscriptionInClipboard,
+      setKeepTranscriptionInClipboard: settings.setKeepTranscriptionInClipboard,
+      floatingIconAutoHide: settings.floatingIconAutoHide,
+      setFloatingIconAutoHide: settings.setFloatingIconAutoHide,
+      startMinimized: settings.startMinimized,
+      setStartMinimized: settings.setStartMinimized,
+      panelStartPosition: settings.panelStartPosition,
+      setPanelStartPosition: settings.setPanelStartPosition,
+      cloudBackupEnabled: settings.cloudBackupEnabled,
+      setCloudBackupEnabled: settings.setCloudBackupEnabled,
+      insightsSyncEnabled: settings.insightsSyncEnabled,
+      telemetryEnabled: settings.telemetryEnabled,
+      setTelemetryEnabled: settings.setTelemetryEnabled,
+      audioRetentionDays: settings.audioRetentionDays,
+      setAudioRetentionDays: settings.setAudioRetentionDays,
+      transcriptRetentionDays: settings.transcriptRetentionDays,
+      setTranscriptRetentionDays: settings.setTranscriptRetentionDays,
+      dataRetentionEnabled: settings.dataRetentionEnabled,
+      setDataRetentionEnabled: settings.setDataRetentionEnabled,
+      saveDiscardedTranscriptions: settings.saveDiscardedTranscriptions,
+      setSaveDiscardedTranscriptions: settings.setSaveDiscardedTranscriptions,
+      customDictionary: settings.customDictionary,
+      noteFilesEnabled: settings.noteFilesEnabled,
+      setNoteFilesEnabled: settings.setNoteFilesEnabled,
+      noteFilesPath: settings.noteFilesPath,
+      setNoteFilesPath: settings.setNoteFilesPath,
+      dictationSileroEnabled: settings.dictationSileroEnabled,
+      setDictationSileroEnabled: settings.setDictationSileroEnabled,
+      noteRecordingSileroEnabled: settings.noteRecordingSileroEnabled,
+      setNoteRecordingSileroEnabled: settings.setNoteRecordingSileroEnabled,
+      meetingSileroEnabled: settings.meetingSileroEnabled,
+      setMeetingSileroEnabled: settings.setMeetingSileroEnabled,
+      whisperVadThreshold: settings.whisperVadThreshold,
+      setWhisperVadThreshold: settings.setWhisperVadThreshold,
+      whisperVadMinSpeechDurationMs: settings.whisperVadMinSpeechDurationMs,
+      setWhisperVadMinSpeechDurationMs: settings.setWhisperVadMinSpeechDurationMs,
+      whisperVadMinSilenceDurationMs: settings.whisperVadMinSilenceDurationMs,
+      setWhisperVadMinSilenceDurationMs: settings.setWhisperVadMinSilenceDurationMs,
+      whisperVadMaxSpeechDurationS: settings.whisperVadMaxSpeechDurationS,
+      setWhisperVadMaxSpeechDurationS: settings.setWhisperVadMaxSpeechDurationS,
+      whisperVadSpeechPadMs: settings.whisperVadSpeechPadMs,
+      setWhisperVadSpeechPadMs: settings.setWhisperVadSpeechPadMs,
+      whisperVadSamplesOverlap: settings.whisperVadSamplesOverlap,
+      setWhisperVadSamplesOverlap: settings.setWhisperVadSamplesOverlap,
+    }))
+  );
 
   const meetingProcessDetection = useSettingsStore((state) => state.meetingProcessDetection);
   const voiceAgentKey = useSettingsStore((s) => s.voiceAgentKey);
@@ -1366,19 +1241,13 @@ export default function SettingsPage({
       .catch(() => {});
   }, [activeSection]);
 
-  // Lazy keep-alive: mount AI sections only after the user has visited them once,
-  // then keep them mounted so model-download progress and IPC listeners survive
-  // section switches. The setState-during-render pattern flips the flag in the
-  // same commit as the section change, so there's no blank frame on first visit.
+  // Speech-to-text keeps its existing lazy ownership. LLM keep-alive state lives
+  // in LlmsKeepAlive so SettingsPage section changes cannot reconstruct editors.
   const [hasMountedSpeechToText, setHasMountedSpeechToText] = useState(
     activeSection === "speechToText"
   );
-  const [hasMountedLlms, setHasMountedLlms] = useState(activeSection === "llms");
   if (activeSection === "speechToText" && !hasMountedSpeechToText) {
     setHasMountedSpeechToText(true);
-  }
-  if (activeSection === "llms" && !hasMountedLlms) {
-    setHasMountedLlms(true);
   }
 
   const handleClearAllAudio = async () => {
@@ -4992,37 +4861,10 @@ EOF`,
           />
         </TabPanel>
       )}
-      {hasMountedLlms && (
-        <TabPanel active={activeSection === "llms"}>
-          <LlmsTabs
-            initialTab={
-              activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined
-            }
-            renderChatIntelligence={() => <ChatAgentSettings />}
-            renderDictationCleanup={() => (
-              <div className="space-y-6">
-                <AiModelsSection
-                  useCleanupModel={useCleanupModel}
-                  setUseCleanupModel={(value) => {
-                    updateCleanupSettings({ useCleanupModel: value });
-                  }}
-                  toast={toast}
-                />
-                <div className="border-t border-border/70 pt-6">
-                  <SectionHeader
-                    title={t("settingsPage.prompts.title")}
-                    description={t("settingsPage.prompts.description")}
-                  />
-                  <PromptStudio />
-                </div>
-              </div>
-            )}
-            renderDictationAgent={() => <DictationAgentSettings />}
-            renderDictationTranslation={() => <DictationTranslationSettings />}
-            renderNoteFormatting={() => <NoteFormattingSettings />}
-          />
-        </TabPanel>
-      )}
+      <LlmsKeepAlive
+        active={activeSection === "llms"}
+        initialTab={activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined}
+      />
       {renderSectionContent()}
     </>
   );

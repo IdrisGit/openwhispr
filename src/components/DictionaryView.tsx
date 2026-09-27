@@ -10,7 +10,7 @@ import { ConfirmDialog } from "./ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./ui/tabs";
 import { useToast } from "./ui/useToast";
 import SnippetsView from "./SnippetsView";
-import { useSettings } from "../hooks/useSettings";
+import { useSettingsStore } from "../stores/settingsStore";
 import { getAgentName } from "../utils/agentName";
 import { parseDictionaryImportText } from "../helpers/dictionaryImport";
 import { getDictionaryHintWords } from "../utils/snippets";
@@ -18,7 +18,9 @@ import { WHISPER_DECODER_PROMPT_CHARS } from "../utils/dictionaryPromptCap";
 
 export default function DictionaryView() {
   const { t } = useTranslation();
-  const { customDictionary, updateCustomDictionary, snippets } = useSettings();
+  const customDictionary = useSettingsStore((settings) => settings.customDictionary);
+  const updateCustomDictionary = useSettingsStore((settings) => settings.updateCustomDictionary);
+  const snippets = useSettingsStore((settings) => settings.snippets);
   const agentName = getAgentName();
   const { toast } = useToast();
 

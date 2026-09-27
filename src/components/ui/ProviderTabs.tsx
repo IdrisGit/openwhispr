@@ -88,6 +88,7 @@ export function ProviderTabs({
           <button
             key={provider.id}
             data-tab-button
+            data-tab-id={provider.id}
             type="button"
             disabled={isDisabled}
             aria-disabled={isDisabled}
