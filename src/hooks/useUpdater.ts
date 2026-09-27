@@ -130,28 +130,31 @@ export function useUpdater() {
   useEffect(() => {
     stateListeners.add(setState);
     registerEventListeners();
+    let active = true;
+    const initialStatus = globalState.status;
+    const initialInfo = globalState.info;
 
     const initializeUpdateStatus = async () => {
       try {
         if (window.electronAPI?.getUpdateStatus) {
           const status = await window.electronAPI.getUpdateStatus();
-          updateGlobalState({ status });
+          if (!active) return;
+          if (globalState.status === initialStatus) updateGlobalState({ status });
         }
 
         if (window.electronAPI?.getUpdateInfo) {
           const info = await window.electronAPI.getUpdateInfo();
-          if (info) {
-            updateGlobalState({ info });
-          }
+          if (active && info && globalState.info === initialInfo) updateGlobalState({ info });
         }
       } catch (error) {
-        console.error("Failed to initialize update status:", error);
+        if (active) console.error("Failed to initialize update status:", error);
       }
     };
 
-    initializeUpdateStatus();
+    void initializeUpdateStatus();
 
     return () => {
+      active = false;
       stateListeners.delete(setState);
       cleanup();
     };
