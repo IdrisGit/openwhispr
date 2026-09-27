@@ -54,6 +54,11 @@ export default function LocalModelPicker({
   const { t } = useTranslation();
   const [downloadedModels, setDownloadedModels] = useState<Set<string>>(new Set());
   const loadDownloadedModelsRequestRef = useRef(0);
+  const onModelSelectRef = useRef(onModelSelect);
+
+  useEffect(() => {
+    onModelSelectRef.current = onModelSelect;
+  }, [onModelSelect]);
 
   const knownModelIds = useMemo(
     () => new Set(providers.flatMap((provider) => provider.models.map((model) => model.id))),
@@ -118,11 +123,11 @@ export default function LocalModelPicker({
         knownModelIds.has(selectedModel) &&
         !downloaded.has(selectedModel)
       ) {
-        onModelSelect("");
+        onModelSelectRef.current("");
       }
     };
     initAndValidate();
-  }, [loadDownloadedModels, selectedModel, onModelSelect, knownModelIds]);
+  }, [loadDownloadedModels, selectedModel, knownModelIds]);
 
   const handleDownloadComplete = useCallback(async () => {
     await loadDownloadedModels();

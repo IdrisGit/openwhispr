@@ -33,8 +33,6 @@ import {
   Copy,
   Trash2,
   Info,
-  FileAudio,
-  Upload,
 } from "./icons";
 import { useAuth } from "../hooks/useAuth";
 import { AUTH_URL, signOut } from "../lib/auth";
@@ -70,11 +68,9 @@ import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { useClipboard } from "../hooks/useClipboard";
 import { useUpdater } from "../hooks/useUpdater";
 
-import { ProviderTabs } from "./ui/ProviderTabs";
 import { HotkeyListInput } from "./ui/HotkeyListInput";
 import { useHotkeyRegistration } from "../hooks/useHotkeyRegistration";
 import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
-import { useVisitedTabs } from "../hooks/useVisitedTabs";
 import { validateHotkeyForSlot } from "../utils/hotkeyValidation";
 import { getPlatform, getCachedPlatform } from "../utils/platform";
 import { formatHotkeyLabel } from "../utils/hotkeys";
@@ -89,6 +85,7 @@ import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
 import GpuDeviceSelector from "./settings/GpuDeviceSelector";
 import LlmsKeepAlive, { type LlmTab } from "./settings/LlmsSection";
+import SpeechToTextTabs, { TabPanel, type SpeechTab } from "./settings/SpeechToTextTabs";
 import { MeetingTranscriptionPanel } from "./settings/MeetingSettings";
 import { UploadTranscriptionPanel } from "./settings/UploadSettings";
 import LanguageSelector from "./ui/LanguageSelector";
@@ -816,10 +813,6 @@ function TranscriptionSection({
   );
 }
 
-type SpeechTab = "dictation" | "noteRecording" | "upload";
-
-const SPEECH_TABS: SpeechTab[] = ["dictation", "noteRecording", "upload"];
-
 function VADLabelWithInfo({ label, description }: { label: string; description: string }) {
   return (
     <div className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
@@ -840,10 +833,6 @@ function VADLabelWithInfo({ label, description }: { label: string; description: 
       </Popover>
     </div>
   );
-}
-
-function TabPanel({ active, children }: { active: boolean; children: React.ReactNode }) {
-  return <div className={active ? undefined : "hidden"}>{children}</div>;
 }
 
 // "Gabriel Stein" → "GS"; single names fall back to their first letter.
@@ -880,57 +869,6 @@ export function AccountAvatar({ image, name }: { image?: string | null; name: st
       ) : (
         <UserCircle className="w-5 h-5" />
       )}
-    </div>
-  );
-}
-
-function SpeechToTextTabs({
-  initialTab,
-  renderDictation,
-  renderNoteRecording,
-  renderUpload,
-}: {
-  initialTab?: SpeechTab;
-  renderDictation: () => React.ReactNode;
-  renderNoteRecording: () => React.ReactNode;
-  renderUpload: () => React.ReactNode;
-}) {
-  const { t } = useTranslation();
-  const [tab, setTab] = useVisitedTabs<SpeechTab>(
-    "settings.speechToTextTab",
-    SPEECH_TABS,
-    initialTab
-  );
-
-  const subTabs = [
-    { id: "dictation", name: t("settingsPage.speechToText.tabs.dictation") },
-    { id: "noteRecording", name: t("settingsPage.speechToText.tabs.noteRecording") },
-    { id: "upload", name: t("settingsPage.speechToText.tabs.upload") },
-  ];
-
-  return (
-    <div className="space-y-4">
-      <SectionHeader
-        title={t("settingsPage.speechToText.title")}
-        description={t("settingsPage.speechToText.description")}
-      />
-      <ProviderTabs
-        providers={subTabs}
-        selectedId={tab}
-        onSelect={(id) => setTab(id as SpeechTab)}
-        renderIcon={(id) =>
-          id === "dictation" ? (
-            <Mic className="w-3.5 h-3.5" />
-          ) : id === "upload" ? (
-            <Upload className="w-3.5 h-3.5" />
-          ) : (
-            <FileAudio className="w-3.5 h-3.5" />
-          )
-        }
-      />
-      <TabPanel active={tab === "dictation"}>{renderDictation()}</TabPanel>
-      <TabPanel active={tab === "noteRecording"}>{renderNoteRecording()}</TabPanel>
-      <TabPanel active={tab === "upload"}>{renderUpload()}</TabPanel>
     </div>
   );
 }
@@ -4807,7 +4745,7 @@ EOF`,
                 ? (initialSubTab as SpeechTab | undefined)
                 : undefined
             }
-            renderDictation={() => (
+            dictation={
               <div className="space-y-6">
                 <TranscriptionSection
                   isSignedIn={isSignedIn ?? false}
@@ -4844,20 +4782,20 @@ EOF`,
                   localTranscriptionProvider === "whisper" &&
                   renderWhisperVadSettings()}
               </div>
-            )}
-            renderNoteRecording={() => (
+            }
+            noteRecording={
               <div className="space-y-6">
                 <MeetingTranscriptionPanel />
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider === "whisper" &&
                   renderWhisperVadSettings()}
               </div>
-            )}
-            renderUpload={() => (
+            }
+            upload={
               <div className="space-y-6">
                 <UploadTranscriptionPanel />
               </div>
-            )}
+            }
           />
         </TabPanel>
       )}
