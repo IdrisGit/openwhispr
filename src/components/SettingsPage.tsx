@@ -1203,8 +1203,10 @@ export default function SettingsPage({
   }, []);
 
   useEffect(() => {
-    refreshYdotoolStatus();
-  }, [refreshYdotoolStatus]);
+    if (activeSection === "general" && getCachedPlatform() === "linux") {
+      void refreshYdotoolStatus();
+    }
+  }, [activeSection, refreshYdotoolStatus]);
 
   const { theme, setTheme } = useTheme();
   const usage = useUsage();
