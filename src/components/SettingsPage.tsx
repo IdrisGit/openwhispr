@@ -62,7 +62,6 @@ import { useAutoLearnCorrections } from "../hooks/useSettings";
 import { useDialogs } from "../hooks/useDialogs";
 import { useInsightsSyncOptIn } from "../hooks/useInsightsSyncOptIn";
 import { useLeaderboardParticipation } from "../hooks/useLeaderboardParticipation";
-import { useWhisper } from "../hooks/useWhisper";
 import { usePermissions } from "../hooks/usePermissions";
 import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import { useClipboard } from "../hooks/useClipboard";
@@ -1105,7 +1104,6 @@ export default function SettingsPage({
     }))
   );
 
-  const meetingProcessDetection = useSettingsStore((state) => state.meetingProcessDetection);
   const voiceAgentKey = useSettingsStore((s) => s.voiceAgentKey);
   const setVoiceAgentKey = useSettingsStore((s) => s.setVoiceAgentKey);
   const translationKey = useSettingsStore((s) => s.translationKey);
@@ -1162,7 +1160,6 @@ export default function SettingsPage({
 
   const migration = useMigration();
 
-  const { checkWhisperInstallation } = useWhisper();
   const permissionsHook = usePermissions(showAlertDialog);
   const systemAudio = useSystemAudioPermission();
   useClipboard(showAlertDialog);
@@ -1417,20 +1414,6 @@ export default function SettingsPage({
     readAutoStartState().finally(() => setAutoStartLoading(false));
   }, [readAutoStartState]);
 
-  useEffect(() => {
-    window.electronAPI?.syncNotificationPreferences?.({
-      notificationsEnabled,
-      notifyMeetingDetection,
-      notifyCalendarReminders,
-      meetingProcessDetection,
-    });
-  }, [
-    notificationsEnabled,
-    notifyMeetingDetection,
-    notifyCalendarReminders,
-    meetingProcessDetection,
-  ]);
-
   const handleAutoStartChange = async (enabled: boolean) => {
     if (!window.electronAPI?.setAutoStartEnabled) return;
     try {
@@ -1495,17 +1478,13 @@ export default function SettingsPage({
 
       const version = await getAppVersion();
       if (version && mounted) setCurrentVersion(version);
-
-      if (mounted) {
-        checkWhisperInstallation();
-      }
     }, 100);
 
     return () => {
       mounted = false;
       clearTimeout(timer);
     };
-  }, [checkWhisperInstallation, getAppVersion]);
+  }, [getAppVersion]);
 
   useEffect(() => {
     const loadEffectiveDefaultHotkey = async () => {

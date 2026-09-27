@@ -157,6 +157,27 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
     });
   }, []);
 
+  // Startup sends the initial snapshot before hydration; subscribe only to changes.
+  useEffect(
+    () =>
+      useSettingsStore.subscribe((state, previous) => {
+        if (
+          state.notificationsEnabled === previous.notificationsEnabled &&
+          state.notifyMeetingDetection === previous.notifyMeetingDetection &&
+          state.notifyCalendarReminders === previous.notifyCalendarReminders &&
+          state.meetingProcessDetection === previous.meetingProcessDetection
+        )
+          return;
+        window.electronAPI?.syncNotificationPreferences?.({
+          notificationsEnabled: state.notificationsEnabled,
+          notifyMeetingDetection: state.notifyMeetingDetection,
+          notifyCalendarReminders: state.notifyCalendarReminders,
+          meetingProcessDetection: state.meetingProcessDetection,
+        });
+      }),
+    []
+  );
+
   useEffect(() => {
     if (typeof window === "undefined" || !window.electronAPI?.onDictionaryUpdated) return;
     return window.electronAPI.onDictionaryUpdated((words: string[]) => {

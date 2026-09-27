@@ -124,6 +124,7 @@ test("SettingsProvider owns initialization and external synchronization once", a
     autoLearn: [],
     retention: 0,
     startup: 0,
+    notifications: [],
   };
   const { storage } = installBrowserGlobals(t, {
     initialStorage: { autoLearnCorrections: "false" },
@@ -142,6 +143,9 @@ test("SettingsProvider owns initialization and external synchronization once", a
         },
         syncRetentionSettings() {
           calls.retention += 1;
+        },
+        syncNotificationPreferences(prefs) {
+          calls.notifications.push(prefs);
         },
         async syncStartupPreferences() {
           calls.startup += 1;
@@ -167,6 +171,10 @@ test("SettingsProvider owns initialization and external synchronization once", a
           parakeetModel: "parakeet",
           cohereModel: "cohere",
           preferredLanguage: "auto",
+          notificationsEnabled: true,
+          notifyMeetingDetection: true,
+          notifyCalendarReminders: true,
+          meetingProcessDetection: true,
           useCleanupModel: true,
           cleanupMode: "openwhispr",
           cleanupModel: "",
@@ -188,6 +196,13 @@ test("SettingsProvider owns initialization and external synchronization once", a
         globalThis.__settingsLifecycleStore = useSettingsStore;
         export async function initializeSettings() {
           globalThis.__settingsInitializeCount = (globalThis.__settingsInitializeCount || 0) + 1;
+          const state = useSettingsStore.getState();
+          window.electronAPI.syncNotificationPreferences({
+            notificationsEnabled: state.notificationsEnabled,
+            notifyMeetingDetection: state.notifyMeetingDetection,
+            notifyCalendarReminders: state.notifyCalendarReminders,
+            meetingProcessDetection: state.meetingProcessDetection,
+          });
         }
       `,
       "/stores/policyStore": `
@@ -234,8 +249,24 @@ test("SettingsProvider owns initialization and external synchronization once", a
   assert.deepEqual(calls.autoLearn, [false], "the persisted value syncs on startup");
   assert.equal(calls.retention, 1);
   assert.equal(calls.startup, 1);
+  assert.equal(calls.notifications.length, 1, "startup sync has no duplicate on Settings mount");
 
   await React.act(async () => globalThis.__settingsLifecycleStore.setState({ unrelated: 1 }));
+  assert.equal(calls.notifications.length, 1, "unrelated settings do not resend notifications");
+  await React.act(async () =>
+    globalThis.__settingsLifecycleStore.setState({ notifyMeetingDetection: false })
+  );
+  assert.deepEqual(calls.notifications.at(-1), {
+    notificationsEnabled: true,
+    notifyMeetingDetection: false,
+    notifyCalendarReminders: true,
+    meetingProcessDetection: true,
+  });
+  assert.equal(calls.notifications.length, 2, "changes sync even without Settings open");
+  await React.act(async () =>
+    globalThis.__settingsLifecycleStore.setState({ notifyMeetingDetection: false })
+  );
+  assert.equal(calls.notifications.length, 2, "unchanged preferences are not resent");
   assert.equal(childRenders, 1, "an unrelated setting does not invalidate renderer children");
   assert.deepEqual(calls.autoLearn, [false], "unrelated settings do not resend auto-learn");
 
@@ -250,4 +281,19 @@ test("SettingsProvider owns initialization and external synchronization once", a
   await React.act(async () => root.unmount());
   root = null;
   assert.deepEqual([calls.dictionaryCleaned, calls.snippetsCleaned], [1, 1]);
+  globalThis.__settingsLifecycleStore.setState({ meetingProcessDetection: false });
+  assert.equal(calls.notifications.length, 2, "subscription stops on unmount");
+
+  // StrictMode retries Effect setup/cleanup; only the startup snapshot and real changes sync.
+  root = createRoot(container);
+  await React.act(async () =>
+    root.render(
+      React.createElement(React.StrictMode, null, React.createElement(SettingsProvider, null))
+    )
+  );
+  assert.equal(calls.notifications.length, 3);
+  await React.act(async () =>
+    globalThis.__settingsLifecycleStore.setState({ notifyCalendarReminders: false })
+  );
+  assert.equal(calls.notifications.length, 4, "StrictMode leaves one active preference listener");
 });
