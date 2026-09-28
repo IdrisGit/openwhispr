@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   LlamaServerStatus,
@@ -363,10 +363,8 @@ export default function ReasoningModelSelector({
   const [selectedCloudProvider, setSelectedCloudProvider] = useState("openai");
   const [selectedLocalProvider, setSelectedLocalProvider] = useState("qwen");
   const policyState = usePolicySnapshot();
-  const providerAllowed = useCallback(
-    (providerId: string) => isProviderAllowedByPolicy(policyState, "llm", providerId),
-    [policyState]
-  );
+  const providerAllowed = (providerId: string) =>
+    isProviderAllowedByPolicy(policyState, "llm", providerId);
 
   const cloudProviderTabs = useMemo(
     () =>

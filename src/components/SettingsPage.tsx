@@ -188,6 +188,12 @@ const RETENTION_SELECT_CLASS =
 
 const noop = () => {};
 
+const meetingRegisterFn = async (hotkey: string) => {
+  const result = await window.electronAPI?.registerMeetingHotkey?.(hotkey);
+  // Omit message so useHotkeyRegistration uses its translated failure text.
+  return result ?? { success: false };
+};
+
 interface GranolaImportPreview {
   total: number;
   newCount: number;
@@ -1134,14 +1140,6 @@ export default function SettingsPage({
     showAlert: showAlertDialog,
   });
 
-  const meetingRegisterFn = useCallback(async (hotkey: string) => {
-    const result = await window.electronAPI?.registerMeetingHotkey?.(hotkey);
-    // No `message`: useHotkeyRegistration falls back to the translated
-    // hooks.hotkeyRegistration.errors.couldNotRegister, and that string is what
-    // gets shown in a toast. An English literal here would surface untranslated.
-    return result ?? { success: false };
-  }, []);
-
   const { registerHotkey: registerMeetingHotkey, isRegistering: isMeetingHotkeyRegistering } =
     useHotkeyRegistration({
       onSuccess: (registeredHotkey) => {
@@ -1156,80 +1154,65 @@ export default function SettingsPage({
   // Agent hotkey setters resolve to false when main-process registration fails;
   // surface it and return the result so HotkeyListInput rolls the row back.
   const [isAgentHotkeyCommitting, setIsAgentHotkeyCommitting] = useState(false);
-  const commitAgentHotkey = useCallback(
-    async (setter: (key: string) => Promise<boolean>, key: string) => {
-      setIsAgentHotkeyCommitting(true);
-      try {
-        const ok = await setter(key);
-        if (!ok) {
-          showAlertDialog({
-            title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-            description: t("hooks.hotkeyRegistration.errors.failedToRegister"),
-          });
-        }
-        return ok;
-      } finally {
-        setIsAgentHotkeyCommitting(false);
+  const commitAgentHotkey = async (setter: (key: string) => Promise<boolean>, key: string) => {
+    setIsAgentHotkeyCommitting(true);
+    try {
+      const ok = await setter(key);
+      if (!ok) {
+        showAlertDialog({
+          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
+          description: t("hooks.hotkeyRegistration.errors.failedToRegister"),
+        });
       }
-    },
-    [showAlertDialog, t]
-  );
+      return ok;
+    } finally {
+      setIsAgentHotkeyCommitting(false);
+    }
+  };
 
-  const validateDictationHotkey = useCallback(
-    (hotkey: string) =>
-      validateHotkeyForSlot(
-        hotkey,
-        {
-          "settingsPage.general.meetingHotkey.title": meetingKey,
-          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-          "settingsPage.general.translationHotkey.title": translationKey,
-        },
-        t
-      ),
-    [meetingKey, voiceAgentKey, translationKey, t]
-  );
+  const validateDictationHotkey = (hotkey: string) =>
+    validateHotkeyForSlot(
+      hotkey,
+      {
+        "settingsPage.general.meetingHotkey.title": meetingKey,
+        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
+        "settingsPage.general.translationHotkey.title": translationKey,
+      },
+      t
+    );
 
-  const validateMeetingHotkey = useCallback(
-    (hotkey: string) =>
-      validateHotkeyForSlot(
-        hotkey,
-        {
-          "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-          "settingsPage.general.translationHotkey.title": translationKey,
-        },
-        t
-      ),
-    [dictationKey, voiceAgentKey, translationKey, t]
-  );
+  const validateMeetingHotkey = (hotkey: string) =>
+    validateHotkeyForSlot(
+      hotkey,
+      {
+        "settingsPage.general.hotkey.title": dictationKey,
+        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
+        "settingsPage.general.translationHotkey.title": translationKey,
+      },
+      t
+    );
 
-  const validateVoiceAgentHotkey = useCallback(
-    (hotkey: string) =>
-      validateHotkeyForSlot(
-        hotkey,
-        {
-          "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.meetingHotkey.title": meetingKey,
-          "settingsPage.general.translationHotkey.title": translationKey,
-        },
-        t
-      ),
-    [dictationKey, meetingKey, translationKey, t]
-  );
+  const validateVoiceAgentHotkey = (hotkey: string) =>
+    validateHotkeyForSlot(
+      hotkey,
+      {
+        "settingsPage.general.hotkey.title": dictationKey,
+        "settingsPage.general.meetingHotkey.title": meetingKey,
+        "settingsPage.general.translationHotkey.title": translationKey,
+      },
+      t
+    );
 
-  const validateTranslationHotkey = useCallback(
-    (hotkey: string) =>
-      validateHotkeyForSlot(
-        hotkey,
-        {
-          "settingsPage.general.hotkey.title": dictationKey,
-          "settingsPage.general.meetingHotkey.title": meetingKey,
-          "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-        },
-        t
-      ),
-    [dictationKey, meetingKey, voiceAgentKey, t]
-  );
+  const validateTranslationHotkey = (hotkey: string) =>
+    validateHotkeyForSlot(
+      hotkey,
+      {
+        "settingsPage.general.hotkey.title": dictationKey,
+        "settingsPage.general.meetingHotkey.title": meetingKey,
+        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
+      },
+      t
+    );
 
   const {
     isUsingNativeShortcut,
@@ -1356,7 +1339,7 @@ export default function SettingsPage({
     });
   };
 
-  const handleRemoveModels = useCallback(() => {
+  const handleRemoveModels = () => {
     if (isRemovingModels) return;
 
     showConfirmDialog({
@@ -1404,7 +1387,7 @@ export default function SettingsPage({
         }
       },
     });
-  }, [isRemovingModels, cachePathHint, showConfirmDialog, showAlertDialog, t]);
+  };
 
   const { isSignedIn, isLoaded, user, refetch } = useAuth();
   const {
@@ -1424,48 +1407,33 @@ export default function SettingsPage({
     updating: leaderboardParticipationUpdating,
   } = useLeaderboardParticipation();
   const [leaderboardPreferencePending, setLeaderboardPreferencePending] = useState(false);
-  const updateLeaderboardParticipation = useCallback(
-    async (enabled: boolean) => {
-      if (!isSignedIn || !leaderboardParticipationReady || leaderboardPreferencePending) return;
-      setLeaderboardPreferencePending(true);
-      try {
-        if (enabled) {
-          if (
-            !effectiveDataRetentionEnabled ||
-            !insightsSyncAllowedByPolicy ||
-            (!insightsSyncEnabled && !(await enableInsightsSync({ confirmWhenEmpty: true })))
-          )
-            return;
-          if (!(await joinLeaderboard())) {
-            toast({
-              title: t("insights.leaderboard.activationError"),
-              variant: "destructive",
-            });
-          }
+  const updateLeaderboardParticipation = async (enabled: boolean) => {
+    if (!isSignedIn || !leaderboardParticipationReady || leaderboardPreferencePending) return;
+    setLeaderboardPreferencePending(true);
+    try {
+      if (enabled) {
+        if (
+          !effectiveDataRetentionEnabled ||
+          !insightsSyncAllowedByPolicy ||
+          (!insightsSyncEnabled && !(await enableInsightsSync({ confirmWhenEmpty: true })))
+        )
           return;
+        if (!(await joinLeaderboard())) {
+          toast({
+            title: t("insights.leaderboard.activationError"),
+            variant: "destructive",
+          });
         }
-
-        if (!(await leaveLeaderboard())) {
-          toast({ title: t("insights.leaderboard.leavePending") });
-        }
-      } finally {
-        setLeaderboardPreferencePending(false);
+        return;
       }
-    },
-    [
-      effectiveDataRetentionEnabled,
-      enableInsightsSync,
-      insightsSyncAllowedByPolicy,
-      insightsSyncEnabled,
-      isSignedIn,
-      joinLeaderboard,
-      leaderboardParticipationReady,
-      leaderboardPreferencePending,
-      leaveLeaderboard,
-      t,
-      toast,
-    ]
-  );
+
+      if (!(await leaveLeaderboard())) {
+        toast({ title: t("insights.leaderboard.leavePending") });
+      }
+    } finally {
+      setLeaderboardPreferencePending(false);
+    }
+  };
   // Signed out there is nothing to load and the plan grid is purely
   // promotional; signed in, no card may claim a plan until usage confirms one.
   const planStateKnown = !isSignedIn || usage?.status === "success";
@@ -1500,46 +1468,42 @@ export default function SettingsPage({
   } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  const handleSwitchPlan = useCallback(
-    async (plan: "monthly" | "annual", tier: "pro" | "business") => {
-      const accountId = user?.id;
-      const authGeneration = getValidatedAuthGeneration();
-      if (!accountId || authGeneration == null || usage?.status !== "success") return;
-      setPreviewLoading(true);
-      try {
-        const preview = await usage.previewSwitchPlan({ plan, tier });
-        if (authGeneration !== getValidatedAuthGeneration()) return;
-        if (!preview.success) {
-          toast({
-            title: t("settingsPage.account.checkout.couldNotOpenTitle"),
-            description:
-              preview.error || t("settingsPage.account.checkout.couldNotOpenDescription"),
-          });
-          return;
-        }
-        if (preview.alreadyOnPlan) {
-          toast({ title: t("settingsPage.account.pricing.planSwitched") });
-          return;
-        }
-        setSwitchPreview({
-          accountId,
-          authGeneration,
-          plan,
-          tier,
-          immediateAmount: preview.immediateAmount ?? 0,
-          currency: preview.currency ?? "usd",
-          newPriceAmount: preview.newPriceAmount ?? 0,
-          newInterval: preview.newInterval ?? "month",
-          nextBillingDate: preview.nextBillingDate ?? null,
+  const handleSwitchPlan = async (plan: "monthly" | "annual", tier: "pro" | "business") => {
+    const accountId = user?.id;
+    const authGeneration = getValidatedAuthGeneration();
+    if (!accountId || authGeneration == null || usage?.status !== "success") return;
+    setPreviewLoading(true);
+    try {
+      const preview = await usage.previewSwitchPlan({ plan, tier });
+      if (authGeneration !== getValidatedAuthGeneration()) return;
+      if (!preview.success) {
+        toast({
+          title: t("settingsPage.account.checkout.couldNotOpenTitle"),
+          description: preview.error || t("settingsPage.account.checkout.couldNotOpenDescription"),
         });
-      } finally {
-        setPreviewLoading(false);
+        return;
       }
-    },
-    [usage, user?.id, toast, t]
-  );
+      if (preview.alreadyOnPlan) {
+        toast({ title: t("settingsPage.account.pricing.planSwitched") });
+        return;
+      }
+      setSwitchPreview({
+        accountId,
+        authGeneration,
+        plan,
+        tier,
+        immediateAmount: preview.immediateAmount ?? 0,
+        currency: preview.currency ?? "usd",
+        newPriceAmount: preview.newPriceAmount ?? 0,
+        newInterval: preview.newInterval ?? "month",
+        nextBillingDate: preview.nextBillingDate ?? null,
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
 
-  const confirmSwitchPlan = useCallback(async () => {
+  const confirmSwitchPlan = async () => {
     if (!switchPreview) return;
     if (
       !isSignedIn ||
@@ -1561,24 +1525,21 @@ export default function SettingsPage({
         description: result.error || t("settingsPage.account.checkout.couldNotOpenDescription"),
       });
     }
-  }, [switchPreview, isSignedIn, user?.id, usage, toast, t]);
+  };
 
-  const handleCheckout = useCallback(
-    async (plan: "monthly" | "annual", tier: "pro" | "business") => {
-      setCheckoutTier(tier);
-      const result = await usage.openCheckout({ plan, tier });
-      setCheckoutTier(null);
-      if (!result.success) {
-        toast({
-          title: t("settingsPage.account.checkout.couldNotOpenTitle"),
-          description: t("settingsPage.account.checkout.couldNotOpenDescription"),
-        });
-      }
-    },
-    [usage, toast, t]
-  );
+  const handleCheckout = async (plan: "monthly" | "annual", tier: "pro" | "business") => {
+    setCheckoutTier(tier);
+    const result = await usage.openCheckout({ plan, tier });
+    setCheckoutTier(null);
+    if (!result.success) {
+      toast({
+        title: t("settingsPage.account.checkout.couldNotOpenTitle"),
+        description: t("settingsPage.account.checkout.couldNotOpenDescription"),
+      });
+    }
+  };
 
-  const handleSignOut = useCallback(async () => {
+  const handleSignOut = async () => {
     setIsSigningOut(true);
     try {
       // End a live meeting while its note is still in scope: signing out clears
@@ -1598,14 +1559,14 @@ export default function SettingsPage({
     } finally {
       setIsSigningOut(false);
     }
-  }, [showAlertDialog, t]);
+  };
 
   const handleDeleteAccount = () => {
     setEraseDeviceData(false);
     setIsDeleteAccountDialogOpen(true);
   };
 
-  const confirmDeleteAccount = useCallback(async () => {
+  const confirmDeleteAccount = async () => {
     const accountId = user?.id;
     const authGeneration = getValidatedAuthGeneration();
     if (!accountId || authGeneration == null) {
@@ -1666,7 +1627,7 @@ export default function SettingsPage({
     } finally {
       setIsDeletingAccount(false);
     }
-  }, [eraseDeviceData, showAlertDialog, t, user?.id]);
+  };
 
   const renderSectionContent = () => {
     switch (activeSection) {
@@ -2832,27 +2793,26 @@ export default function SettingsPage({
                       label={t("settings.language.chineseScriptLabel")}
                       description={t("settings.language.chineseScriptDescription")}
                     >
-                      <Select
+                      <select
+                        className={`${RETENTION_SELECT_CLASS} w-44`}
+                        aria-label={t("settings.language.chineseScriptLabel")}
                         value={chineseScriptPreference}
-                        onValueChange={(value: ChineseScriptPreference) =>
-                          updateTranscriptionSettings({ chineseScriptPreference: value })
+                        onChange={(event) =>
+                          updateTranscriptionSettings({
+                            chineseScriptPreference: event.target.value as ChineseScriptPreference,
+                          })
                         }
                       >
-                        <SelectTrigger className="h-7 w-44 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="as-transcribed">
-                            {t("settings.language.chineseScriptAsTranscribed")}
-                          </SelectItem>
-                          <SelectItem value="simplified">
-                            {t("settings.language.chineseScriptSimplified")}
-                          </SelectItem>
-                          <SelectItem value="traditional">
-                            {t("settings.language.chineseScriptTraditional")}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                        <option value="as-transcribed">
+                          {t("settings.language.chineseScriptAsTranscribed")}
+                        </option>
+                        <option value="simplified">
+                          {t("settings.language.chineseScriptSimplified")}
+                        </option>
+                        <option value="traditional">
+                          {t("settings.language.chineseScriptTraditional")}
+                        </option>
+                      </select>
                     </SettingsRow>
                   </SettingsPanelRow>
                 )}

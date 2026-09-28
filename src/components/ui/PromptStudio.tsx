@@ -68,31 +68,48 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   const { alertDialog, showAlertDialog, hideAlertDialog } = useDialogs();
   const { agentName } = useAgentName();
   const policyState = usePolicySnapshot();
-  const effectiveSettings = useSettingsStore(
-    useShallow((settings) => selectPolicyEffectiveSettings(settings, policyState))
-  );
-  const uiLanguage = effectiveSettings.uiLanguage;
-
-  const isCloudMode = selectIsCloudCleanupMode(effectiveSettings);
-  const useCleanupModel = effectiveSettings.useCleanupModel;
-  const cleanupModel = effectiveSettings.cleanupModel;
-
-  const isCloudDictationAgent = selectIsCloudDictationAgentMode(effectiveSettings);
-  const useDictationAgent = effectiveSettings.useDictationAgent;
-  const dictationAgentMode = effectiveSettings.dictationAgentMode;
-  const dictationAgentProvider = effectiveSettings.dictationAgentProvider;
-  const dictationAgentModel = effectiveSettings.dictationAgentModel;
-
-  const isCloudTranslation = selectIsCloudTranslationMode(effectiveSettings);
-  const useDictationTranslation = effectiveSettings.useDictationTranslation;
-  const translationMode = effectiveSettings.translationMode;
-  const translationProvider = effectiveSettings.translationProvider;
-  const translationModel = effectiveSettings.translationModel;
-  const translationRemoteUrl = effectiveSettings.translationRemoteUrl;
-  const translationTargetLanguage = effectiveSettings.translationTargetLanguage;
-
   const isTranslate = kind === "translate";
   const isAgent = kind === "dictationAgent";
+  const {
+    uiLanguage,
+    testIsCloud,
+    testModel,
+    configuredMode,
+    configuredProvider,
+    useCleanupModel,
+    useDictationAgent,
+    translationTargetLanguage,
+  } = useSettingsStore(
+    useShallow((settings) => {
+      const effective = selectPolicyEffectiveSettings(settings, policyState);
+      return {
+        uiLanguage: effective.uiLanguage,
+        testIsCloud: isTranslate
+          ? selectIsCloudTranslationMode(effective)
+          : isAgent
+            ? selectIsCloudDictationAgentMode(effective)
+            : selectIsCloudCleanupMode(effective),
+        testModel: isTranslate
+          ? effective.translationModel
+          : isAgent
+            ? effective.dictationAgentModel
+            : effective.cleanupModel,
+        configuredMode: isTranslate
+          ? effective.translationMode
+          : isAgent
+            ? effective.dictationAgentMode
+            : "",
+        configuredProvider: isTranslate
+          ? effective.translationProvider
+          : isAgent
+            ? effective.dictationAgentProvider
+            : "",
+        useCleanupModel: !isTranslate && !isAgent && effective.useCleanupModel,
+        useDictationAgent: isAgent && effective.useDictationAgent,
+        translationTargetLanguage: isTranslate ? effective.translationTargetLanguage : "",
+      };
+    })
+  );
 
   const customPrompt = useSettingsStore((s) => s.customPrompts[kind]);
   const setCustomPrompt = useSettingsStore((s) => s.setCustomPrompt);
@@ -131,6 +148,26 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
     setTestResult("");
 
     try {
+      // Test-only credentials, endpoints, dictionary and sampling settings are
+      // read on the action, not subscribed to by every retained prompt editor.
+      const effectiveSettings = selectPolicyEffectiveSettings(
+        useSettingsStore.getState(),
+        policyState
+      );
+      const {
+        uiLanguage,
+        useCleanupModel,
+        cleanupModel,
+        useDictationAgent,
+        useDictationTranslation,
+        translationMode,
+        translationRemoteUrl,
+        translationTargetLanguage,
+      } = effectiveSettings;
+      const isCloudMode = selectIsCloudCleanupMode(effectiveSettings);
+      const isCloudDictationAgent = selectIsCloudDictationAgentMode(effectiveSettings);
+      const isCloudTranslation = selectIsCloudTranslationMode(effectiveSettings);
+
       if (isTranslate) {
         if (!useDictationTranslation) {
           setTestResult(t("promptStudio.test.translationDisabled"));
@@ -413,34 +450,24 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         {activeTab === "test" &&
           (() => {
             // Each kind reports the scope that actually runs it.
-            const testIsCloud = isTranslate
-              ? isCloudTranslation
-              : isAgent
-                ? isCloudDictationAgent
-                : isCloudMode;
-            const testModel = isTranslate
-              ? translationModel
-              : isAgent
-                ? dictationAgentModel
-                : cleanupModel;
             const agentDisplayProvider = isAgent
               ? resolveDictationAgentInference(
                   {
                     useDictationAgent,
-                    dictationAgentMode,
-                    dictationAgentProvider,
-                    dictationAgentModel,
+                    dictationAgentMode: configuredMode,
+                    dictationAgentProvider: configuredProvider,
+                    dictationAgentModel: testModel,
                   },
-                  { isCloudAgent: isCloudDictationAgent }
+                  { isCloudAgent: testIsCloud }
                 ).displayProvider
               : "";
             const translationDisplayProvider = isTranslate
               ? resolveDictationTranslationInference(
                   {
-                    translationMode,
-                    translationProvider,
+                    translationMode: configuredMode,
+                    translationProvider: configuredProvider,
                   },
-                  { isCloudTranslation }
+                  { isCloudTranslation: testIsCloud }
                 ).displayProvider
               : "";
             const scopeProvider = isTranslate

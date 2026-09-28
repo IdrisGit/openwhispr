@@ -68,22 +68,17 @@ export default function SidebarModal<T extends string>({
   }, []);
 
   // Group items by their group property
-  const groupedItems = React.useMemo(() => {
-    const groups: { label: string | null; items: SidebarItem<T>[] }[] = [];
-    let currentGroup: string | null | undefined = undefined;
-
-    for (const item of sidebarItems) {
-      const group = item.group ?? null;
-      if (group !== currentGroup) {
-        groups.push({ label: group, items: [item] });
-        currentGroup = group;
-      } else {
-        groups[groups.length - 1].items.push(item);
-      }
+  const groupedItems: { label: string | null; items: SidebarItem<T>[] }[] = [];
+  let currentGroup: string | null | undefined = undefined;
+  for (const item of sidebarItems) {
+    const group = item.group ?? null;
+    if (group !== currentGroup) {
+      groupedItems.push({ label: group, items: [item] });
+      currentGroup = group;
+    } else {
+      groupedItems[groupedItems.length - 1].items.push(item);
     }
-
-    return groups;
-  }, [sidebarItems]);
+  }
 
   const renderBadge = (item: SidebarItem<T>) => {
     if (!item.badge && item.badgeVariant !== "dot") return null;

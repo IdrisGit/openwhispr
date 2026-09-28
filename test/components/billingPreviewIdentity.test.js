@@ -15,14 +15,16 @@ const tree = ts.createSourceFile(
 function extractCallback(name) {
   let declaration;
   function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.name.getText(tree) === name &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer) &&
-      node.initializer.expression.getText(tree) === "useCallback"
-    )
-      declaration = node.initializer.arguments[0].getText(tree);
+    if (ts.isVariableDeclaration(node) && node.name.getText(tree) === name && node.initializer) {
+      const expression =
+        ts.isCallExpression(node.initializer) &&
+        node.initializer.expression.getText(tree) === "useCallback"
+          ? node.initializer.arguments[0]
+          : node.initializer;
+      if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+        declaration = expression.getText(tree);
+      }
+    }
     ts.forEachChild(node, visit);
   }
   visit(tree);

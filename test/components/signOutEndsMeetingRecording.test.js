@@ -22,14 +22,15 @@ function extractFunction(relativePath, name) {
   );
   let code;
   function visit(node) {
-    if (
-      ts.isVariableDeclaration(node) &&
-      node.name.getText(source) === name &&
-      node.initializer &&
-      ts.isCallExpression(node.initializer) &&
-      node.initializer.expression.getText(source) === "useCallback"
-    ) {
-      code = `const ${name} = ${node.initializer.arguments[0].getText(source)};`;
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === name && node.initializer) {
+      const expression =
+        ts.isCallExpression(node.initializer) &&
+        node.initializer.expression.getText(source) === "useCallback"
+          ? node.initializer.arguments[0]
+          : node.initializer;
+      if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) {
+        code = `const ${name} = ${expression.getText(source)};`;
+      }
     } else if (ts.isFunctionDeclaration(node) && node.name?.getText(source) === name) {
       code = node.getText(source);
     }

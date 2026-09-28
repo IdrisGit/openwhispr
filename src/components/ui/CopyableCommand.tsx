@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Copy, Check } from "../icons";
 
 interface CopyableCommandProps {
@@ -10,7 +10,7 @@ interface CopyableCommandProps {
 export function CopyableCommand({ command, label, className = "" }: CopyableCommandProps) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     navigator.clipboard
       .writeText(command)
       .then(() => {
@@ -18,7 +18,7 @@ export function CopyableCommand({ command, label, className = "" }: CopyableComm
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => {});
-  }, [command]);
+  };
 
   return (
     <div className={className}>

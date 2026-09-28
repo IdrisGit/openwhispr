@@ -1,4 +1,3 @@
-import { useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network, Building2, ShieldCheck, AlertTriangle } from "../icons";
@@ -122,36 +121,31 @@ export default function InferenceConfigEditor({
     }
   );
 
-  const setField = useCallback(
+  const setField =
     <K extends keyof Omit<typeof config, "scope">>(field: K) =>
-      (value: NonNullable<(typeof config)[K]>) => {
-        setResolvedLLMConfig(scope, { [field]: value });
-      },
-    [scope]
-  );
+    (value: NonNullable<(typeof config)[K]>) => {
+      setResolvedLLMConfig(scope, { [field]: value });
+    };
 
-  const handleModeSelect = useCallback(
-    (mode: InferenceMode) => {
-      if (!isModeAllowed(mode)) return;
-      if (mode === "openwhispr" && !isSignedIn) {
-        requestSignIn();
-        return;
-      }
-      if (mode === effectiveMode) return;
+  const handleModeSelect = (mode: InferenceMode) => {
+    if (!isModeAllowed(mode)) return;
+    if (mode === "openwhispr" && !isSignedIn) {
+      requestSignIn();
+      return;
+    }
+    if (mode === effectiveMode) return;
 
-      const patch: Parameters<typeof setResolvedLLMConfig>[1] = {
-        mode,
-        cloudMode: mode === "openwhispr" ? "openwhispr" : "byok",
-      };
-      if (!isProviderValidForMode(config.provider, mode)) {
-        patch.provider = "";
-        patch.model = "";
-      }
-      setResolvedLLMConfig(scope, patch);
-      onModeChange?.(mode);
-    },
-    [scope, config.provider, effectiveMode, isSignedIn, onModeChange, isModeAllowed]
-  );
+    const patch: Parameters<typeof setResolvedLLMConfig>[1] = {
+      mode,
+      cloudMode: mode === "openwhispr" ? "openwhispr" : "byok",
+    };
+    if (!isProviderValidForMode(config.provider, mode)) {
+      patch.provider = "";
+      patch.model = "";
+    }
+    setResolvedLLMConfig(scope, patch);
+    onModeChange?.(mode);
+  };
 
   const setMode = setField("mode");
   const setProvider = setField("provider");

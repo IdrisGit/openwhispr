@@ -2,20 +2,28 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const {
-  createRendererServer,
-  installBrowserGlobals,
-  installHostDom,
-} = require("../lib/rendererTestHarness");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
 test("SettingsPage leaves retained Speech owners alone on unrelated updates", async (t) => {
+  const { Window } = await import("happy-dom");
+  const dom = new Window();
+  const originalDocument = globalThis.document;
+  const originalAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__settingsSpeech;
+    globalThis.document = originalDocument;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = originalAct;
+    await dom.happyDOM.close();
   });
   installBrowserGlobals(t);
-  const container = installHostDom(t);
+  globalThis.window = dom;
+  globalThis.document = dom.document;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  dom.electronAPI = {};
+  const container = dom.document.createElement("div");
+  dom.document.body.appendChild(container);
   const observed = (globalThis.__settingsSpeech = {
     renders: { dictation: 0, meeting: 0, upload: 0 },
     pickers: {},
@@ -71,6 +79,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
           whisperVadThreshold: 0.5, whisperVadMinSpeechDurationMs: 250,
           whisperVadMinSilenceDurationMs: 100, whisperVadMaxSpeechDurationS: 30,
           whisperVadSpeechPadMs: 30, whisperVadSamplesOverlap: 0.1,
+          updateTranscriptionSettings: values => set(values),
           setWhisperModel: value => set({ whisperModel: value }),
           setWhisperVadThreshold: value => set({ whisperVadThreshold: value }),
         }));
@@ -237,16 +246,44 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   assert.equal(observed.disposed, observed.mounted, "Settings close releases every mounted picker");
 
   await t.test(
+    "General's Chinese script control preserves native options and store updates",
+    async () => {
+      await update({ preferredLanguage: "auto", chineseScriptPreference: "simplified" });
+      observed.locale.setState({ t: (key) => key });
+      root = createRoot(container);
+      await render("general");
+      const select = container.querySelector(
+        'select[aria-label="settings.language.chineseScriptLabel"]'
+      );
+      assert.ok(select);
+      assert.equal(select.value, "simplified");
+      assert.deepEqual(
+        [...select.options].map((option) => option.value),
+        ["as-transcribed", "simplified", "traditional"]
+      );
+      await React.act(async () => {
+        select.value = "traditional";
+        select.dispatchEvent(new dom.Event("change", { bubbles: true }));
+      });
+      assert.equal(observed.store.getState().chineseScriptPreference, "traditional");
+      await update({ preferredLanguage: "en" });
+      assert.equal(
+        container.querySelector('select[aria-label="settings.language.chineseScriptLabel"]'),
+        null
+      );
+      await update({ preferredLanguage: "auto" });
+      assert.equal(
+        container.querySelector('select[aria-label="settings.language.chineseScriptLabel"]').value,
+        "traditional"
+      );
+      await React.act(async () => root.unmount());
+      root = null;
+    }
+  );
+
+  await t.test(
     "Privacy refreshes audio usage and reports partial deletion instead of success",
     async () => {
-      const document = container.ownerDocument;
-      const createElement = document.createElement;
-      document.createElement = (tag) => {
-        const node = createElement(tag);
-        if (tag === "select")
-          Object.defineProperty(node, "options", { get: () => node.childNodes });
-        return node;
-      };
       observed.locale.setState({
         t: (key, options) => (options?.count ? `${key}:${options.count}` : key),
       });

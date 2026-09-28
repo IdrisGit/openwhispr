@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Monitor } from "../icons";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -49,7 +49,7 @@ export default function DictationAgentSettings() {
   const [agentNameInput, setAgentNameInput] = useState(agentName);
   const { showAlertDialog } = useDialogs();
 
-  const handleSaveAgentName = useCallback(() => {
+  const handleSaveAgentName = () => {
     const trimmed = agentNameInput.trim();
 
     // setAgentName also moves the name in the dictionary.
@@ -62,19 +62,16 @@ export default function DictationAgentSettings() {
         name: trimmed,
       }),
     });
-  }, [agentNameInput, setAgentName, showAlertDialog, t]);
+  };
 
-  const handleScreenContextToggle = useCallback(
-    (enabled: boolean) => {
-      setVoiceAgentScreenContext(enabled);
-      // Keeps the dictation overlay out of its own screenshots.
-      window.electronAPI?.setScreenContextEnabled?.(enabled);
-      if (enabled && isMacOS && !screenGranted) {
-        void requestScreenAccess();
-      }
-    },
-    [setVoiceAgentScreenContext, isMacOS, screenGranted, requestScreenAccess]
-  );
+  const handleScreenContextToggle = (enabled: boolean) => {
+    setVoiceAgentScreenContext(enabled);
+    // Keeps the dictation overlay out of its own screenshots.
+    window.electronAPI?.setScreenContextEnabled?.(enabled);
+    if (enabled && isMacOS && !screenGranted) {
+      void requestScreenAccess();
+    }
+  };
 
   const instructionMode = t("settingsPage.agentConfig.instructionMode");
   const examples = [

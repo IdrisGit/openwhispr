@@ -55,10 +55,10 @@ export default function LanguageSelector({
       )
     : items;
 
-  const handleSearchQueryChange = useCallback((value: string) => {
+  const handleSearchQueryChange = (value: string) => {
     setSearchQuery(value);
     setHighlightedIndex(0);
-  }, []);
+  };
 
   // Determine the portal container: use the closest dialog if inside one (to stay
   // within Radix's focus trap), otherwise fall back to document.body.

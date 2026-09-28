@@ -14,9 +14,11 @@ test("account change resets a same-name profile draft and ignores its old creden
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__profileLookup;
     delete globalThis.__profileInput;
+    delete globalThis.__profileActions;
   });
   installBrowserGlobals(t);
   const container = installHostDom(t);
+  const actions = (globalThis.__profileActions = { buttons: [], saved: [], toasts: [] });
   const lookup = [];
   globalThis.__profileLookup = lookup;
   const vite = await createRendererServer(t, {
@@ -26,11 +28,11 @@ test("account change resets a same-name profile draft and ignores its old creden
       "react-i18next": `export const useTranslation = () => ({ t: (key) => key });`,
       "/lib/auth": `
         export const hasCredentialAccount = () => new Promise((resolve) => globalThis.__profileLookup.push(resolve));
-        export const updateDisplayName = async () => ({});
+        export const updateDisplayName = async name => { globalThis.__profileActions.saved.push(name); return globalThis.__profileActions.result ?? {}; };
         export const changePassword = async () => ({});
       `,
       "/components/icons": `export const AlertCircle = () => null; export const KeyRound = () => null; export const Loader2 = () => null;`,
-      "/ui/button": `import React from "react"; export const Button = ({ children, ...props }) => React.createElement("button", props, children);`,
+      "/ui/button": `import React from "react"; export const Button = ({ children, ...props }) => { globalThis.__profileActions.buttons.push({children, ...props}); return React.createElement("button", props, children); };`,
       "/ui/input": `import React from "react"; export const Input = (props) => { if (props.dir === "auto") globalThis.__profileInput = props; return React.createElement("input", props); };`,
       "/ui/label": `import React from "react"; export const Label = ({ children, ...props }) => React.createElement("label", props, children);`,
       "/ui/SettingsSection": `
@@ -39,7 +41,7 @@ test("account change resets a same-name profile draft and ignores its old creden
         export const SettingsPanelRow = SettingsPanel;
         export const SettingsRow = SettingsPanel;
       `,
-      "/ui/useToast": `export const useToast = () => ({ toast() {} });`,
+      "/ui/useToast": `export const useToast = () => ({ toast(value) {globalThis.__profileActions.toasts.push(value);} });`,
       "/ui/dialog": `
         import React from "react";
         const Wrapper = ({ children }) => React.createElement("div", null, children);
@@ -74,4 +76,18 @@ test("account change resets a same-name profile draft and ignores its old creden
   await React.act(async () => lookup[1](true));
   assert.match(container.textContent, /settingsPage.account.profile.password.change/);
   assert.equal(container.textContent.includes("Draft"), false);
+  const save = () =>
+    actions.buttons.findLast((b) => b.children === "settingsPage.account.profile.name.save");
+  await React.act(async () => globalThis.__profileInput.onChange({ target: { value: " Grace " } }));
+  await React.act(async () => save().onClick());
+  assert.deepEqual(actions.saved, ["Grace"]);
+  assert.equal(save().disabled, true, "successful save advances the dirty baseline");
+  actions.result = { error: {} };
+  await React.act(async () =>
+    globalThis.__profileInput.onChange({ target: { value: "New draft" } })
+  );
+  await React.act(async () => save().onClick());
+  assert.equal(actions.toasts.at(-1).variant, "destructive");
+  assert.equal(actions.toasts.at(-1).description, "settingsPage.account.profile.errors.generic");
+  assert.equal(save().disabled, false, "failed save leaves the draft retryable");
 });

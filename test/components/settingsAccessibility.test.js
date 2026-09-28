@@ -109,14 +109,6 @@ test("microphone controls have names without starting a device scan", async (t) 
       "react-i18next": `export function useTranslation() { return { t: (key) => key }; }`,
       "../icons": `export const RefreshCw = () => null; export const Mic = () => null;`,
       "/stores/settingsStore": `export const MIC_WARM_HOLD_CHOICES = [0];`,
-      "./select": `
-        import React from "react";
-        export const Select = ({children}) => children;
-        export const SelectTrigger = ({children, ...props}) => React.createElement("button", props, children);
-        export const SelectValue = ({children}) => React.createElement("span", null, children);
-        export const SelectContent = ({children}) => children;
-        export const SelectItem = ({children}) => children;
-      `,
     },
   });
   const { MicrophoneSettings } = await vite.ssrLoadModule("/components/ui/MicrophoneSettings.tsx");
@@ -133,6 +125,6 @@ test("microphone controls have names without starting a device scan", async (t) 
   );
   const labelId = html.match(/<span id="([^"]+)" class="text-sm font-medium text-foreground">/)[1];
   assert.match(html, /aria-label="common.refresh"/);
-  assert.ok(html.includes(`aria-labelledby="${labelId} ${labelId}-trigger"`));
+  assert.ok(html.includes(`<select aria-labelledby="${labelId}"`));
   assert.match(html, /aria-label="microphoneSettings.warmHold.label"/);
 });

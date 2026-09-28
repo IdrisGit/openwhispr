@@ -28,17 +28,24 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
     mockModules: {
       "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
       "/i18n": `export const normalizeUiLanguage = value => value; export default { getFixedT: () => (key, options) => options.defaultValue };`,
-      "/hooks/usePolicy": `const policy = {}; export const usePolicySnapshot = () => policy;`,
+      "/hooks/usePolicy": `
+        import { create } from "zustand";
+        const policy = create(() => ({patch: {}}));
+        globalThis.__promptStudio.policy = policy;
+        export const usePolicySnapshot = () => policy();`,
       "/utils/agentName": `export const useAgentName = () => ({agentName: "Whisper"});`,
       "/models/ModelRegistry": `export const getModelProvider = () => "openai";`,
       "/utils/logger": `export default {debug() {}, error() {}};`,
-      "/utils/snippets": `export const getDictionaryHintWords = () => ["OpenWhispr"];`,
-      "/helpers/dictationAgentInference": `export const resolveDictationAgentInference = () => ({reachable: true, model: "auto", displayProvider: "openwhispr", config: {provider: "openwhispr"}});`,
-      "/helpers/dictationTranslationInference": `export const resolveDictationTranslationInference = () => ({reachable: true, model: "auto", displayProvider: "openwhispr", config: {provider: "openwhispr", inferenceScope: "dictationTranslation"}});`,
+      "/utils/snippets": `export const getDictionaryHintWords = settings => settings.customDictionary;`,
+      "/helpers/dictationAgentInference": `export const resolveDictationAgentInference = settings => ({reachable: true, model: settings.dictationAgentModel || "auto", displayProvider: settings.dictationAgentProvider || "openwhispr", config: {provider: "openwhispr", customApiKey: settings.dictationAgentCustomApiKey, lanUrl: settings.dictationAgentRemoteUrl}});`,
+      "/helpers/dictationTranslationInference": `export const resolveDictationTranslationInference = settings => ({reachable: true, model: settings.translationModel || "auto", displayProvider: settings.translationProvider || "openwhispr", config: {provider: "openwhispr", inferenceScope: "dictationTranslation", customApiKey: settings.translationCustomApiKey, lanUrl: settings.translationRemoteUrl}});`,
       "/stores/settingsStore": `
         import { create } from "zustand";
         export const useSettingsStore = create(set => ({
-          uiLanguage: "en", preferredLanguage: "fr",
+          uiLanguage: "en", preferredLanguage: "fr", isSignedIn: true,
+          customDictionary: ["OpenWhispr"],
+          cleanupMode: "openwhispr", cleanupCloudMode: "openwhispr",
+          dictationAgentCloudMode: "openwhispr", translationCloudMode: "openwhispr",
           useCleanupModel: true, cleanupModel: "auto", cleanupDisableThinking: true,
           useDictationAgent: true, dictationAgentMode: "openwhispr", dictationAgentModel: "auto",
           useDictationTranslation: true, translationMode: "openwhispr", translationModel: "auto",
@@ -50,10 +57,10 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
           },
         }));
         globalThis.__promptStudio.store = useSettingsStore;
-        export const selectPolicyEffectiveSettings = s => s;
-        export const selectIsCloudCleanupMode = () => true;
-        export const selectIsCloudDictationAgentMode = () => true;
-        export const selectIsCloudTranslationMode = () => true;
+        export const selectPolicyEffectiveSettings = (s, policy) => ({...s, ...policy.patch});
+        export const selectIsCloudCleanupMode = s => s.isSignedIn && s.cleanupMode === "openwhispr" && s.cleanupCloudMode === "openwhispr";
+        export const selectIsCloudDictationAgentMode = s => s.isSignedIn && s.dictationAgentMode === "openwhispr" && s.dictationAgentCloudMode === "openwhispr";
+        export const selectIsCloudTranslationMode = s => s.isSignedIn && s.translationMode === "openwhispr" && s.translationCloudMode === "openwhispr";
       `,
       "/services/ReasoningService": `export default { processText(...args) {
         globalThis.__promptStudio.calls.push(args);
@@ -147,5 +154,120 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
         );
       });
     }
+  }
+
+  for (const kind of ["cleanup", "dictationAgent", "translate"]) {
+    await t.test(
+      `${kind}: narrow subscriptions keep hidden drafts and read fresh test settings`,
+      async (subtest) => {
+        subtest.after(async () => {
+          container.hidden = false;
+          await React.act(async () => observed.pending?.resolve("settled"));
+        });
+        const modelKey =
+          kind === "translate"
+            ? "translationModel"
+            : kind === "dictationAgent"
+              ? "dictationAgentModel"
+              : "cleanupModel";
+        let commits = 0;
+        await React.act(async () => {
+          observed.policy.setState({ patch: {} });
+          observed.store.setState({
+            uiLanguage: "en",
+            isSignedIn: true,
+            useCleanupModel: true,
+            useDictationAgent: true,
+            useDictationTranslation: true,
+            cleanupModel: "cleanup",
+            dictationAgentModel: "agent",
+            translationModel: "translate",
+            dictationAgentProvider: "openwhispr",
+            translationProvider: "openwhispr",
+            customPrompts: { cleanup: "Saved", dictationAgent: "Saved", translate: "Saved" },
+          });
+          root.render(
+            React.createElement(
+              React.Profiler,
+              { id: kind, onRender: () => commits++ },
+              React.createElement(PromptStudio, { kind, key: `subscriptions-${kind}` })
+            )
+          );
+        });
+        await click("promptStudio.tabs.customize");
+        await React.act(async () => observed.edit.onChange({ target: { value: draft } }));
+        container.hidden = true;
+        const before = commits;
+        const otherScope =
+          kind === "cleanup"
+            ? {
+                dictationAgentModel: "other-agent",
+                dictationAgentProvider: "anthropic",
+                translationModel: "other-translation",
+              }
+            : { cleanupModel: "other-cleanup", cleanupMode: "providers" };
+        await React.act(async () =>
+          observed.store.setState({
+            ...otherScope,
+            theme: "dark",
+            hotkey: "F9",
+            whisperModel: "large",
+            customDictionary: ["FreshDictionary"],
+            preferredLanguage: "de",
+            cleanupDisableThinking: false,
+            dictationAgentCustomApiKey: "fresh-agent-key",
+            dictationAgentRemoteUrl: "http://localhost:8080/v1",
+            translationCustomApiKey: "fresh-translation-key",
+            translationRemoteUrl: "http://localhost:9090/v1",
+          })
+        );
+        assert.equal(
+          commits,
+          before,
+          "unrelated/cross-scope/test-only writes do not render a hidden editor"
+        );
+        assert.equal(observed.edit.value, draft);
+        await React.act(async () => observed.store.setState({ [modelKey]: "chosen-model" }));
+        assert.ok(commits > before, "the current kind's model stays reactive");
+        let previous = commits;
+        await React.act(async () => observed.store.setState({ isSignedIn: false }));
+        assert.ok(commits > previous, "auth-derived cloud mode stays reactive");
+        previous = commits;
+        await React.act(async () =>
+          observed.policy.setState({ patch: { [modelKey]: "policy-model" } })
+        );
+        assert.ok(commits > previous, "policy-effective selection stays reactive");
+        previous = commits;
+        await React.act(async () => observed.store.setState({ uiLanguage: "es" }));
+        assert.ok(commits > previous, "default-prompt language stays reactive");
+        assert.equal(observed.edit.value, draft, "relevant updates do not reset the draft");
+        container.hidden = false;
+        await click("promptStudio.tabs.test");
+        assert.match(container.textContent, /policy-model/);
+        await click("promptStudio.test.run");
+        const [, model, , config] = observed.calls.at(-1);
+        assert.equal(model, "policy-model");
+        if (kind === "cleanup") {
+          assert.equal(
+            config.disableThinking,
+            false,
+            "Test uses the latest non-subscribed sampling setting"
+          );
+          assert.equal(config.cleanupPrompt, draft);
+        } else {
+          assert.match(config.systemPrompt, /FreshDictionary/);
+          assert.equal(
+            config.customApiKey,
+            kind === "dictationAgent" ? "fresh-agent-key" : "fresh-translation-key"
+          );
+          assert.equal(
+            config.lanUrl,
+            kind === "dictationAgent" ? "http://localhost:8080/v1" : "http://localhost:9090/v1"
+          );
+          if (kind === "dictationAgent") assert.match(config.systemPrompt, /German|Deutsch/i);
+        }
+        await React.act(async () => observed.pending.resolve("result"));
+      }
+    );
   }
 });

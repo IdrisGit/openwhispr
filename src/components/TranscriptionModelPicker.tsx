@@ -503,7 +503,7 @@ export default function TranscriptionModelPicker({
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const colorScheme: ColorScheme = variant === "settings" ? "purple" : "blue";
-  const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
+  const styles = MODEL_PICKER_COLORS[colorScheme];
   const policyState = usePolicySnapshot();
   const providerAllowed = useCallback(
     (providerId: string) => isProviderAllowedByPolicy(policyState, "transcription", providerId),

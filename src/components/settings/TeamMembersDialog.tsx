@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Loader2, LogOut } from "../icons";
@@ -52,21 +52,18 @@ export default function TeamMembersDialog({
     if (open) void refreshMembers(workspace.id).catch(() => {});
   }, [open, workspace.id, refreshMembers]);
 
-  const confirmRemoveMember = useCallback(
-    (member: TeamMember, onConfirm: () => void) => {
-      showConfirmDialog({
-        title: t("settingsPage.workspace.teams.members.removeConfirm", {
-          name: member.name || member.email,
-          team: team.name,
-        }),
-        description: t("notes.spaces.members.removeConfirmDescription"),
-        confirmText: t("notes.spaces.members.remove"),
-        variant: "destructive",
-        onConfirm,
-      });
-    },
-    [showConfirmDialog, t, team.name]
-  );
+  const confirmRemoveMember = (member: TeamMember, onConfirm: () => void) => {
+    showConfirmDialog({
+      title: t("settingsPage.workspace.teams.members.removeConfirm", {
+        name: member.name || member.email,
+        team: team.name,
+      }),
+      description: t("notes.spaces.members.removeConfirmDescription"),
+      confirmText: t("notes.spaces.members.remove"),
+      variant: "destructive",
+      onConfirm,
+    });
+  };
 
   const confirmLeave = () => {
     if (!canLeave || !user?.id) return;

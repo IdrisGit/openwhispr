@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -68,7 +68,7 @@ export default function OpenAICompatiblePanel({
     setDraftBase(baseUrl);
   }, [baseUrl]);
 
-  const normalizedBase = useMemo(() => normalizeBaseUrl(baseUrl), [baseUrl]);
+  const normalizedBase = normalizeBaseUrl(baseUrl);
 
   useEffect(() => {
     latestBaseRef.current = normalizedBase;
@@ -246,37 +246,37 @@ export default function OpenAICompatiblePanel({
     loadRemoteModels();
   }, [hasBase, normalizedBase, loadRemoteModels]);
 
-  const applyBase = useCallback(() => {
+  const applyBase = () => {
     const normalized = trimmedDraft ? normalizeBaseUrl(trimmedDraft) : trimmedDraft;
     setDraftBase(normalized);
     setBaseUrl(normalized);
     lastLoadedBaseRef.current = null;
     loadRemoteModels(normalized, true);
-  }, [trimmedDraft, setBaseUrl, loadRemoteModels]);
+  };
 
-  const handleBlur = useCallback(() => {
+  const handleBlur = () => {
     if (!trimmedDraft) return;
     if (trimmedDraft !== (baseUrl || "").trim()) {
       applyBase();
     }
-  }, [trimmedDraft, baseUrl, applyBase]);
+  };
 
-  const handleReset = useCallback(() => {
+  const handleReset = () => {
     const target = defaultBaseUrl ?? "";
     setDraftBase(target);
     setBaseUrl(target);
     lastLoadedBaseRef.current = null;
     loadRemoteModels(target, true);
-  }, [defaultBaseUrl, setBaseUrl, loadRemoteModels]);
+  };
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = () => {
     if (isDraftDirty) {
       applyBase();
       return;
     }
     if (!trimmedDraft) return;
     loadRemoteModels(undefined, true);
-  }, [applyBase, isDraftDirty, trimmedDraft, loadRemoteModels]);
+  };
 
   const displayedModels = isDraftDirty ? [] : modelOptions;
   const queryUrl = buildApiUrl(hasBase ? normalizedBase : baseUrlPlaceholder, "/models");

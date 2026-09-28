@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Mail } from "../icons";
 import {
@@ -67,13 +67,8 @@ export default function EnterpriseCheckoutDialog({
 
   // New workspaces go through Stripe Checkout; already-subscribed ones swap
   // the subscription price in place (no browser round-trip).
-  const eligible = useMemo(
-    () =>
-      workspaces.filter(
-        (workspace) =>
-          canSelfServeEnterprise(workspace) || canUpgradeWorkspaceToEnterprise(workspace)
-      ),
-    [workspaces]
+  const eligible = workspaces.filter(
+    (workspace) => canSelfServeEnterprise(workspace) || canUpgradeWorkspaceToEnterprise(workspace)
   );
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
