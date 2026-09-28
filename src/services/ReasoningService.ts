@@ -292,7 +292,8 @@ class ReasoningService extends BaseReasoningService {
     // No systemPrompt override means the default cleanup path: a deterministic
     // transform, so zero temperature and a delimited transcript.
     const isCleanup = !config.systemPrompt;
-    const systemPrompt = config.systemPrompt || this.getSystemPrompt(agentName);
+    const systemPrompt =
+      config.systemPrompt || this.getSystemPrompt(agentName, config.cleanupPrompt);
     const userPrompt = isCleanup ? wrapCleanupTranscript(text) : text;
 
     const messages = [
@@ -466,7 +467,7 @@ class ReasoningService extends BaseReasoningService {
       config.inferenceScope === "dictationCleanup" &&
       !config.systemPrompt &&
       !config.requiresAgent &&
-      !settings.customPrompts.cleanup;
+      !(config.cleanupPrompt ?? settings.customPrompts.cleanup);
     const isImplicitCleanup =
       config.provider === undefined && config.baseUrl === undefined && config.lanUrl === undefined;
     const implicitProvider =
@@ -521,7 +522,14 @@ class ReasoningService extends BaseReasoningService {
         model: trimmedModel,
         agentName,
         config: dispatchConfig,
-        ctx: this.providerContext,
+        // Keep overrides on this request, never on the singleton or shared settings.
+        ctx:
+          dispatchConfig.cleanupPrompt === undefined
+            ? this.providerContext
+            : {
+                ...this.providerContext,
+                getSystemPrompt: (name) => this.getSystemPrompt(name, dispatchConfig.cleanupPrompt),
+              },
       });
 
       if (validateCleanup) assertValidCleanupOutput(text, result);

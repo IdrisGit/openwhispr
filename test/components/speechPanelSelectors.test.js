@@ -2,8 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const fs = require("node:fs");
-const path = require("node:path");
 const {
   createRendererServer,
   installBrowserGlobals,
@@ -129,13 +127,5 @@ test("hidden note and upload panels select only their own preferences", async (t
   assert.deepEqual(
     [globalThis.__speechOwnerRenders.meeting, globalThis.__speechOwnerRenders.upload],
     [2, 2]
-  );
-  const settingsPage = fs.readFileSync(
-    path.join(__dirname, "../../src/components/SettingsPage.tsx"),
-    "utf8"
-  );
-  assert.match(
-    settingsPage,
-    /<MeetingTranscriptionPanel \/>\s*\{meetingTranscriptionMode === "local" &&\s*meetingLocalTranscriptionProvider === "whisper"/
   );
 });

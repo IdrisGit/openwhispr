@@ -66,7 +66,7 @@ export default function LocalModelPicker({
   );
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
-  const styles = useMemo(() => MODEL_PICKER_COLORS[colorScheme], [colorScheme]);
+  const styles = MODEL_PICKER_COLORS[colorScheme];
 
   const loadDownloadedModels = useCallback(async () => {
     const requestId = ++loadDownloadedModelsRequestRef.current;
@@ -154,41 +154,35 @@ export default function LocalModelPicker({
     selectionStateRef.current = { selectedModel, downloadedModels, knownModelIds };
   }, [selectedModel, downloadedModels, knownModelIds]);
 
-  const handleDownload = useCallback(
-    (modelId: string) => {
-      const selectedWhenStarted = selectionStateRef.current.selectedModel;
+  const handleDownload = (modelId: string) => {
+    const selectedWhenStarted = selectionStateRef.current.selectedModel;
 
-      downloadModel(modelId, (downloadedId) => {
-        const {
-          selectedModel: current,
-          downloadedModels: downloaded,
-          knownModelIds: known,
-        } = selectionStateRef.current;
-        if (current !== selectedWhenStarted) return;
+    downloadModel(modelId, (downloadedId) => {
+      const {
+        selectedModel: current,
+        downloadedModels: downloaded,
+        knownModelIds: known,
+      } = selectionStateRef.current;
+      if (current !== selectedWhenStarted) return;
 
-        const selectionGone = known.has(current) && !downloaded.has(current);
-        if (!current || selectionGone) {
-          onModelSelect(downloadedId);
-        }
-      });
-    },
-    [downloadModel, onModelSelect]
-  );
+      const selectionGone = known.has(current) && !downloaded.has(current);
+      if (!current || selectionGone) {
+        onModelSelect(downloadedId);
+      }
+    });
+  };
 
-  const handleDelete = useCallback(
-    (modelId: string) => {
-      showConfirmDialog({
-        title: t("transcription.deleteModel.title"),
-        description: t("transcription.deleteModel.description"),
-        onConfirm: () => deleteModel(modelId, loadDownloadedModels),
-        variant: "destructive",
-      });
-    },
-    [showConfirmDialog, deleteModel, loadDownloadedModels, t]
-  );
+  const handleDelete = (modelId: string) => {
+    showConfirmDialog({
+      title: t("transcription.deleteModel.title"),
+      description: t("transcription.deleteModel.description"),
+      onConfirm: () => deleteModel(modelId, loadDownloadedModels),
+      variant: "destructive",
+    });
+  };
 
   const currentProvider = providers.find((p) => p.id === selectedProvider);
-  const models = useMemo(() => currentProvider?.models || [], [currentProvider?.models]);
+  const models = currentProvider?.models || [];
   const activeModels = allModels.filter((model) => downloads[model.id]);
 
   return (

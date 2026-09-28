@@ -62,7 +62,6 @@ import { useInsightsSyncOptIn } from "../hooks/useInsightsSyncOptIn";
 import { useLeaderboardParticipation } from "../hooks/useLeaderboardParticipation";
 import { usePermissions } from "../hooks/usePermissions";
 import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
-import { useClipboard } from "../hooks/useClipboard";
 import SystemUpdates from "./settings/SystemUpdates";
 
 import { HotkeyListInput } from "./ui/HotkeyListInput";
@@ -90,11 +89,7 @@ import { Skeleton } from "./ui/skeleton";
 import { Progress } from "./ui/progress";
 import { useToast } from "./ui/useToast";
 import { useTheme } from "../hooks/useTheme";
-import type {
-  ChineseScriptPreference,
-  LocalTranscriptionProvider,
-  InferenceMode,
-} from "../types/electron";
+import type { ChineseScriptPreference, InferenceMode } from "../types/electron";
 import logger from "../utils/logger";
 import {
   SettingsPanel,
@@ -108,7 +103,7 @@ import { useSettingsLayout } from "./ui/useSettingsLayout";
 import { useUsage } from "../hooks/useUsage";
 import { cn } from "./lib/utils";
 import { GRADIENT_CIRCLE } from "./ui/gradientCircle";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import WhisperVadSettings from "./settings/WhisperVadSettings";
 import {
   startMigration,
   useMigration,
@@ -430,75 +425,66 @@ function GranolaImportSection({
   );
 }
 
-interface TranscriptionSectionProps {
-  isSignedIn: boolean;
-  cloudTranscriptionMode: string;
-  setCloudTranscriptionMode: (mode: string) => void;
-  useLocalWhisper: boolean;
-  setUseLocalWhisper: (value: boolean) => void;
-  updateTranscriptionSettings: (settings: { useLocalWhisper: boolean }) => void;
-  cloudTranscriptionProvider: string;
-  setCloudTranscriptionProvider: (provider: string) => void;
-  cloudTranscriptionModel: string;
-  setCloudTranscriptionModel: (model: string) => void;
-  localTranscriptionProvider: string;
-  setLocalTranscriptionProvider: (provider: LocalTranscriptionProvider) => void;
-  whisperModel: string;
-  setWhisperModel: (model: string) => void;
-  parakeetModel: string;
-  setParakeetModel: (model: string) => void;
-  cohereModel: string;
-  setCohereModel: (model: string) => void;
-  cloudTranscriptionBaseUrl?: string;
-  setCloudTranscriptionBaseUrl: (url: string) => void;
-  transcriptionMode: InferenceMode;
-  setTranscriptionMode: (mode: InferenceMode) => void;
-  remoteTranscriptionUrl: string;
-  setRemoteTranscriptionUrl: (url: string) => void;
-  remoteTranscriptionModel: string;
-  setRemoteTranscriptionModel: (model: string) => void;
-  showTranscriptionPreview: boolean;
-  setShowTranscriptionPreview: (value: boolean) => void;
-  toast: (opts: {
-    title: string;
-    description: string;
-    variant?: "default" | "destructive" | "success";
-    duration?: number;
-  }) => void;
-}
-
-function TranscriptionSection({
-  isSignedIn,
-  cloudTranscriptionMode,
-  setCloudTranscriptionMode,
-  useLocalWhisper,
-  setUseLocalWhisper,
-  updateTranscriptionSettings,
-  cloudTranscriptionProvider,
-  setCloudTranscriptionProvider,
-  cloudTranscriptionModel,
-  setCloudTranscriptionModel,
-  localTranscriptionProvider,
-  setLocalTranscriptionProvider,
-  whisperModel,
-  setWhisperModel,
-  parakeetModel,
-  setParakeetModel,
-  cohereModel,
-  setCohereModel,
-  cloudTranscriptionBaseUrl,
-  setCloudTranscriptionBaseUrl,
-  transcriptionMode,
-  setTranscriptionMode,
-  remoteTranscriptionUrl,
-  setRemoteTranscriptionUrl,
-  remoteTranscriptionModel,
-  setRemoteTranscriptionModel,
-  showTranscriptionPreview,
-  setShowTranscriptionPreview,
-  toast,
-}: TranscriptionSectionProps) {
+function TranscriptionSection({ isSignedIn }: { isSignedIn: boolean }) {
   const { t } = useTranslation();
+  const { toast } = useToast();
+  const {
+    setCloudTranscriptionMode,
+    useLocalWhisper,
+    setUseLocalWhisper,
+    updateTranscriptionSettings,
+    cloudTranscriptionProvider,
+    setCloudTranscriptionProvider,
+    cloudTranscriptionModel,
+    setCloudTranscriptionModel,
+    localTranscriptionProvider,
+    setLocalTranscriptionProvider,
+    whisperModel,
+    setWhisperModel,
+    parakeetModel,
+    setParakeetModel,
+    cohereModel,
+    setCohereModel,
+    cloudTranscriptionBaseUrl,
+    setCloudTranscriptionBaseUrl,
+    transcriptionMode,
+    setTranscriptionMode,
+    remoteTranscriptionUrl,
+    setRemoteTranscriptionUrl,
+    remoteTranscriptionModel,
+    setRemoteTranscriptionModel,
+    showTranscriptionPreview,
+    setShowTranscriptionPreview,
+  } = useSettingsStore(
+    useShallow((s) => ({
+      setCloudTranscriptionMode: s.setCloudTranscriptionMode,
+      useLocalWhisper: s.useLocalWhisper,
+      setUseLocalWhisper: s.setUseLocalWhisper,
+      updateTranscriptionSettings: s.updateTranscriptionSettings,
+      cloudTranscriptionProvider: s.cloudTranscriptionProvider,
+      setCloudTranscriptionProvider: s.setCloudTranscriptionProvider,
+      cloudTranscriptionModel: s.cloudTranscriptionModel,
+      setCloudTranscriptionModel: s.setCloudTranscriptionModel,
+      localTranscriptionProvider: s.localTranscriptionProvider,
+      setLocalTranscriptionProvider: s.setLocalTranscriptionProvider,
+      whisperModel: s.whisperModel,
+      setWhisperModel: s.setWhisperModel,
+      parakeetModel: s.parakeetModel,
+      setParakeetModel: s.setParakeetModel,
+      cohereModel: s.cohereModel,
+      setCohereModel: s.setCohereModel,
+      cloudTranscriptionBaseUrl: s.cloudTranscriptionBaseUrl,
+      setCloudTranscriptionBaseUrl: s.setCloudTranscriptionBaseUrl,
+      transcriptionMode: s.transcriptionMode,
+      setTranscriptionMode: s.setTranscriptionMode,
+      remoteTranscriptionUrl: s.remoteTranscriptionUrl,
+      setRemoteTranscriptionUrl: s.setRemoteTranscriptionUrl,
+      remoteTranscriptionModel: s.remoteTranscriptionModel,
+      setRemoteTranscriptionModel: s.setRemoteTranscriptionModel,
+      showTranscriptionPreview: s.showTranscriptionPreview,
+      setShowTranscriptionPreview: s.setShowTranscriptionPreview,
+    }))
+  );
   const policySnapshot = usePolicySnapshot();
   const enterpriseTranscriptionSetupMode = useSettingsStore(
     (s) => s.enterpriseTranscriptionSetupMode
@@ -768,27 +754,29 @@ function TranscriptionSection({
   );
 }
 
-function VADLabelWithInfo({ label, description }: { label: string; description: string }) {
+// Only validated auth comes from SettingsPage; settings/policy/locale updates
+// belong to the retained children. Avoid mounting a second auth sync owner.
+const DictationPanel = React.memo(function DictationPanel({ isSignedIn }: { isSignedIn: boolean }) {
   return (
-    <div className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
-      <span>{label}</span>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground transition-colors"
-            aria-label={label}
-          >
-            <Info className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="max-w-sm p-3">
-          <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
-        </PopoverContent>
-      </Popover>
+    <div className="space-y-6">
+      <TranscriptionSection isSignedIn={isSignedIn} />
+      <WhisperVadSettings context="dictation" />
     </div>
   );
-}
+});
+// These panels need no parent props, so stable elements suffice without memo.
+
+const NOTE_RECORDING_PANEL = (
+  <div className="space-y-6">
+    <MeetingTranscriptionPanel />
+    <WhisperVadSettings context="meeting" />
+  </div>
+);
+const UPLOAD_PANEL = (
+  <div className="space-y-6">
+    <UploadTranscriptionPanel />
+  </div>
+);
 
 // "Gabriel Stein" → "GS"; single names fall back to their first letter.
 function nameInitials(name: string): string {
@@ -846,17 +834,9 @@ export default function SettingsPage({
 
   const { autoLearnCorrections, setAutoLearnCorrections } = useAutoLearnCorrections();
   const {
-    useLocalWhisper,
-    whisperModel,
-    localTranscriptionProvider,
-    parakeetModel,
-    cohereModel,
     uiLanguage,
     preferredLanguage,
     chineseScriptPreference,
-    cloudTranscriptionProvider,
-    cloudTranscriptionModel,
-    cloudTranscriptionBaseUrl,
     dictationKey,
     activationMode,
     setActivationMode,
@@ -867,31 +847,13 @@ export default function SettingsPage({
     setMicrophoneSelectionMode,
     setSelectedMicDevice,
     setMicWarmHoldSeconds,
-    setUseLocalWhisper,
     setUiLanguage,
-    setWhisperModel,
-    setLocalTranscriptionProvider,
-    setParakeetModel,
-    setCohereModel,
-    setCloudTranscriptionProvider,
-    setCloudTranscriptionModel,
-    setCloudTranscriptionBaseUrl,
     setDictationKey,
     meetingKey,
     setMeetingKey,
     meetingHotkeyLayoutMode,
     setMeetingHotkeyLayoutMode,
     updateTranscriptionSettings,
-    cloudTranscriptionMode,
-    setCloudTranscriptionMode,
-    meetingTranscriptionMode,
-    meetingLocalTranscriptionProvider,
-    transcriptionMode,
-    setTranscriptionMode,
-    remoteTranscriptionUrl,
-    setRemoteTranscriptionUrl,
-    remoteTranscriptionModel,
-    setRemoteTranscriptionModel,
     notificationsEnabled,
     setNotificationsEnabled,
     notifyMeetingDetection,
@@ -902,8 +864,6 @@ export default function SettingsPage({
     setAudioCuesEnabled,
     pauseMediaOnDictation,
     setPauseMediaOnDictation,
-    showTranscriptionPreview,
-    setShowTranscriptionPreview,
     autoPasteEnabled,
     setAutoPasteEnabled,
     keepTranscriptionInClipboard,
@@ -932,37 +892,11 @@ export default function SettingsPage({
     setNoteFilesEnabled,
     noteFilesPath,
     setNoteFilesPath,
-    dictationSileroEnabled,
-    setDictationSileroEnabled,
-    noteRecordingSileroEnabled,
-    setNoteRecordingSileroEnabled,
-    meetingSileroEnabled,
-    setMeetingSileroEnabled,
-    whisperVadThreshold,
-    setWhisperVadThreshold,
-    whisperVadMinSpeechDurationMs,
-    setWhisperVadMinSpeechDurationMs,
-    whisperVadMinSilenceDurationMs,
-    setWhisperVadMinSilenceDurationMs,
-    whisperVadMaxSpeechDurationS,
-    setWhisperVadMaxSpeechDurationS,
-    whisperVadSpeechPadMs,
-    setWhisperVadSpeechPadMs,
-    whisperVadSamplesOverlap,
-    setWhisperVadSamplesOverlap,
   } = useSettingsStore(
     useShallow((settings) => ({
-      useLocalWhisper: settings.useLocalWhisper,
-      whisperModel: settings.whisperModel,
-      localTranscriptionProvider: settings.localTranscriptionProvider,
-      parakeetModel: settings.parakeetModel,
-      cohereModel: settings.cohereModel,
       uiLanguage: settings.uiLanguage,
       preferredLanguage: settings.preferredLanguage,
       chineseScriptPreference: settings.chineseScriptPreference,
-      cloudTranscriptionProvider: settings.cloudTranscriptionProvider,
-      cloudTranscriptionModel: settings.cloudTranscriptionModel,
-      cloudTranscriptionBaseUrl: settings.cloudTranscriptionBaseUrl,
       dictationKey: settings.dictationKey,
       activationMode: settings.activationMode,
       setActivationMode: settings.setActivationMode,
@@ -973,31 +907,13 @@ export default function SettingsPage({
       setMicrophoneSelectionMode: settings.setMicrophoneSelectionMode,
       setSelectedMicDevice: settings.setSelectedMicDevice,
       setMicWarmHoldSeconds: settings.setMicWarmHoldSeconds,
-      setUseLocalWhisper: settings.setUseLocalWhisper,
       setUiLanguage: settings.setUiLanguage,
-      setWhisperModel: settings.setWhisperModel,
-      setLocalTranscriptionProvider: settings.setLocalTranscriptionProvider,
-      setParakeetModel: settings.setParakeetModel,
-      setCohereModel: settings.setCohereModel,
-      setCloudTranscriptionProvider: settings.setCloudTranscriptionProvider,
-      setCloudTranscriptionModel: settings.setCloudTranscriptionModel,
-      setCloudTranscriptionBaseUrl: settings.setCloudTranscriptionBaseUrl,
       setDictationKey: settings.setDictationKey,
       meetingKey: settings.meetingKey,
       setMeetingKey: settings.setMeetingKey,
       meetingHotkeyLayoutMode: settings.meetingHotkeyLayoutMode,
       setMeetingHotkeyLayoutMode: settings.setMeetingHotkeyLayoutMode,
       updateTranscriptionSettings: settings.updateTranscriptionSettings,
-      cloudTranscriptionMode: settings.cloudTranscriptionMode,
-      setCloudTranscriptionMode: settings.setCloudTranscriptionMode,
-      meetingTranscriptionMode: settings.meetingTranscriptionMode,
-      meetingLocalTranscriptionProvider: settings.meetingLocalTranscriptionProvider,
-      transcriptionMode: settings.transcriptionMode,
-      setTranscriptionMode: settings.setTranscriptionMode,
-      remoteTranscriptionUrl: settings.remoteTranscriptionUrl,
-      setRemoteTranscriptionUrl: settings.setRemoteTranscriptionUrl,
-      remoteTranscriptionModel: settings.remoteTranscriptionModel,
-      setRemoteTranscriptionModel: settings.setRemoteTranscriptionModel,
       notificationsEnabled: settings.notificationsEnabled,
       setNotificationsEnabled: settings.setNotificationsEnabled,
       notifyMeetingDetection: settings.notifyMeetingDetection,
@@ -1008,8 +924,6 @@ export default function SettingsPage({
       setAudioCuesEnabled: settings.setAudioCuesEnabled,
       pauseMediaOnDictation: settings.pauseMediaOnDictation,
       setPauseMediaOnDictation: settings.setPauseMediaOnDictation,
-      showTranscriptionPreview: settings.showTranscriptionPreview,
-      setShowTranscriptionPreview: settings.setShowTranscriptionPreview,
       autoPasteEnabled: settings.autoPasteEnabled,
       setAutoPasteEnabled: settings.setAutoPasteEnabled,
       keepTranscriptionInClipboard: settings.keepTranscriptionInClipboard,
@@ -1038,24 +952,6 @@ export default function SettingsPage({
       setNoteFilesEnabled: settings.setNoteFilesEnabled,
       noteFilesPath: settings.noteFilesPath,
       setNoteFilesPath: settings.setNoteFilesPath,
-      dictationSileroEnabled: settings.dictationSileroEnabled,
-      setDictationSileroEnabled: settings.setDictationSileroEnabled,
-      noteRecordingSileroEnabled: settings.noteRecordingSileroEnabled,
-      setNoteRecordingSileroEnabled: settings.setNoteRecordingSileroEnabled,
-      meetingSileroEnabled: settings.meetingSileroEnabled,
-      setMeetingSileroEnabled: settings.setMeetingSileroEnabled,
-      whisperVadThreshold: settings.whisperVadThreshold,
-      setWhisperVadThreshold: settings.setWhisperVadThreshold,
-      whisperVadMinSpeechDurationMs: settings.whisperVadMinSpeechDurationMs,
-      setWhisperVadMinSpeechDurationMs: settings.setWhisperVadMinSpeechDurationMs,
-      whisperVadMinSilenceDurationMs: settings.whisperVadMinSilenceDurationMs,
-      setWhisperVadMinSilenceDurationMs: settings.setWhisperVadMinSilenceDurationMs,
-      whisperVadMaxSpeechDurationS: settings.whisperVadMaxSpeechDurationS,
-      setWhisperVadMaxSpeechDurationS: settings.setWhisperVadMaxSpeechDurationS,
-      whisperVadSpeechPadMs: settings.whisperVadSpeechPadMs,
-      setWhisperVadSpeechPadMs: settings.setWhisperVadSpeechPadMs,
-      whisperVadSamplesOverlap: settings.whisperVadSamplesOverlap,
-      setWhisperVadSamplesOverlap: settings.setWhisperVadSamplesOverlap,
     }))
   );
 
@@ -1105,7 +1001,6 @@ export default function SettingsPage({
 
   const permissionsHook = usePermissions(showAlertDialog);
   const systemAudio = useSystemAudioPermission();
-  useClipboard(showAlertDialog);
   const [audioStorageUsage, setAudioStorageUsage] = useState<{
     fileCount: number;
     totalBytes: number;
@@ -1394,22 +1289,19 @@ export default function SettingsPage({
     });
   }, [activeSection, noteFilesEnabled]);
 
-  const handleNoteFilesToggle = useCallback(
-    async (enabled: boolean) => {
-      setNoteFilesEnabled(enabled);
-      await window.electronAPI?.noteFilesSetEnabled?.(enabled, noteFilesPath || undefined);
-    },
-    [setNoteFilesEnabled, noteFilesPath]
-  );
+  const handleNoteFilesToggle = async (enabled: boolean) => {
+    setNoteFilesEnabled(enabled);
+    await window.electronAPI?.noteFilesSetEnabled?.(enabled, noteFilesPath || undefined);
+  };
 
-  const handleNoteFilesChangePath = useCallback(async () => {
+  const handleNoteFilesChangePath = async () => {
     const result = await window.electronAPI?.noteFilesPickFolder?.();
     if (result?.canceled || !result?.path) return;
     setNoteFilesPath(result.path);
     await window.electronAPI?.noteFilesSetPath?.(result.path);
-  }, [setNoteFilesPath]);
+  };
 
-  const handleNoteFilesRebuild = useCallback(async () => {
+  const handleNoteFilesRebuild = async () => {
     setNoteFilesRebuilding(true);
     try {
       const result = await window.electronAPI?.noteFilesRebuild?.();
@@ -1423,7 +1315,7 @@ export default function SettingsPage({
     } finally {
       setNoteFilesRebuilding(false);
     }
-  }, [toast, t]);
+  };
 
   useEffect(() => {
     if (activeSection !== "hotkeys") return;
@@ -1708,10 +1600,10 @@ export default function SettingsPage({
     }
   }, [showAlertDialog, t]);
 
-  const handleDeleteAccount = useCallback(() => {
+  const handleDeleteAccount = () => {
     setEraseDeviceData(false);
     setIsDeleteAccountDialogOpen(true);
-  }, []);
+  };
 
   const confirmDeleteAccount = useCallback(async () => {
     const accountId = user?.id;
@@ -1775,135 +1667,6 @@ export default function SettingsPage({
       setIsDeletingAccount(false);
     }
   }, [eraseDeviceData, showAlertDialog, t, user?.id]);
-
-  const renderWhisperVadSettings = () => (
-    <div>
-      <SectionHeader
-        title={t("settingsPage.transcription.vad.title")}
-        description={t("settingsPage.transcription.vad.description")}
-      />
-      <SettingsPanel>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.transcription.vad.toggles.dictation.title")}
-            description={t("settingsPage.transcription.vad.toggles.dictation.description")}
-          >
-            <Toggle checked={dictationSileroEnabled} onChange={setDictationSileroEnabled} />
-          </SettingsRow>
-        </SettingsPanelRow>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.transcription.vad.toggles.noteRecording.title")}
-            description={t("settingsPage.transcription.vad.toggles.noteRecording.description")}
-          >
-            <Toggle checked={noteRecordingSileroEnabled} onChange={setNoteRecordingSileroEnabled} />
-          </SettingsRow>
-        </SettingsPanelRow>
-        <SettingsPanelRow>
-          <SettingsRow
-            label={t("settingsPage.transcription.vad.toggles.meeting.title")}
-            description={t("settingsPage.transcription.vad.toggles.meeting.description")}
-          >
-            <Toggle checked={meetingSileroEnabled} onChange={setMeetingSileroEnabled} />
-          </SettingsRow>
-        </SettingsPanelRow>
-        <SettingsPanelRow>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.threshold.label")}
-                description={t("settingsPage.transcription.vad.fields.threshold.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="0.01"
-                min="0.1"
-                max="0.95"
-                value={whisperVadThreshold}
-                onChange={(e) => setWhisperVadThreshold(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.minSpeechDurationMs.label")}
-                description={t("settingsPage.transcription.vad.fields.minSpeechDurationMs.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="10"
-                min="50"
-                max="2000"
-                value={whisperVadMinSpeechDurationMs}
-                onChange={(e) => setWhisperVadMinSpeechDurationMs(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.minSilenceDurationMs.label")}
-                description={t("settingsPage.transcription.vad.fields.minSilenceDurationMs.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="10"
-                min="50"
-                max="2000"
-                value={whisperVadMinSilenceDurationMs}
-                onChange={(e) => setWhisperVadMinSilenceDurationMs(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.maxSpeechDurationS.label")}
-                description={t("settingsPage.transcription.vad.fields.maxSpeechDurationS.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="1"
-                min="5"
-                max="120"
-                value={whisperVadMaxSpeechDurationS}
-                onChange={(e) => setWhisperVadMaxSpeechDurationS(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.speechPadMs.label")}
-                description={t("settingsPage.transcription.vad.fields.speechPadMs.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="10"
-                min="0"
-                max="1000"
-                value={whisperVadSpeechPadMs}
-                onChange={(e) => setWhisperVadSpeechPadMs(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <VADLabelWithInfo
-                label={t("settingsPage.transcription.vad.fields.samplesOverlap.label")}
-                description={t("settingsPage.transcription.vad.fields.samplesOverlap.info")}
-              />
-              <Input
-                dir="ltr"
-                type="number"
-                step="0.01"
-                min="0"
-                max="0.95"
-                value={whisperVadSamplesOverlap}
-                onChange={(e) => setWhisperVadSamplesOverlap(Number(e.target.value))}
-              />
-            </div>
-          </div>
-        </SettingsPanelRow>
-      </SettingsPanel>
-    </div>
-  );
 
   const renderSectionContent = () => {
     switch (activeSection) {
@@ -4474,57 +4237,9 @@ EOF`,
                 : undefined
             }
             request={activeSection === "speechToText" && initialSubTab ? subTabRequest : undefined}
-            dictation={
-              <div className="space-y-6">
-                <TranscriptionSection
-                  isSignedIn={isSignedIn ?? false}
-                  cloudTranscriptionMode={cloudTranscriptionMode}
-                  setCloudTranscriptionMode={setCloudTranscriptionMode}
-                  useLocalWhisper={useLocalWhisper}
-                  setUseLocalWhisper={setUseLocalWhisper}
-                  updateTranscriptionSettings={updateTranscriptionSettings}
-                  cloudTranscriptionProvider={cloudTranscriptionProvider}
-                  setCloudTranscriptionProvider={setCloudTranscriptionProvider}
-                  cloudTranscriptionModel={cloudTranscriptionModel}
-                  setCloudTranscriptionModel={setCloudTranscriptionModel}
-                  localTranscriptionProvider={localTranscriptionProvider}
-                  setLocalTranscriptionProvider={setLocalTranscriptionProvider}
-                  whisperModel={whisperModel}
-                  setWhisperModel={setWhisperModel}
-                  parakeetModel={parakeetModel}
-                  setParakeetModel={setParakeetModel}
-                  cohereModel={cohereModel}
-                  setCohereModel={setCohereModel}
-                  cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
-                  setCloudTranscriptionBaseUrl={setCloudTranscriptionBaseUrl}
-                  transcriptionMode={transcriptionMode}
-                  setTranscriptionMode={setTranscriptionMode}
-                  remoteTranscriptionUrl={remoteTranscriptionUrl}
-                  setRemoteTranscriptionUrl={setRemoteTranscriptionUrl}
-                  remoteTranscriptionModel={remoteTranscriptionModel}
-                  setRemoteTranscriptionModel={setRemoteTranscriptionModel}
-                  showTranscriptionPreview={showTranscriptionPreview}
-                  setShowTranscriptionPreview={setShowTranscriptionPreview}
-                  toast={toast}
-                />
-                {transcriptionMode === "local" &&
-                  localTranscriptionProvider === "whisper" &&
-                  renderWhisperVadSettings()}
-              </div>
-            }
-            noteRecording={
-              <div className="space-y-6">
-                <MeetingTranscriptionPanel />
-                {meetingTranscriptionMode === "local" &&
-                  meetingLocalTranscriptionProvider === "whisper" &&
-                  renderWhisperVadSettings()}
-              </div>
-            }
-            upload={
-              <div className="space-y-6">
-                <UploadTranscriptionPanel />
-              </div>
-            }
+            dictation={<DictationPanel isSignedIn={isSignedIn ?? false} />}
+            noteRecording={NOTE_RECORDING_PANEL}
+            upload={UPLOAD_PANEL}
           />
         </TabPanel>
       )}

@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { Loader2, Search } from "./icons";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -116,7 +117,22 @@ type BedrockCatalogState =
 
 function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
-  const store = useSettingsStore();
+  const store = useSettingsStore(
+    useShallow((s) => ({
+      bedrockAuthMode: s.bedrockAuthMode,
+      setBedrockAuthMode: s.setBedrockAuthMode,
+      bedrockRegion: s.bedrockRegion,
+      setBedrockRegion: s.setBedrockRegion,
+      bedrockProfile: s.bedrockProfile,
+      setBedrockProfile: s.setBedrockProfile,
+      bedrockAccessKeyId: s.bedrockAccessKeyId,
+      setBedrockAccessKeyId: s.setBedrockAccessKeyId,
+      bedrockSecretAccessKey: s.bedrockSecretAccessKey,
+      setBedrockSecretAccessKey: s.setBedrockSecretAccessKey,
+      bedrockSessionToken: s.bedrockSessionToken,
+      setBedrockSessionToken: s.setBedrockSessionToken,
+    }))
+  );
   const suggestedModels = useSuggestedModels("bedrock");
   const [catalog, setCatalog] = useState<BedrockCatalogState>({ status: "idle" });
   const catalogRequestRef = useRef(0);
@@ -342,7 +358,18 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
 
 function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
-  const store = useSettingsStore();
+  const store = useSettingsStore(
+    useShallow((s) => ({
+      azureEndpoint: s.azureEndpoint,
+      setAzureEndpoint: s.setAzureEndpoint,
+      azureApiKey: s.azureApiKey,
+      setAzureApiKey: s.setAzureApiKey,
+      azureDeploymentName: s.azureDeploymentName,
+      setAzureDeploymentName: s.setAzureDeploymentName,
+      azureApiVersion: s.azureApiVersion,
+      setAzureApiVersion: s.setAzureApiVersion,
+    }))
+  );
 
   const getTestConfig = () => ({
     azureEndpoint: store.azureEndpoint,
@@ -418,7 +445,18 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
 
 function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
-  const store = useSettingsStore();
+  const store = useSettingsStore(
+    useShallow((s) => ({
+      vertexAuthMode: s.vertexAuthMode,
+      setVertexAuthMode: s.setVertexAuthMode,
+      vertexProject: s.vertexProject,
+      setVertexProject: s.setVertexProject,
+      vertexLocation: s.vertexLocation,
+      setVertexLocation: s.setVertexLocation,
+      vertexApiKey: s.vertexApiKey,
+      setVertexApiKey: s.setVertexApiKey,
+    }))
+  );
   const suggestedModels = useSuggestedModels("vertex");
 
   const getTestConfig = () => ({

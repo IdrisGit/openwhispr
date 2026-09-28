@@ -153,29 +153,17 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
           return;
         }
 
-        const previous = customPrompt;
-        setCustomPrompt(kind, editedPrompt);
-        try {
-          const result = await ReasoningService.processText(
-            testText,
-            translation.model,
+        const result = await ReasoningService.processText(testText, translation.model, agentName, {
+          ...translation.config,
+          systemPrompt: resolvePrompt("translate", {
             agentName,
-            {
-              ...translation.config,
-              systemPrompt: resolvePrompt("translate", {
-                agentName,
-                targetLanguageLabel: getLanguageLabel(translationTargetLanguage),
-                customDictionary: getDictionaryHintWords(effectiveSettings),
-                uiLanguage,
-              }),
-            }
-          );
-          setTestResult(result);
-        } finally {
-          if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
-            setCustomPrompt(kind, previous);
-          }
-        }
+            targetLanguageLabel: getLanguageLabel(translationTargetLanguage),
+            customDictionary: getDictionaryHintWords(effectiveSettings),
+            uiLanguage,
+            promptTemplate: editedPrompt,
+          }),
+        });
+        setTestResult(result);
         return;
       }
 
@@ -197,26 +185,19 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
           return;
         }
 
-        const previous = customPrompt;
-        setCustomPrompt(kind, editedPrompt);
-        try {
-          const result = await ReasoningService.processText(testText, agent.model, agentName, {
-            ...agent.config,
-            inferenceScope: "dictationAgent",
-            requiresAgent: true,
-            systemPrompt: resolvePrompt("dictationAgent", {
-              agentName,
-              language: settings.preferredLanguage,
-              customDictionary: getDictionaryHintWords(settings),
-              uiLanguage,
-            }),
-          });
-          setTestResult(result);
-        } finally {
-          if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
-            setCustomPrompt(kind, previous);
-          }
-        }
+        const result = await ReasoningService.processText(testText, agent.model, agentName, {
+          ...agent.config,
+          inferenceScope: "dictationAgent",
+          requiresAgent: true,
+          systemPrompt: resolvePrompt("dictationAgent", {
+            agentName,
+            language: settings.preferredLanguage,
+            customDictionary: getDictionaryHintWords(settings),
+            uiLanguage,
+            promptTemplate: editedPrompt,
+          }),
+        });
+        setTestResult(result);
         return;
       }
 
@@ -270,19 +251,12 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
 
       const modelToUse = isCloudMode ? cleanupModel || "auto" : cleanupModel;
 
-      const previous = customPrompt;
-      setCustomPrompt(kind, editedPrompt);
-      try {
-        const result = await ReasoningService.processText(testText, modelToUse, agentName, {
-          inferenceScope: "dictationCleanup",
-          disableThinking: effectiveSettings.cleanupDisableThinking,
-        });
-        setTestResult(result);
-      } finally {
-        if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
-          setCustomPrompt(kind, previous);
-        }
-      }
+      const result = await ReasoningService.processText(testText, modelToUse, agentName, {
+        inferenceScope: "dictationCleanup",
+        disableThinking: effectiveSettings.cleanupDisableThinking,
+        cleanupPrompt: editedPrompt,
+      });
+      setTestResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("PromptStudio test failed", { error: errorMessage }, "prompt-studio");
