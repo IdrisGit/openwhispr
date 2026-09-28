@@ -52,7 +52,7 @@ export default function LocalModelPicker({
   onDownloadComplete,
 }: LocalModelPickerProps) {
   const { t } = useTranslation();
-  const [downloadedModels, setDownloadedModels] = useState<Set<string>>(new Set());
+  const [downloadedModels, setDownloadedModels] = useState<Set<string> | null>(null);
   const loadDownloadedModelsRequestRef = useRef(0);
   const onModelSelectRef = useRef(onModelSelect);
 
@@ -72,34 +72,31 @@ export default function LocalModelPicker({
     const requestId = ++loadDownloadedModelsRequestRef.current;
 
     try {
-      let downloaded = new Set<string>();
+      let downloaded: Set<string>;
       if (modelType === "whisper") {
         const result = await window.electronAPI?.listWhisperModels();
-        if (result?.success) {
-          downloaded = new Set(
-            result.models
-              .filter((m: { downloaded?: boolean }) => m.downloaded)
-              .map((m: { model: string }) => m.model)
-          );
-        }
+        if (!result?.success || !Array.isArray(result.models)) return null;
+        downloaded = new Set(
+          result.models
+            .filter((m: { downloaded?: boolean }) => m.downloaded)
+            .map((m: { model: string }) => m.model)
+        );
       } else if (modelType === "parakeet") {
         const result = await window.electronAPI?.listParakeetModels();
-        if (result?.success) {
-          downloaded = new Set(
-            result.models
-              .filter((m: { downloaded?: boolean }) => m.downloaded)
-              .map((m: { model: string }) => m.model)
-          );
-        }
+        if (!result?.success || !Array.isArray(result.models)) return null;
+        downloaded = new Set(
+          result.models
+            .filter((m: { downloaded?: boolean }) => m.downloaded)
+            .map((m: { model: string }) => m.model)
+        );
       } else {
         const result = await window.electronAPI?.modelGetAll?.();
-        if (result && Array.isArray(result)) {
-          downloaded = new Set(
-            result
-              .filter((m: { isDownloaded?: boolean }) => m.isDownloaded)
-              .map((m: { id: string }) => m.id)
-          );
-        }
+        if (!Array.isArray(result)) return null;
+        downloaded = new Set(
+          result
+            .filter((m: { isDownloaded?: boolean }) => m.isDownloaded)
+            .map((m: { id: string }) => m.id)
+        );
       }
       if (requestId === loadDownloadedModelsRequestRef.current) {
         setDownloadedModels(downloaded);
@@ -127,6 +124,11 @@ export default function LocalModelPicker({
       }
     };
     initAndValidate();
+    const requests = loadDownloadedModelsRequestRef;
+    return () => {
+      // A late reply cannot validate an old selection or an unmounted picker.
+      requests.current++;
+    };
   }, [loadDownloadedModels, selectedModel, knownModelIds]);
 
   const handleDownloadComplete = useCallback(async () => {
@@ -165,7 +167,7 @@ export default function LocalModelPicker({
       } = selectionStateRef.current;
       if (current !== selectedWhenStarted) return;
 
-      const selectionGone = known.has(current) && !downloaded.has(current);
+      const selectionGone = downloaded && known.has(current) && !downloaded.has(current);
       if (!current || selectionGone) {
         onModelSelect(downloadedId);
       }
@@ -227,7 +229,7 @@ export default function LocalModelPicker({
             icon: getProviderIcon(selectedProvider),
             invertInDark: isMonochromeProvider(selectedProvider),
             recommended: model.recommended,
-            isDownloaded: downloadedModels.has(model.id) || model.isDownloaded || model.downloaded,
+            isDownloaded: downloadedModels?.has(model.id) || model.isDownloaded || model.downloaded,
             isDownloading: isDownloadingModel(model.id),
             isCancelling: isCancellingModel(model.id),
           }))}

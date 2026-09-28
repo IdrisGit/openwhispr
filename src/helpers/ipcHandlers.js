@@ -1759,6 +1759,7 @@ class IPCHandlers {
           { error: error.message },
           "audio-storage"
         );
+        return { ...result, failed: true };
       }
       return result;
     });

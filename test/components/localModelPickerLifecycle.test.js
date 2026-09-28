@@ -13,14 +13,19 @@ test("retained local picker loads disk state once per mount and balances progres
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__localPickerCards;
+    delete globalThis.__localPickerActions;
   });
   let inventory = 0;
   let hydration = 0;
   let registrations = 0;
   let cleanups = 0;
   const listeners = new Set();
+  const events = new EventTarget();
   installBrowserGlobals(t, {
     window: {
+      addEventListener: events.addEventListener.bind(events),
+      removeEventListener: events.removeEventListener.bind(events),
+      dispatchEvent: events.dispatchEvent.bind(events),
       electronAPI: {
         modelGetAll: async () => {
           inventory++;
@@ -62,8 +67,9 @@ test("retained local picker loads disk state once per mount and balances progres
       "/ui/DownloadProgressBar": `export const DownloadProgressBar = () => null;`,
       "/ui/dialog": `export const ConfirmDialog = () => null;`,
       "/ui/ModelCardList": `
-        export default function ModelCardList({ models }) {
-          globalThis.__localPickerCards = models;
+        export default function ModelCardList(props) {
+          globalThis.__localPickerCards = props.models;
+          globalThis.__localPickerActions = props;
           return null;
         }
       `,
@@ -92,7 +98,7 @@ test("retained local picker loads disk state once per mount and balances progres
   const providers = [
     { id: "local", name: "Local", models: [{ id: "local-one", name: "One", size: "1 MB" }] },
   ];
-  const renderPicker = async (onModelSelect, selectedModel = "") =>
+  const renderPicker = async (onModelSelect, selectedModel = "", overrides = {}) =>
     React.act(async () =>
       root.render(
         React.createElement(LocalModelPicker, {
@@ -102,6 +108,7 @@ test("retained local picker loads disk state once per mount and balances progres
           onModelSelect,
           onProviderSelect() {},
           modelType: "llm",
+          ...overrides,
         })
       )
     );
@@ -147,4 +154,71 @@ test("retained local picker loads disk state once per mount and balances progres
   await renderPicker(() => latestSelections++, "local-one");
   await React.act(async () => resolveInventory([]));
   assert.deepEqual([staleSelections, latestSelections], [0, 1]);
+
+  const api = globalThis.window.electronAPI;
+  const selected = [];
+  const select = (id) => selected.push(id);
+  const remount = async () => {
+    await React.act(async () => root.unmount());
+    root = createRoot(container);
+    selected.length = 0;
+  };
+  for (const [name, read] of [
+    ["missing method", undefined],
+    ["missing result", async () => undefined],
+    ["failed result", async () => ({ success: false })],
+    ["malformed result", async () => ({})],
+    [
+      "rejection",
+      async () => {
+        throw new Error("inventory unavailable");
+      },
+    ],
+  ]) {
+    await t.test(`${name} preserves a selected model, then recovers`, async () => {
+      await remount();
+      api.modelGetAll = read;
+      await renderPicker(select, "local-one");
+      assert.deepEqual(selected, []);
+      api.modelDownload = async () => ({ success: true });
+      await React.act(async () => globalThis.__localPickerActions.onDownload("local-two"));
+      assert.deepEqual(selected, [], "unknown inventory cannot justify replacing the selection");
+      api.modelGetAll = async () => [{ id: "local-one", isDownloaded: true }];
+      await React.act(async () => events.dispatchEvent(new Event("openwhispr-models-cleared")));
+      assert.equal(globalThis.__localPickerCards[0].isDownloaded, true);
+      assert.deepEqual(selected, []);
+    });
+  }
+
+  await remount();
+  api.modelGetAll = async () => [];
+  await renderPicker(select, "local-one");
+  assert.deepEqual(selected, [""], "confirmed empty inventory clears an owned selection");
+  selected.length = 0;
+  await renderPicker(select, "cloud-model");
+  assert.deepEqual(selected, [], "an empty local inventory does not own a foreign selection");
+
+  await remount();
+  const pending = [];
+  api.modelGetAll = () => new Promise((resolve) => pending.push(resolve));
+  await renderPicker(select, "local-one");
+  await renderPicker(select, "cloud-model", { selectedProvider: "cloud" });
+  await React.act(async () => pending[1]([{ id: "local-one", isDownloaded: true }]));
+  await React.act(async () => pending[0]([]));
+  assert.deepEqual(selected, [], "late old-selection replies cannot clear a new selection");
+  assert.equal(globalThis.__localPickerCards.length, 0);
+  await renderPicker(select, "cloud-model");
+  assert.equal(
+    globalThis.__localPickerCards[0].isDownloaded,
+    true,
+    "late replies cannot replace inventory"
+  );
+
+  await remount();
+  await renderPicker(select, "local-one");
+  const resolveAfterUnmount = pending.at(-1);
+  await React.act(async () => root.unmount());
+  root = null;
+  await React.act(async () => resolveAfterUnmount([]));
+  assert.deepEqual(selected, [], "unmounted owners cannot write preferences");
 });

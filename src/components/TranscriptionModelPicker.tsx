@@ -492,7 +492,13 @@ export default function TranscriptionModelPicker({
   const parakeetModelsLoadQueueRef = useRef<Promise<void>>(Promise.resolve());
   const loadLocalModelsRef = useRef<(() => Promise<void>) | null>(null);
   const loadParakeetModelsRef = useRef<(() => Promise<void>) | null>(null);
-  const selectedLocalModelRef = useRef(selectedLocalModel);
+  const localModelsRequestRef = useRef(0);
+  const parakeetModelsRequestRef = useRef(0);
+  const selectionOwnerRef = useRef<{
+    model: string;
+    provider: string;
+    context: TranscriptionPolicyContext;
+  } | null>(null);
   const onLocalModelSelectRef = useRef(onLocalModelSelect);
 
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
@@ -547,37 +553,58 @@ export default function TranscriptionModelPicker({
   );
 
   useEffect(() => {
-    selectedLocalModelRef.current = selectedLocalModel;
-  }, [selectedLocalModel]);
+    hasLoadedRef.current = false;
+    hasLoadedParakeetRef.current = false;
+    selectionOwnerRef.current = {
+      model: selectedLocalModel,
+      provider: selectedLocalProvider,
+      context: transcriptionContext,
+    };
+    return () => {
+      selectionOwnerRef.current = null;
+    };
+  }, [selectedLocalModel, selectedLocalProvider, transcriptionContext]);
   useEffect(() => {
     onLocalModelSelectRef.current = onLocalModelSelect;
   }, [onLocalModelSelect]);
 
-  const validateAndSelectModel = useCallback((loadedModels: LocalModel[]) => {
-    const current = selectedLocalModelRef.current;
-    if (!current) return;
+  const validateAndSelectModel = useCallback((loadedModels: LocalModel[], sherpa = false) => {
+    const current = selectionOwnerRef.current;
+    if (!current?.model) return;
+    if (sherpa ? !isSherpaLocalProvider(current.provider) : current.provider !== "whisper") return;
 
-    // The whisper list loads on a mere browse of the Whisper tab, so the
-    // committed selection can be a foreign id (a Parakeet model while nvidia
-    // is committed) — only replace ids this list owns.
-    const currentEntry = loadedModels.find((m) => m.model === current);
-    if (!currentEntry || currentEntry.downloaded) return;
+    // Both lists include undownloaded catalog entries. Only an explicit missing
+    // entry proves deletion; browsing another backend must not change selection.
+    const currentEntry = loadedModels.find((m) => m.model === current.model);
+    if (!currentEntry || currentEntry.downloaded !== false) return;
 
-    const downloaded = loadedModels.filter((m) => m.downloaded);
-    onLocalModelSelectRef.current(downloaded[0]?.model ?? "", "whisper");
+    const replacement = loadedModels.find(
+      (m) =>
+        m.downloaded &&
+        (!sherpa ||
+          (getASRModelOrganization(m.model) === "cohere" ? "cohere" : "nvidia") ===
+            current.provider)
+    );
+    onLocalModelSelectRef.current(replacement?.model ?? "", current.provider);
   }, []);
 
   const loadLocalModels = useCallback(() => {
+    const owner = selectionOwnerRef.current;
+    const request = ++localModelsRequestRef.current;
+    const isCurrent = () =>
+      owner !== null &&
+      owner === selectionOwnerRef.current &&
+      request === localModelsRequestRef.current;
     const load = async () => {
+      if (!isCurrent()) return;
       try {
         const result = await window.electronAPI?.listWhisperModels();
-        if (result?.success) {
+        if (isCurrent() && result?.success && Array.isArray(result.models)) {
           setLocalModels(result.models);
           validateAndSelectModel(result.models);
         }
       } catch (error) {
         logger.error("Failed to load models", { error }, "models");
-        setLocalModels([]);
       }
     };
 
@@ -587,22 +614,29 @@ export default function TranscriptionModelPicker({
   }, [validateAndSelectModel]);
 
   const loadParakeetModels = useCallback(() => {
+    const owner = selectionOwnerRef.current;
+    const request = ++parakeetModelsRequestRef.current;
+    const isCurrent = () =>
+      owner !== null &&
+      owner === selectionOwnerRef.current &&
+      request === parakeetModelsRequestRef.current;
     const load = async () => {
+      if (!isCurrent()) return;
       try {
         const result = await window.electronAPI?.listParakeetModels();
-        if (result?.success) {
+        if (isCurrent() && result?.success && Array.isArray(result.models)) {
           setParakeetModels(result.models);
+          validateAndSelectModel(result.models, true);
         }
       } catch (error) {
         logger.error("Failed to load Parakeet models", { error }, "models");
-        setParakeetModels([]);
       }
     };
 
     const queuedLoad = parakeetModelsLoadQueueRef.current.then(load);
     parakeetModelsLoadQueueRef.current = queuedLoad;
     return queuedLoad;
-  }, []);
+  }, [validateAndSelectModel]);
 
   const effectiveCloudSelection = useMemo(() => {
     // Every provider's URL counts as known, including policy-blocked ones and
@@ -689,7 +723,13 @@ export default function TranscriptionModelPicker({
       hasLoadedParakeetRef.current = true;
       loadParakeetModelsRef.current?.();
     }
-  }, [effectiveLocal, internalLocalProvider]);
+  }, [
+    effectiveLocal,
+    internalLocalProvider,
+    selectedLocalModel,
+    selectedLocalProvider,
+    transcriptionContext,
+  ]);
 
   useEffect(() => {
     if (effectiveLocal) return;
@@ -951,18 +991,12 @@ export default function TranscriptionModelPicker({
         title: t("transcription.deleteModel.title"),
         description: t("transcription.deleteModel.description"),
         onConfirm: async () => {
-          await deleteModel(modelId, async () => {
-            const result = await window.electronAPI?.listWhisperModels();
-            if (result?.success) {
-              setLocalModels(result.models);
-              validateAndSelectModel(result.models);
-            }
-          });
+          await deleteModel(modelId, loadLocalModels);
         },
         variant: "destructive",
       });
     },
-    [showConfirmDialog, deleteModel, validateAndSelectModel, t]
+    [showConfirmDialog, deleteModel, loadLocalModels, t]
   );
 
   const currentCloudProvider = useMemo<TranscriptionProviderData | undefined>(
@@ -1109,17 +1143,12 @@ export default function TranscriptionModelPicker({
         title: t("transcription.deleteModel.title"),
         description: t("transcription.deleteModel.description"),
         onConfirm: async () => {
-          await deleteParakeetModel(modelId, async () => {
-            const result = await window.electronAPI?.listParakeetModels();
-            if (result?.success) {
-              setParakeetModels(result.models);
-            }
-          });
+          await deleteParakeetModel(modelId, loadParakeetModels);
         },
         variant: "destructive",
       });
     },
-    [showConfirmDialog, deleteParakeetModel, t]
+    [showConfirmDialog, deleteParakeetModel, loadParakeetModels, t]
   );
 
   // Organization tabs share the sherpa-onnx inventory and installation backend.

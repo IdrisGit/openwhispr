@@ -25,6 +25,9 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     vadRenders: 0,
     inputs: [],
     modes: [],
+    buttons: [],
+    rows: [],
+    toasts: [],
   });
   const emptyComponent = "export default function Stub() { return null; }";
   const vite = await createRendererServer(t, {
@@ -114,7 +117,8 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/hooks/useBillingPortal": `export const useBillingPortal = () => ({});`,
       "/hooks/useUsage": `export const useUsage = () => ({});`,
       "/hooks/useTheme": `export const useTheme = () => ({});`,
-      "/ui/useToast": `const toast = () => {}; export const useToast = () => ({toast});`,
+      "/ui/useToast": `const toast = value => globalThis.__settingsSpeech.toasts.push(value); export const useToast = () => ({toast});`,
+      "/ui/button": `import React from "react"; export function Button(props) { globalThis.__settingsSpeech.buttons.push(props); return React.createElement("button", {onClick: props.onClick, disabled: props.disabled}, props.children); }`,
       "/ui/useSettingsLayout": `export const useSettingsLayout = () => ({isCompact: false});`,
       "/models/ModelRegistry": `export const getTranscriptionProvider = () => null; export const enterpriseProviderName = id => id; export const getMeetingStreamingTranscriptionProviders = () => [];`,
       "/ui/dialog": `export const ConfirmDialog = () => null; export const AlertDialog = ConfirmDialog; export const Dialog = ConfirmDialog; export const DialogContent = ConfirmDialog; export const DialogHeader = ConfirmDialog; export const DialogTitle = ConfirmDialog; export const DialogDescription = ConfirmDialog; export const DialogFooter = ConfirmDialog;`,
@@ -123,7 +127,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         import React from "react";
         export const SettingsPanel = ({children}) => children;
         export const SettingsPanelRow = SettingsPanel;
-        export const SettingsRow = SettingsPanel;
+        export function SettingsRow(props) { globalThis.__settingsSpeech.rows.push(props); return props.children; }
         export function SectionHeader({title}) {
           if (title.includes("transcription.vad.title")) globalThis.__settingsSpeech.vadRenders++;
           return React.createElement("h3", null, title);
@@ -231,4 +235,65 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   await React.act(async () => root.unmount());
   root = null;
   assert.equal(observed.disposed, observed.mounted, "Settings close releases every mounted picker");
+
+  await t.test(
+    "Privacy refreshes audio usage and reports partial deletion instead of success",
+    async () => {
+      const document = container.ownerDocument;
+      const createElement = document.createElement;
+      document.createElement = (tag) => {
+        const node = createElement(tag);
+        if (tag === "select")
+          Object.defineProperty(node, "options", { get: () => node.childNodes });
+        return node;
+      };
+      observed.locale.setState({
+        t: (key, options) => (options?.count ? `${key}:${options.count}` : key),
+      });
+      const api = globalThis.window.electronAPI;
+      api.getAudioStorageUsage = async () => ({ fileCount: 5, totalBytes: 500 });
+      root = createRoot(container);
+      await render("privacyData");
+      await render("workspace");
+      let resolveOldUsage;
+      api.getAudioStorageUsage = () =>
+        new Promise((resolve) => {
+          resolveOldUsage = resolve;
+        });
+      await render("privacyData");
+      let usageReads = 0;
+      api.getAudioStorageUsage = async () => {
+        usageReads++;
+        return { fileCount: 2, totalBytes: 100 };
+      };
+      api.deleteAllAudio = async () => ({ deleted: 3, deletedIds: ["1", "2", "3"], failed: true });
+      const clearButton = () =>
+        observed.buttons.findLast(
+          (button) => button.children === "settingsPage.privacy.clearAllAudio"
+        );
+      assert.equal(clearButton().disabled, false);
+      await React.act(async () => clearButton().onClick());
+      assert.equal(usageReads, 1);
+      assert.deepEqual(observed.toasts.at(-1), { title: "common.error", variant: "destructive" });
+      const usageRow = () =>
+        observed.rows.findLast((row) => row.label === "settingsPage.privacy.audioStorageUsage");
+      assert.equal(usageRow().description, "settingsPage.privacy.audioStorageFiles:2");
+      await React.act(async () => resolveOldUsage({ fileCount: 20, totalBytes: 2000 }));
+      assert.equal(
+        usageRow().description,
+        "settingsPage.privacy.audioStorageFiles:2",
+        "old mount usage cannot overwrite post-delete evidence"
+      );
+      assert.equal(clearButton().disabled, false);
+      api.deleteAllAudio = async () => ({ deleted: 2, deletedIds: ["4", "5"], failed: false });
+      api.getAudioStorageUsage = async () => ({ fileCount: 0, totalBytes: 0 });
+      await React.act(async () => clearButton().onClick());
+      assert.deepEqual(observed.toasts.at(-1), {
+        title: "settingsPage.privacy.clearAllAudio",
+        variant: "default",
+      });
+      assert.equal(usageRow().description, "settingsPage.privacy.audioStorageEmpty");
+      assert.equal(clearButton().disabled, true);
+    }
+  );
 });
