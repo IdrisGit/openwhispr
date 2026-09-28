@@ -33,6 +33,7 @@ assert.ok(clearCallback, "meeting shortcut must expose its clear callback");
 for (const [label, response] of [
   ["failed removal", { success: false }],
   ["unavailable IPC", undefined],
+  ["rejected IPC", "reject"],
   ["successful removal", { success: true }],
 ]) {
   test(`meeting shortcut clear handles ${label}`, async () => {
@@ -40,6 +41,7 @@ for (const [label, response] of [
     const alerts = [];
     const registerMeetingHotkey = async (hotkey) => {
       assert.equal(hotkey, "");
+      if (response === "reject") throw Error("IPC failed");
       return response;
     };
     const context = {

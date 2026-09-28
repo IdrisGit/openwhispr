@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network } from "../icons";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -57,7 +58,29 @@ export function MeetingTranscriptionPanel() {
     meetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionBaseUrl,
     setMeetingCloudTranscriptionMode,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((s) => ({
+      isSignedIn: s.isSignedIn,
+      meetingTranscriptionMode: s.meetingTranscriptionMode,
+      setMeetingTranscriptionMode: s.setMeetingTranscriptionMode,
+      setMeetingUseLocalWhisper: s.setMeetingUseLocalWhisper,
+      meetingWhisperModel: s.meetingWhisperModel,
+      setMeetingWhisperModel: s.setMeetingWhisperModel,
+      meetingLocalTranscriptionProvider: s.meetingLocalTranscriptionProvider,
+      setMeetingLocalTranscriptionProvider: s.setMeetingLocalTranscriptionProvider,
+      meetingParakeetModel: s.meetingParakeetModel,
+      setMeetingParakeetModel: s.setMeetingParakeetModel,
+      meetingCohereModel: s.meetingCohereModel,
+      setMeetingCohereModel: s.setMeetingCohereModel,
+      meetingCloudTranscriptionProvider: s.meetingCloudTranscriptionProvider,
+      setMeetingCloudTranscriptionProvider: s.setMeetingCloudTranscriptionProvider,
+      meetingCloudTranscriptionModel: s.meetingCloudTranscriptionModel,
+      setMeetingCloudTranscriptionModel: s.setMeetingCloudTranscriptionModel,
+      meetingCloudTranscriptionBaseUrl: s.meetingCloudTranscriptionBaseUrl,
+      setMeetingCloudTranscriptionBaseUrl: s.setMeetingCloudTranscriptionBaseUrl,
+      setMeetingCloudTranscriptionMode: s.setMeetingCloudTranscriptionMode,
+    }))
+  );
   const {
     modes: transcriptionModes,
     effectiveMode: effectiveTranscriptionMode,

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network, ShieldCheck } from "../icons";
 import {
@@ -44,7 +45,34 @@ export function UploadTranscriptionPanel() {
     setUploadRemoteTranscriptionUrl,
     uploadRemoteTranscriptionModel,
     setUploadRemoteTranscriptionModel,
-  } = useSettingsStore();
+  } = useSettingsStore(
+    useShallow((s) => ({
+      isSignedIn: s.isSignedIn,
+      uploadTranscriptionMode: s.uploadTranscriptionMode,
+      setUploadTranscriptionMode: s.setUploadTranscriptionMode,
+      setUploadUseLocalWhisper: s.setUploadUseLocalWhisper,
+      uploadWhisperModel: s.uploadWhisperModel,
+      setUploadWhisperModel: s.setUploadWhisperModel,
+      uploadLocalTranscriptionProvider: s.uploadLocalTranscriptionProvider,
+      setUploadLocalTranscriptionProvider: s.setUploadLocalTranscriptionProvider,
+      uploadParakeetModel: s.uploadParakeetModel,
+      setUploadParakeetModel: s.setUploadParakeetModel,
+      uploadCohereModel: s.uploadCohereModel,
+      setUploadCohereModel: s.setUploadCohereModel,
+      uploadCloudTranscriptionProvider: s.uploadCloudTranscriptionProvider,
+      setUploadCloudTranscriptionProvider: s.setUploadCloudTranscriptionProvider,
+      uploadCloudTranscriptionModel: s.uploadCloudTranscriptionModel,
+      setUploadCloudTranscriptionModel: s.setUploadCloudTranscriptionModel,
+      uploadCloudTranscriptionBaseUrl: s.uploadCloudTranscriptionBaseUrl,
+      setUploadCloudTranscriptionBaseUrl: s.setUploadCloudTranscriptionBaseUrl,
+      setUploadCloudTranscriptionMode: s.setUploadCloudTranscriptionMode,
+      setEnterpriseTranscriptionSetupMode: s.setEnterpriseTranscriptionSetupMode,
+      uploadRemoteTranscriptionUrl: s.uploadRemoteTranscriptionUrl,
+      setUploadRemoteTranscriptionUrl: s.setUploadRemoteTranscriptionUrl,
+      uploadRemoteTranscriptionModel: s.uploadRemoteTranscriptionModel,
+      setUploadRemoteTranscriptionModel: s.setUploadRemoteTranscriptionModel,
+    }))
+  );
   const {
     modes: transcriptionModes,
     effectiveMode: effectiveTranscriptionMode,

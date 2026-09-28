@@ -76,8 +76,12 @@ export function HotkeyListInput({
   const commit = async (next: string[]) => {
     const previous = items;
     setItems(next);
-    const result = await onChange(serializeHotkeyList(next));
-    if (result === false) setItems((current) => (current === next ? previous : current));
+    try {
+      if ((await onChange(serializeHotkeyList(next))) !== false) return;
+    } catch {
+      // The native registration failed before it returned a result.
+    }
+    setItems((current) => (current === next ? previous : current));
   };
 
   const replaceAt = (index: number, next: string) => {
@@ -92,8 +96,12 @@ export function HotkeyListInput({
     }
     const previous = items;
     setItems(remaining);
-    const result = await onClear?.();
-    if (result === false) setItems((current) => (current === remaining ? previous : current));
+    try {
+      if ((await onClear?.()) !== false) return;
+    } catch {
+      // Preserve the previous row if the clear IPC rejects.
+    }
+    setItems((current) => (current === remaining ? previous : current));
   };
 
   const addHotkey = (hotkey: string) => {

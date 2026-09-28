@@ -883,6 +883,8 @@ export default function SettingsPage({
     updateTranscriptionSettings,
     cloudTranscriptionMode,
     setCloudTranscriptionMode,
+    meetingTranscriptionMode,
+    meetingLocalTranscriptionProvider,
     transcriptionMode,
     setTranscriptionMode,
     remoteTranscriptionUrl,
@@ -987,6 +989,8 @@ export default function SettingsPage({
       updateTranscriptionSettings: settings.updateTranscriptionSettings,
       cloudTranscriptionMode: settings.cloudTranscriptionMode,
       setCloudTranscriptionMode: settings.setCloudTranscriptionMode,
+      meetingTranscriptionMode: settings.meetingTranscriptionMode,
+      meetingLocalTranscriptionProvider: settings.meetingLocalTranscriptionProvider,
       transcriptionMode: settings.transcriptionMode,
       setTranscriptionMode: settings.setTranscriptionMode,
       remoteTranscriptionUrl: settings.remoteTranscriptionUrl,
@@ -1405,6 +1409,7 @@ export default function SettingsPage({
   }, [toast, t]);
 
   useEffect(() => {
+    if (activeSection !== "hotkeys") return;
     const loadEffectiveDefaultHotkey = async () => {
       try {
         const key = await window.electronAPI?.getEffectiveDefaultHotkey?.();
@@ -1414,7 +1419,7 @@ export default function SettingsPage({
       }
     };
     loadEffectiveDefaultHotkey();
-  }, []);
+  }, [activeSection]);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
@@ -3808,18 +3813,25 @@ EOF`,
                     value={meetingKey}
                     onChange={(list) => registerMeetingHotkey(list)}
                     onClear={async (): Promise<boolean> => {
-                      const result = await window.electronAPI?.registerMeetingHotkey?.("");
-                      if (!result?.success) {
+                      try {
+                        const result = await window.electronAPI?.registerMeetingHotkey?.("");
+                        if (result?.success) {
+                          setMeetingKey("");
+                          return true;
+                        }
                         showAlertDialog({
                           title: t("hooks.hotkeyRegistration.titles.notRegistered"),
                           description:
                             result?.message ||
                             t("hooks.hotkeyRegistration.errors.couldNotRegister"),
                         });
-                        return false;
+                      } catch {
+                        showAlertDialog({
+                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
+                          description: t("hooks.hotkeyRegistration.errors.couldNotRegister"),
+                        });
                       }
-                      setMeetingKey("");
-                      return true;
+                      return false;
                     }}
                     validate={validateMeetingHotkey}
                     disabled={isMeetingHotkeyRegistering}
@@ -4477,8 +4489,8 @@ EOF`,
             noteRecording={
               <div className="space-y-6">
                 <MeetingTranscriptionPanel />
-                {transcriptionMode === "local" &&
-                  localTranscriptionProvider === "whisper" &&
+                {meetingTranscriptionMode === "local" &&
+                  meetingLocalTranscriptionProvider === "whisper" &&
                   renderWhisperVadSettings()}
               </div>
             }

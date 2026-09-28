@@ -410,26 +410,18 @@ export function useModelDownload({
   const deleteModel = useCallback(
     async (modelId: string, onComplete?: () => void) => {
       try {
-        if (modelType === "whisper") {
-          const result = await window.electronAPI?.deleteWhisperModel(modelId);
-          if (result?.success) {
-            toast({
-              title: t("hooks.modelDownload.modelDeleted.title"),
-              description: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
-                sizeMb: result.freed_mb,
-              }),
-            });
-          }
-        } else if (modelType === "parakeet") {
-          const result = await window.electronAPI?.deleteParakeetModel(modelId);
-          if (result?.success) {
-            toast({
-              title: t("hooks.modelDownload.modelDeleted.title"),
-              description: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
-                sizeMb: result.freed_mb,
-              }),
-            });
-          }
+        if (modelType === "whisper" || modelType === "parakeet") {
+          const result =
+            modelType === "whisper"
+              ? await window.electronAPI?.deleteWhisperModel(modelId)
+              : await window.electronAPI?.deleteParakeetModel(modelId);
+          if (!result?.success) throw new Error(result?.error ?? "");
+          toast({
+            title: t("hooks.modelDownload.modelDeleted.title"),
+            description: t("hooks.modelDownload.modelDeleted.descriptionWithSpace", {
+              sizeMb: result.freed_mb,
+            }),
+          });
         } else {
           // model-delete reports failure by resolving, not throwing — leaving the
           // model on disk, so the scopes pointing at it must stay untouched.
