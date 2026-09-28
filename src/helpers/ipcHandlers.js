@@ -1750,11 +1750,8 @@ class IPCHandlers {
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
       try {
-        const rows = this.databaseManager.db
-          .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
-          .all();
-        if (rows.length > 0) {
-          this.databaseManager.clearAudioFlags(rows.map((r) => r.id));
+        if (result.deletedIds.length > 0) {
+          this.databaseManager.clearAudioFlags(result.deletedIds);
         }
       } catch (error) {
         debugLogger.error(
@@ -3931,7 +3928,9 @@ class IPCHandlers {
 
       // Delete audio files
       try {
-        this.audioStorageManager.deleteAllAudio();
+        if (this.audioStorageManager.deleteAllAudio().failed) {
+          errors.push("Audio delete: some files could not be removed");
+        }
       } catch (e) {
         errors.push(`Audio delete: ${e.message}`);
       }
@@ -3945,7 +3944,8 @@ class IPCHandlers {
         errors.push(`Whisper models: ${e.message}`);
       }
       try {
-        await this.parakeetManager?.deleteAllParakeetModels();
+        const result = await this.parakeetManager?.deleteAllParakeetModels();
+        if (result && !result.success) errors.push("Parakeet models: deletion incomplete");
       } catch (e) {
         errors.push(`Parakeet models: ${e.message}`);
       }

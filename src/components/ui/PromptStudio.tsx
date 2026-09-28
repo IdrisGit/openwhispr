@@ -172,7 +172,9 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
           );
           setTestResult(result);
         } finally {
-          setCustomPrompt(kind, previous);
+          if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
+            setCustomPrompt(kind, previous);
+          }
         }
         return;
       }
@@ -211,7 +213,9 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
           });
           setTestResult(result);
         } finally {
-          setCustomPrompt(kind, previous);
+          if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
+            setCustomPrompt(kind, previous);
+          }
         }
         return;
       }
@@ -275,7 +279,9 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         });
         setTestResult(result);
       } finally {
-        setCustomPrompt(kind, previous);
+        if (useSettingsStore.getState().customPrompts[kind] === editedPrompt) {
+          setCustomPrompt(kind, previous);
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

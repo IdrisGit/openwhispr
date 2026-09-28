@@ -759,6 +759,7 @@ class WhisperManager {
     const modelsDir = this.getModelsDir();
     let totalFreed = 0;
     let deletedCount = 0;
+    let failed = false;
 
     try {
       if (!fs.existsSync(modelsDir)) {
@@ -775,13 +776,14 @@ class WhisperManager {
             totalFreed += stats.size;
             deletedCount++;
           } catch {
+            failed = true;
             // Continue with other files if one fails
           }
         }
       }
 
       return {
-        success: true,
+        success: !failed,
         deleted_count: deletedCount,
         freed_bytes: totalFreed,
         freed_mb: Math.round(totalFreed / (1024 * 1024)),

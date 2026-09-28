@@ -20,6 +20,7 @@ function findRunButton(node) {
 test("Prompt Studio labels dictation-agent runs for policy enforcement", async (t) => {
   const calls = [];
   globalThis.__promptStudioReasoningCalls = calls;
+  globalThis.__promptStudioPending = null;
 
   const { createServer } = await import("vite");
   const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-prompt-studio-test-"));
@@ -133,7 +134,7 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
               export default {
                 async processText(...args) {
                   globalThis.__promptStudioReasoningCalls.push(args);
-                  return "result";
+                  return globalThis.__promptStudioPending || "result";
                 },
               };
             `;
@@ -172,8 +173,9 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
                 customPrompts: { cleanup: "", dictationAgent: "", translate: "" },
                 preferredLanguage: "en",
                 cleanupDisableThinking: false,
-                setCustomPrompt() {},
+                setCustomPrompt(kind, value) { state.customPrompts[kind] = value; },
               };
+              globalThis.__promptStudioSettings = state;
               export function useSettingsStore(selector) { return selector(state); }
               useSettingsStore.getState = () => state;
               export function selectPolicyEffectiveSettings(settings) { return settings; }
@@ -223,6 +225,8 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
     await vite.close();
     fs.rmSync(cacheDir, { recursive: true, force: true });
     delete globalThis.__promptStudioReasoningCalls;
+    delete globalThis.__promptStudioPending;
+    delete globalThis.__promptStudioSettings;
   });
 
   const { default: PromptStudio } = await vite.ssrLoadModule("/components/ui/PromptStudio.tsx");
@@ -234,4 +238,15 @@ test("Prompt Studio labels dictation-agent runs for policy enforcement", async (
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0][3].requiresAgent, true);
+
+  // A concurrent saved edit must not be replaced by the test's old prompt.
+  let finish;
+  globalThis.__promptStudioPending = new Promise((resolve) => {
+    finish = resolve;
+  });
+  const pending = runButton.props.onClick();
+  globalThis.__promptStudioSettings.setCustomPrompt("dictationAgent", "new saved prompt");
+  finish("result");
+  await pending;
+  assert.equal(globalThis.__promptStudioSettings.customPrompts.dictationAgent, "new saved prompt");
 });

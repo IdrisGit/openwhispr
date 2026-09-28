@@ -119,6 +119,7 @@ import { syncService } from "../services/SyncService.js";
 import { formatBytes } from "../utils/formatBytes";
 import {
   clearMissingLocalModelSelections,
+  reconcileLocalModelSelections,
   TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
   TRANSCRIPTION_POLICY_PROVIDER_IDS,
   useSettingsStore,
@@ -1087,13 +1088,18 @@ export default function SettingsPage({
       : "~/.cache/openwhispr"
   );
   useEffect(() => {
+    if (activeSection !== "system") return;
+    let active = true;
     window.electronAPI
       ?.getModelCacheRoot?.()
       .then((root) => {
-        if (root) setCachePathHint(root);
+        if (active && root) setCachePathHint(root);
       })
       .catch(() => {});
-  }, []);
+    return () => {
+      active = false;
+    };
+  }, [activeSection]);
 
   const migration = useMigration();
 
@@ -1104,15 +1110,21 @@ export default function SettingsPage({
     fileCount: number;
     totalBytes: number;
   }>({ fileCount: 0, totalBytes: 0 });
+  const audioUsageRequest = useRef(0);
 
   useEffect(() => {
     if (activeSection !== "privacyData") return;
+    const request = ++audioUsageRequest.current;
+    let active = true;
     window.electronAPI
       ?.getAudioStorageUsage?.()
       .then((usage: { fileCount: number; totalBytes: number }) => {
-        if (usage) setAudioStorageUsage(usage);
+        if (active && usage && request === audioUsageRequest.current) setAudioStorageUsage(usage);
       })
       .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [activeSection]);
 
   // Speech-to-text keeps its existing lazy ownership. LLM keep-alive state lives
@@ -1127,11 +1139,16 @@ export default function SettingsPage({
   const handleClearAllAudio = async () => {
     if (!window.electronAPI?.deleteAllAudio) return;
     try {
-      await window.electronAPI.deleteAllAudio();
-      setAudioStorageUsage({ fileCount: 0, totalBytes: 0 });
-      toast({ title: t("settingsPage.privacy.clearAllAudio"), variant: "default" });
+      ++audioUsageRequest.current;
+      const result = await window.electronAPI.deleteAllAudio();
+      const usage = await window.electronAPI.getAudioStorageUsage();
+      setAudioStorageUsage(usage);
+      toast({
+        title: t(result.failed ? "common.error" : "settingsPage.privacy.clearAllAudio"),
+        variant: result.failed ? "destructive" : "default",
+      });
     } catch {
-      // silent fail
+      toast({ title: t("common.error"), variant: "destructive" });
     }
   };
 
@@ -1465,11 +1482,13 @@ export default function SettingsPage({
           ]);
 
           const anyFailed = results.some(
-            (r) =>
-              r.status === "rejected" || (r.status === "fulfilled" && r.value && !r.value.success)
+            (r) => r.status === "rejected" || r.value?.success !== true
           );
 
           if (anyFailed) {
+            // A partial deletion must refresh inventory without declaring every model gone.
+            window.dispatchEvent(new Event("openwhispr-models-cleared"));
+            await reconcileLocalModelSelections();
             showAlertDialog({
               title: t("settingsPage.developer.removeModels.failedTitle"),
               description: t("settingsPage.developer.removeModels.failedDescription"),
@@ -4339,13 +4358,20 @@ EOF`,
                                 try {
                                   await signOut();
                                 } catch {}
-                                await window.electronAPI?.cleanupApp();
+                                const result = await window.electronAPI?.cleanupApp();
                                 showAlertDialog({
-                                  title: t("settingsPage.developer.resetAll.successTitle"),
+                                  title: t(
+                                    result?.success
+                                      ? "settingsPage.developer.resetAll.successTitle"
+                                      : "settingsPage.developer.resetAll.failedTitle"
+                                  ),
                                   description: t(
-                                    "settingsPage.developer.resetAll.successDescription"
+                                    result?.success
+                                      ? "settingsPage.developer.resetAll.successDescription"
+                                      : "settingsPage.developer.resetAll.failedDescription"
                                   ),
                                 });
+                                // Cleanup closes the database even when a later step fails.
                                 setTimeout(() => window.electronAPI?.relaunchApp(), 1000);
                               } catch {
                                 showAlertDialog({
