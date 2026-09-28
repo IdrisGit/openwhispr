@@ -1344,8 +1344,9 @@ export default function SettingsPage({
   }, []);
 
   useEffect(() => {
+    if (activeSection !== "general") return;
     readAutoStartState().finally(() => setAutoStartLoading(false));
-  }, [readAutoStartState]);
+  }, [activeSection, readAutoStartState]);
 
   const handleAutoStartChange = async (enabled: boolean) => {
     if (!window.electronAPI?.setAutoStartEnabled) return;
@@ -1366,11 +1367,11 @@ export default function SettingsPage({
   const [noteFilesRebuilding, setNoteFilesRebuilding] = useState(false);
 
   useEffect(() => {
-    if (!noteFilesEnabled) return;
+    if (activeSection !== "general" || !noteFilesEnabled) return;
     window.electronAPI?.noteFilesGetDefaultPath?.().then((p) => {
       if (p) setNoteFilesDefaultPath(p);
     });
-  }, [noteFilesEnabled]);
+  }, [activeSection, noteFilesEnabled]);
 
   const handleNoteFilesToggle = useCallback(
     async (enabled: boolean) => {
@@ -3532,6 +3533,7 @@ EOF`,
                               </div>
                               <button
                                 onClick={refreshYdotoolStatus}
+                                aria-label={t("settingsPage.general.waylandPaste.recheck")}
                                 className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
                               >
                                 <RotateCw className="w-3.5 h-3.5" />

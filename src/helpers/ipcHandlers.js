@@ -11747,6 +11747,9 @@ class IPCHandlers {
     });
 
     ipcMain.handle("granola-import-pick-and-preview", async (event) => {
+      // A canceled or superseded picker must not leave an earlier preview runnable.
+      const request = (this._granolaImportRequest = (this._granolaImportRequest || 0) + 1);
+      this._granolaImportPending = null;
       try {
         const { dialog } = require("electron");
         // Parent the dialog so it opens as a sheet on the settings window —
@@ -11761,6 +11764,7 @@ class IPCHandlers {
         const result = parentWindow
           ? await dialog.showOpenDialog(parentWindow, dialogOptions)
           : await dialog.showOpenDialog(dialogOptions);
+        if (request !== this._granolaImportRequest) return { canceled: true };
         if (result.canceled || !result.filePaths.length) {
           return { canceled: true };
         }
@@ -11798,7 +11802,8 @@ class IPCHandlers {
         const freshNotes = notes.filter((n) => !existing.has(n.clientNoteId));
         // The run handler only ever imports what this preview parsed — the
         // renderer never sends a file path across the bridge.
-        this._granolaImportPending = { notes };
+        if (request !== this._granolaImportRequest) return { canceled: true };
+        this._granolaImportPending = { notes, sender: event.sender };
         return {
           canceled: false,
           success: true,
@@ -11819,10 +11824,12 @@ class IPCHandlers {
       }
     });
 
-    ipcMain.handle("granola-import-run", async () => {
+    ipcMain.handle("granola-import-run", async (event) => {
       const pending = this._granolaImportPending;
+      if (!pending || pending.sender !== event.sender) {
+        return { success: false, error: "NO_PENDING_IMPORT" };
+      }
       this._granolaImportPending = null;
-      if (!pending) return { success: false, error: "NO_PENDING_IMPORT" };
       try {
         const result = this.databaseManager.importNotes(pending.notes);
         if (result.imported > 0) {

@@ -18,6 +18,7 @@ const csvPaths = ["granola-000.csv", "granola-001.csv", "granola-002.csv"].map((
   return filePath;
 });
 let selectedCsvPaths = csvPaths;
+let nextDialog;
 
 const electronStub = {
   app: {
@@ -45,7 +46,8 @@ const electronStub = {
   },
   shell: {},
   dialog: {
-    showOpenDialog: async () => ({ canceled: false, filePaths: selectedCsvPaths }),
+    showOpenDialog: async () =>
+      nextDialog ? nextDialog() : { canceled: false, filePaths: selectedCsvPaths },
   },
   screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
   systemPreferences: { getMediaAccessStatus: () => "granted" },
@@ -113,6 +115,50 @@ test("multi-file Granola preview allocates distinct fallback ids across files", 
     new Set(target._granolaImportPending.notes.map((note) => note.clientNoteId)).size,
     3
   );
+});
+
+test("a canceled picker invalidates the old preview and another window cannot run it", async () => {
+  const sender = {};
+  selectedCsvPaths = csvPaths;
+  await handlers.get("granola-import-pick-and-preview")({ sender });
+  let imports = 0;
+  target.databaseManager.importNotes = () => {
+    imports++;
+    return { imported: 0, skipped: 0, errors: [] };
+  };
+  assert.equal((await handlers.get("granola-import-run")({ sender: {} })).success, false);
+  assert.equal(imports, 0);
+  assert.equal((await handlers.get("granola-import-run")({ sender })).success, true);
+  assert.equal(imports, 1);
+
+  await handlers.get("granola-import-pick-and-preview")({ sender });
+  nextDialog = async () => ({ canceled: true, filePaths: [] });
+  try {
+    assert.equal(
+      (await handlers.get("granola-import-pick-and-preview")({ sender })).canceled,
+      true
+    );
+    assert.equal((await handlers.get("granola-import-run")({ sender })).success, false);
+    assert.equal(imports, 1);
+  } finally {
+    nextDialog = null;
+  }
+});
+
+test("an older picker cannot replace a newer preview", async () => {
+  const sender = {};
+  let resolveOld;
+  nextDialog = () => new Promise((resolve) => (resolveOld = resolve));
+  try {
+    const old = handlers.get("granola-import-pick-and-preview")({ sender });
+    nextDialog = async () => ({ canceled: true, filePaths: [] });
+    await handlers.get("granola-import-pick-and-preview")({ sender });
+    resolveOld({ canceled: false, filePaths: csvPaths });
+    await old;
+    assert.equal(target._granolaImportPending, null);
+  } finally {
+    nextDialog = null;
+  }
 });
 
 test("multi-file Granola preview is stable when file picker order changes", async () => {
