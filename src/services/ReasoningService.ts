@@ -938,11 +938,18 @@ class ReasoningService extends BaseReasoningService {
           const output = chunk.output;
           const displayText =
             typeof output === "string" ? output : output?.error ? String(output.error) : "Done";
+          // Mirror the cloud path: successful object outputs become metadata so
+          // tool-result cards (note cards) render on BYOK/local too.
+          const metadata =
+            output && typeof output === "object" && !("error" in output)
+              ? (output as ToolMetadata)
+              : undefined;
           yield {
             type: "tool_result",
             callId: chunk.toolCallId,
             toolName: chunk.toolName,
             displayText,
+            ...(metadata ? { metadata } : {}),
           };
         } else if (chunk.type === "abort") {
           canFlushFilteredText = false;
@@ -1112,7 +1119,11 @@ class ReasoningService extends BaseReasoningService {
     config: {
       systemPrompt: string;
       tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
-      executeToolCall?: (name: string, args: string) => Promise<ToolExecutionResult>;
+      executeToolCall?: (
+        name: string,
+        args: string,
+        toolCallId: string
+      ) => Promise<ToolExecutionResult>;
       screenContext?: { data: string; mediaType: string };
     }
   ): AsyncGenerator<AgentStreamChunk, void, unknown> {
@@ -1126,7 +1137,11 @@ class ReasoningService extends BaseReasoningService {
     config: {
       systemPrompt: string;
       tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>;
-      executeToolCall?: (name: string, args: string) => Promise<ToolExecutionResult>;
+      executeToolCall?: (
+        name: string,
+        args: string,
+        toolCallId: string
+      ) => Promise<ToolExecutionResult>;
       screenContext?: { data: string; mediaType: string };
     },
     operationGeneration: number
@@ -1174,7 +1189,7 @@ class ReasoningService extends BaseReasoningService {
         if (operationWasCancelled()) return;
         let toolResult: ToolExecutionResult;
         try {
-          toolResult = await config.executeToolCall(call.name, call.arguments);
+          toolResult = await config.executeToolCall(call.name, call.arguments, call.id);
         } catch (error) {
           const errMsg = `Error: ${(error as Error).message}`;
           toolResult = { data: errMsg, displayText: errMsg };

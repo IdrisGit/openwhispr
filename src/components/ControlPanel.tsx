@@ -46,6 +46,10 @@ import {
 import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
+import {
+  DEFAULT_INTEGRATIONS_SECTION,
+  type IntegrationsSection,
+} from "./integrations/integrationsSections";
 import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import NewNoteMenu from "./notes/NewNoteMenu";
@@ -120,6 +124,9 @@ export default function ControlPanel() {
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
+  const [integrationsSection, setIntegrationsSection] = useState<IntegrationsSection>(
+    DEFAULT_INTEGRATIONS_SECTION
+  );
   const navItems = useControlPanelNavItems();
   const {
     collapsed: sidebarCollapsed,
@@ -1045,8 +1052,12 @@ export default function ControlPanel() {
                   onRetryTranscription={retryTranscription}
                   showDiscarded={showDiscarded}
                   onToggleDiscarded={toggleShowDiscarded}
+                  userName={user?.name}
                   onOpenSettings={openSettings}
-                  onOpenIntegrations={() => setActiveView("integrations")}
+                  onOpenIntegrations={() => {
+                    setIntegrationsSection("calendars");
+                    setActiveView("integrations");
+                  }}
                 />
               )}
               {activeView === "insights" && (
@@ -1092,6 +1103,8 @@ export default function ControlPanel() {
                   <IntegrationsView
                     isPaid={usage?.hasPaidAccessOptimistic ?? false}
                     onUpgrade={() => openSettings("plansBilling")}
+                    section={integrationsSection}
+                    onSectionChange={setIntegrationsSection}
                   />
                 </Suspense>
               )}

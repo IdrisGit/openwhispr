@@ -118,6 +118,7 @@ import {
   TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
   TRANSCRIPTION_POLICY_PROVIDER_IDS,
   useSettingsStore,
+  type HotkeyRegistrationResult,
 } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { highestPlan } from "../lib/usageStore";
@@ -1151,20 +1152,23 @@ export default function SettingsPage({
       registerFn: meetingRegisterFn,
     });
 
-  // Agent hotkey setters resolve to false when main-process registration fails;
-  // surface it and return the result so HotkeyListInput rolls the row back.
+  // Preserve main's translated failure and return a boolean so HotkeyListInput
+  // rolls an unsuccessful registration back.
   const [isAgentHotkeyCommitting, setIsAgentHotkeyCommitting] = useState(false);
-  const commitAgentHotkey = async (setter: (key: string) => Promise<boolean>, key: string) => {
+  const commitAgentHotkey = async (
+    setter: (key: string) => Promise<HotkeyRegistrationResult>,
+    key: string
+  ) => {
     setIsAgentHotkeyCommitting(true);
     try {
-      const ok = await setter(key);
-      if (!ok) {
+      const result = await setter(key);
+      if (!result.success) {
         showAlertDialog({
           title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-          description: t("hooks.hotkeyRegistration.errors.failedToRegister"),
+          description: result.message || t("hooks.hotkeyRegistration.errors.failedToRegister"),
         });
       }
-      return ok;
+      return result.success;
     } finally {
       setIsAgentHotkeyCommitting(false);
     }
@@ -1586,7 +1590,8 @@ export default function SettingsPage({
           deleteLocalAccountData: async () => {
             const cleanup = await window.electronAPI?.deleteAccountData?.(
               accountId,
-              authGeneration
+              authGeneration,
+              { erasingDevice: eraseDeviceData }
             );
             if (!cleanup?.success) {
               throw new Error(cleanup?.error ?? "Could not remove local account data");

@@ -54,14 +54,31 @@ test("small Settings controls use current commands, platform and keyboard select
     feedbackTimers.push(callback);
     return 0;
   });
-  await render(React.createElement(CopyableCommand, { command: "first" }));
+  const callbacks = [];
+  await render(
+    React.createElement(CopyableCommand, {
+      command: "first",
+      onCopied: () => callbacks.push("first"),
+    })
+  );
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copy");
   await React.act(async () => container.querySelector("button").click());
-  await render(React.createElement(CopyableCommand, { command: "second" }));
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copied");
+  await React.act(async () => feedbackTimers.splice(0).forEach((callback) => callback()));
+  await render(
+    React.createElement(CopyableCommand, {
+      command: "second",
+      copyLabel: "Copy MCP URL",
+      onCopied: () => callbacks.push("second"),
+    })
+  );
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copy MCP URL");
   await React.act(async () => container.querySelector("button").click());
   assert.deepEqual(copied, ["first", "second"]);
-  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copied");
-  await React.act(async () => feedbackTimers.forEach((callback) => callback()));
-  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copy command");
+  assert.deepEqual(callbacks, ["first", "second"]);
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copied");
+  await React.act(async () => feedbackTimers.splice(0).forEach((callback) => callback()));
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copy MCP URL");
   let sound = 0;
   let privacy = 0;
   for (platform of ["linux", "darwin", "win32"]) {
