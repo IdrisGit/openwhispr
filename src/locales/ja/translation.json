@@ -1355,7 +1355,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "言語が見つかりません",
-    "searchPlaceholder": "言語を検索"
+    "searchPlaceholder": "言語を検索",
+    "clearSearch": "検索をクリア"
   },
   "microphoneSettings": {
     "builtIn": "（内蔵）",

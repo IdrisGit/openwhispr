@@ -287,6 +287,7 @@ export default function OpenAICompatiblePanel({
         <div className="space-y-2">
           <h4 className="font-medium text-foreground">{t("reasoning.custom.endpointTitle")}</h4>
           <Input
+            aria-label={t("reasoning.custom.endpointTitle")}
             dir="ltr"
             value={draftBase}
             onChange={(event) => setDraftBase(event.target.value)}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "./ui/button";
@@ -610,7 +610,11 @@ function TranscriptionSection({ isSignedIn }: { isSignedIn: boolean }) {
           label={t("settingsPage.transcription.transcriptionPreview")}
           description={t("settingsPage.transcription.transcriptionPreviewDescription")}
         >
-          <Toggle checked={showTranscriptionPreview} onChange={setShowTranscriptionPreview} />
+          <Toggle
+            ariaLabel={t("settingsPage.transcription.transcriptionPreview")}
+            checked={showTranscriptionPreview}
+            onChange={setShowTranscriptionPreview}
+          />
         </SettingsRow>
       </SettingsPanelRow>
     </SettingsPanel>
@@ -829,6 +833,7 @@ export default function SettingsPage({
   initialSubTab,
   subTabRequest,
 }: SettingsPageProps) {
+  const settingsId = useId();
   const { isCompact } = useSettingsLayout();
   const {
     confirmDialog,
@@ -1074,10 +1079,12 @@ export default function SettingsPage({
   } | null>(null);
   const [ydotoolGuideKey, setYdotoolGuideKey] = useState<string | null>(null);
 
+  const ydotoolRequest = useRef(0);
   const refreshYdotoolStatus = useCallback(async () => {
+    const request = ++ydotoolRequest.current;
     try {
       const status = await window.electronAPI?.getYdotoolStatus?.();
-      if (status) setYdotoolStatus(status);
+      if (status && request === ydotoolRequest.current) setYdotoolStatus(status);
     } catch {}
   }, []);
 
@@ -1085,6 +1092,10 @@ export default function SettingsPage({
     if (activeSection === "general" && getCachedPlatform() === "linux") {
       void refreshYdotoolStatus();
     }
+    const requests = ydotoolRequest;
+    return () => {
+      ++requests.current;
+    };
   }, [activeSection, refreshYdotoolStatus]);
 
   const { theme, setTheme } = useTheme();
@@ -1235,34 +1246,61 @@ export default function SettingsPage({
   const [autoStartNeedsApproval, setAutoStartNeedsApproval] = useState(false);
   const [autoStartLoading, setAutoStartLoading] = useState(true);
 
+  const autoStartRequest = useRef(0);
+  const autoStartAction = useRef(0);
   const readAutoStartState = useCallback(async () => {
-    if (!window.electronAPI?.getAutoStartEnabled) return;
+    const request = ++autoStartRequest.current;
+    if (!window.electronAPI?.getAutoStartEnabled) {
+      setAutoStartLoading(false);
+      return;
+    }
+    setAutoStartLoading(true);
     try {
       const state = await window.electronAPI.getAutoStartEnabled();
+      if (request !== autoStartRequest.current) return;
       setAutoStartEnabled(state.enabled);
       setAutoStartNeedsApproval(state.requiresApproval);
     } catch (error) {
-      logger.error("Failed to get auto-start status", error, "settings");
+      if (request === autoStartRequest.current)
+        logger.error("Failed to get auto-start status", error, "settings");
+    } finally {
+      if (request === autoStartRequest.current) setAutoStartLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (activeSection !== "general") return;
-    readAutoStartState().finally(() => setAutoStartLoading(false));
+    void readAutoStartState();
+    const requests = autoStartRequest;
+    return () => {
+      ++requests.current;
+    };
   }, [activeSection, readAutoStartState]);
+
+  useEffect(
+    () => () => {
+      ++autoStartAction.current;
+      ++autoStartRequest.current;
+    },
+    []
+  );
 
   const handleAutoStartChange = async (enabled: boolean) => {
     if (!window.electronAPI?.setAutoStartEnabled) return;
+    const action = ++autoStartAction.current;
+    const request = ++autoStartRequest.current;
     try {
       setAutoStartLoading(true);
       const result = await window.electronAPI.setAutoStartEnabled(enabled);
-      // Read the state back rather than assuming: on Windows the OS can have the
-      // item disabled out from under us, and on macOS it can need approval first.
-      if (result.success) await readAutoStartState();
+      // A completed OS write still needs read-back while Settings is mounted,
+      // even if General was hidden meanwhile. Closing Settings ends this owner.
+      if (result.success && action === autoStartAction.current) await readAutoStartState();
     } catch (error) {
-      logger.error("Failed to set auto-start", error, "settings");
+      if (action === autoStartAction.current)
+        logger.error("Failed to set auto-start", error, "settings");
     } finally {
-      setAutoStartLoading(false);
+      if (action === autoStartAction.current && request === autoStartRequest.current)
+        setAutoStartLoading(false);
     }
   };
 
@@ -1271,9 +1309,16 @@ export default function SettingsPage({
 
   useEffect(() => {
     if (activeSection !== "general" || !noteFilesEnabled) return;
-    window.electronAPI?.noteFilesGetDefaultPath?.().then((p) => {
-      if (p) setNoteFilesDefaultPath(p);
-    });
+    let active = true;
+    window.electronAPI
+      ?.noteFilesGetDefaultPath?.()
+      .then((p) => {
+        if (active && p) setNoteFilesDefaultPath(p);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [activeSection, noteFilesEnabled]);
 
   const handleNoteFilesToggle = async (enabled: boolean) => {
@@ -1306,15 +1351,19 @@ export default function SettingsPage({
 
   useEffect(() => {
     if (activeSection !== "hotkeys") return;
+    let active = true;
     const loadEffectiveDefaultHotkey = async () => {
       try {
         const key = await window.electronAPI?.getEffectiveDefaultHotkey?.();
-        if (key) setEffectiveDefaultHotkey(key);
+        if (active && key) setEffectiveDefaultHotkey(key);
       } catch (error) {
-        logger.error("Failed to get effective default hotkey", error, "settings");
+        if (active) logger.error("Failed to get effective default hotkey", error, "settings");
       }
     };
-    loadEffectiveDefaultHotkey();
+    void loadEffectiveDefaultHotkey();
+    return () => {
+      active = false;
+    };
   }, [activeSection]);
 
   useEffect(() => {
@@ -2565,7 +2614,11 @@ export default function SettingsPage({
                     label={t("settingsPage.general.soundEffects.dictationSounds")}
                     description={t("settingsPage.general.soundEffects.dictationSoundsDescription")}
                   >
-                    <Toggle checked={audioCuesEnabled} onChange={setAudioCuesEnabled} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.general.soundEffects.dictationSounds")}
+                      checked={audioCuesEnabled}
+                      onChange={setAudioCuesEnabled}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
@@ -2573,7 +2626,11 @@ export default function SettingsPage({
                     label={t("settingsPage.general.soundEffects.pauseMedia")}
                     description={t("settingsPage.general.soundEffects.pauseMediaDescription")}
                   >
-                    <Toggle checked={pauseMediaOnDictation} onChange={setPauseMediaOnDictation} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.general.soundEffects.pauseMedia")}
+                      checked={pauseMediaOnDictation}
+                      onChange={setPauseMediaOnDictation}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
               </SettingsPanel>
@@ -2592,6 +2649,7 @@ export default function SettingsPage({
                     description={t("settingsPage.general.notifications.disableAllDescription")}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.general.notifications.disableAll")}
                       checked={!notificationsEnabled}
                       onChange={(v) => setNotificationsEnabled(!v)}
                     />
@@ -2605,6 +2663,7 @@ export default function SettingsPage({
                     )}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.general.notifications.meetingDetection")}
                       checked={notifyMeetingDetection}
                       onChange={setNotifyMeetingDetection}
                       disabled={!notificationsEnabled}
@@ -2619,6 +2678,7 @@ export default function SettingsPage({
                     )}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.general.notifications.calendarReminders")}
                       checked={notifyCalendarReminders}
                       onChange={setNotifyCalendarReminders}
                       disabled={!notificationsEnabled}
@@ -2637,7 +2697,11 @@ export default function SettingsPage({
                     label={t("settingsPage.general.clipboard.autoPaste")}
                     description={t("settingsPage.general.clipboard.autoPasteDescription")}
                   >
-                    <Toggle checked={autoPasteEnabled} onChange={setAutoPasteEnabled} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.general.clipboard.autoPaste")}
+                      checked={autoPasteEnabled}
+                      onChange={setAutoPasteEnabled}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
@@ -2646,6 +2710,7 @@ export default function SettingsPage({
                     description={t("settingsPage.general.clipboard.keepInClipboardDescription")}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.general.clipboard.keepInClipboard")}
                       checked={keepTranscriptionInClipboard}
                       onChange={setKeepTranscriptionInClipboard}
                     />
@@ -2663,7 +2728,11 @@ export default function SettingsPage({
                     label={t("settings.noteFiles.title")}
                     description={t("settings.noteFiles.description")}
                   >
-                    <Toggle checked={noteFilesEnabled} onChange={handleNoteFilesToggle} />
+                    <Toggle
+                      ariaLabel={t("settings.noteFiles.title")}
+                      checked={noteFilesEnabled}
+                      onChange={handleNoteFilesToggle}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 {noteFilesEnabled && (
@@ -2727,15 +2796,21 @@ export default function SettingsPage({
                     label={t("settingsPage.general.floatingIcon.autoHide")}
                     description={t("settingsPage.general.floatingIcon.autoHideDescription")}
                   >
-                    <Toggle checked={floatingIconAutoHide} onChange={setFloatingIconAutoHide} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.general.floatingIcon.autoHide")}
+                      checked={floatingIconAutoHide}
+                      onChange={setFloatingIconAutoHide}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>
                   <SettingsRow
                     label={t("settingsPage.general.floatingIcon.startPosition")}
+                    htmlFor={`${settingsId}-start-position`}
                     description={t("settingsPage.general.floatingIcon.startPositionDescription")}
                   >
                     <select
+                      id={`${settingsId}-start-position`}
                       value={panelStartPosition}
                       onChange={(e) =>
                         setPanelStartPosition(
@@ -2772,6 +2847,7 @@ export default function SettingsPage({
                     description={t("settings.language.uiDescription")}
                   >
                     <LanguageSelector
+                      ariaLabel={t("settings.language.uiLabel")}
                       value={uiLanguage}
                       onChange={setUiLanguage}
                       options={UI_LANGUAGE_OPTIONS}
@@ -2785,6 +2861,7 @@ export default function SettingsPage({
                     description={t("settings.language.transcriptionDescription")}
                   >
                     <LanguageSelector
+                      ariaLabel={t("settings.language.transcriptionLabel")}
                       value={preferredLanguage}
                       onChange={(value) =>
                         updateTranscriptionSettings({ preferredLanguage: value })
@@ -2837,6 +2914,7 @@ export default function SettingsPage({
                     description={t("settingsPage.general.startup.launchAtLoginDescription")}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.general.startup.launchAtLogin")}
                       checked={autoStartEnabled}
                       onChange={(checked: boolean) => handleAutoStartChange(checked)}
                       disabled={autoStartLoading}
@@ -2871,7 +2949,11 @@ export default function SettingsPage({
                     label={t("settingsPage.general.startup.startMinimized")}
                     description={t("settingsPage.general.startup.startMinimizedDescription")}
                   >
-                    <Toggle checked={startMinimized} onChange={setStartMinimized} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.general.startup.startMinimized")}
+                      checked={startMinimized}
+                      onChange={setStartMinimized}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
               </SettingsPanel>
@@ -2916,7 +2998,11 @@ export default function SettingsPage({
                         "When you correct a transcription in the target app, the corrected word is automatically added to your dictionary.",
                     })}
                   >
-                    <Toggle checked={autoLearnCorrections} onChange={setAutoLearnCorrections} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.dictionary.autoLearnTitle")}
+                      checked={autoLearnCorrections}
+                      onChange={setAutoLearnCorrections}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
               </SettingsPanel>
@@ -3452,6 +3538,7 @@ EOF`,
               <SettingsPanel>
                 <SettingsPanelRow>
                   <HotkeyListInput
+                    ariaLabel={t("settingsPage.general.hotkey.title")}
                     value={dictationKey}
                     onChange={(list) => registerHotkey(list)}
                     validate={validateDictationHotkey}
@@ -3516,6 +3603,7 @@ EOF`,
                 <SettingsPanel>
                   <SettingsPanelRow>
                     <HotkeyListInput
+                      ariaLabel={t("settingsPage.general.voiceAgentHotkey.title")}
                       value={voiceAgentKey}
                       onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
                       onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
@@ -3537,6 +3625,7 @@ EOF`,
               <SettingsPanel>
                 <SettingsPanelRow>
                   <HotkeyListInput
+                    ariaLabel={t("settingsPage.general.translationHotkey.title")}
                     value={translationKey}
                     onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
                     onClear={() => commitAgentHotkey(setTranslationKey, "")}
@@ -3557,6 +3646,7 @@ EOF`,
               <SettingsPanel>
                 <SettingsPanelRow>
                   <HotkeyListInput
+                    ariaLabel={t("settingsPage.general.meetingHotkey.title")}
                     value={meetingKey}
                     onChange={(list) => registerMeetingHotkey(list)}
                     onClear={async (): Promise<boolean> => {
@@ -3595,7 +3685,10 @@ EOF`,
                       setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
                     }
                   >
-                    <SelectTrigger className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3">
+                    <SelectTrigger
+                      aria-label={t("settingsPage.general.meetingHotkey.layoutLabel")}
+                      className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -3646,6 +3739,7 @@ EOF`,
                         }
                       >
                         <Toggle
+                          ariaLabel={t("settingsPage.privacy.cloudBackup")}
                           checked={cloudBackupEnabled}
                           disabled={
                             !canChangeCloudBackupPreference(
@@ -3745,6 +3839,7 @@ EOF`,
                         could therefore only promise a sync that never happens —
                         but an already-on toggle must stay switchable off. */}
                     <Toggle
+                      ariaLabel={t("settingsPage.privacy.insightsSync")}
                       checked={insightsSyncEnabled}
                       disabled={
                         !isSignedIn ||
@@ -3776,6 +3871,7 @@ EOF`,
                     }
                   >
                     <Toggle
+                      ariaLabel={t("insights.leaderboard.title")}
                       checked={isSignedIn && leaderboardParticipationEnabled}
                       disabled={
                         !isSignedIn ||
@@ -3797,7 +3893,11 @@ EOF`,
                     label={t("settingsPage.privacy.usageAnalytics")}
                     description={t("settingsPage.privacy.usageAnalyticsDescription")}
                   >
-                    <Toggle checked={telemetryEnabled} onChange={setTelemetryEnabled} />
+                    <Toggle
+                      ariaLabel={t("settingsPage.privacy.usageAnalytics")}
+                      checked={telemetryEnabled}
+                      onChange={setTelemetryEnabled}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
               </SettingsPanel>
@@ -3814,9 +3914,11 @@ EOF`,
                 <SettingsPanelRow>
                   <SettingsRow
                     label={t("settingsPage.privacy.audioRetention")}
+                    htmlFor={`${settingsId}-audio-retention`}
                     description={t("settingsPage.privacy.audioRetentionDescription")}
                   >
                     <select
+                      id={`${settingsId}-audio-retention`}
                       value={enforcedAudioRetentionDays}
                       onChange={(e) => {
                         const days = parseInt(e.target.value, 10);
@@ -3885,6 +3987,7 @@ EOF`,
                     }
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.privacy.dataRetention")}
                       checked={effectiveDataRetentionEnabled}
                       disabled={historyLockedByPolicy}
                       onChange={setDataRetentionEnabled}
@@ -3894,9 +3997,11 @@ EOF`,
                 <SettingsPanelRow>
                   <SettingsRow
                     label={t("settingsPage.privacy.transcriptRetention")}
+                    htmlFor={`${settingsId}-transcript-retention`}
                     description={t("settingsPage.privacy.transcriptRetentionDescription")}
                   >
                     <select
+                      id={`${settingsId}-transcript-retention`}
                       value={transcriptRetentionDays}
                       disabled={!effectiveDataRetentionEnabled}
                       onChange={(e) => setTranscriptRetentionDays(parseInt(e.target.value, 10))}
@@ -3919,6 +4024,7 @@ EOF`,
                     description={t("settingsPage.privacy.saveDiscardedDescription")}
                   >
                     <Toggle
+                      ariaLabel={t("settingsPage.privacy.saveDiscarded")}
                       checked={saveDiscardedTranscriptions}
                       disabled={!effectiveDataRetentionEnabled || enforcedAudioRetentionDays === 0}
                       onChange={setSaveDiscardedTranscriptions}

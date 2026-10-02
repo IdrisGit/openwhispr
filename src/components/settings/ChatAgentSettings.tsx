@@ -18,6 +18,7 @@ export default function ChatAgentSettings() {
           description={t("agentMode.settings.systemPromptDescription")}
         />
         <textarea
+          aria-label={t("agentMode.settings.systemPrompt")}
           dir="auto"
           value={chatAgentPrompt}
           onChange={(e) => setCustomPrompt("chatAgent", e.target.value)}

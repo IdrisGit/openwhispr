@@ -56,7 +56,11 @@ export default function DictationTranslationSettings() {
             label={t("dictationTranslation.enabled")}
             description={t("dictationTranslation.enabledDescription")}
           >
-            <Toggle checked={useDictationTranslation} onChange={setUseDictationTranslation} />
+            <Toggle
+              ariaLabel={t("dictationTranslation.enabled")}
+              checked={useDictationTranslation}
+              onChange={setUseDictationTranslation}
+            />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
@@ -70,6 +74,7 @@ export default function DictationTranslationSettings() {
                 description={t("dictationTranslation.sourceLanguageDescription")}
               >
                 <LanguageSelector
+                  ariaLabel={t("dictationTranslation.sourceLanguage")}
                   value={translationSourceLanguage}
                   onChange={setTranslationSourceLanguage}
                 />
@@ -128,6 +133,7 @@ export default function DictationTranslationSettings() {
                   )}
                   {!atCap && (
                     <LanguageSelector
+                      ariaLabel={t("dictationTranslation.addTarget")}
                       value=""
                       onChange={addTarget}
                       options={availableOptions}

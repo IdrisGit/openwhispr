@@ -4381,7 +4381,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "لم يتم العثور على لغات",
-    "searchPlaceholder": "البحث في اللغات"
+    "searchPlaceholder": "البحث في اللغات",
+    "clearSearch": "مسح البحث"
   },
   "microphoneSettings": {
     "builtIn": "(مدمج)",

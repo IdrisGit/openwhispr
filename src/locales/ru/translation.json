@@ -1355,7 +1355,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "Языки не найдены",
-    "searchPlaceholder": "Поиск языков"
+    "searchPlaceholder": "Поиск языков",
+    "clearSearch": "Очистить поиск"
   },
   "microphoneSettings": {
     "builtIn": "(Встроенный)",

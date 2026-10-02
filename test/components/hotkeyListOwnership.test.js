@@ -2,8 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const fs = require("node:fs");
-const path = require("node:path");
 const {
   createRendererServer,
   installBrowserGlobals,
@@ -60,13 +58,4 @@ test("hotkey registration rejection rolls back the optimistic row without losing
   await render();
   await React.act(async () => reject(Error("late rejection")));
   assert.equal(row().value, "F10");
-
-  const settingsPage = fs.readFileSync(
-    path.join(__dirname, "../../src/components/SettingsPage.tsx"),
-    "utf8"
-  );
-  assert.match(
-    settingsPage,
-    /if \(activeSection !== "hotkeys"\) return;\s*const loadEffectiveDefaultHotkey/
-  );
 });

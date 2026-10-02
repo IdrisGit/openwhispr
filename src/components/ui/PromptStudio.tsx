@@ -416,6 +416,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
 
             <div className="px-5 py-4">
               <Textarea
+                aria-label={t("promptStudio.view.customPrompt")}
                 dir="auto"
                 value={editedPrompt}
                 onChange={(e) => setEditedPrompt(e.target.value)}
@@ -556,6 +557,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
                     )}
                   </div>
                   <Textarea
+                    aria-label={t("promptStudio.test.inputLabel")}
                     dir="auto"
                     value={testText}
                     onChange={(e) => setTestText(e.target.value)}

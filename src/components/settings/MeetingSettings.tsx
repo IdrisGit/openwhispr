@@ -27,7 +27,11 @@ export function MeetingSpeakerDetectionRow() {
       label={t("settings.meeting.speakerDetection.title")}
       description={t("settings.meeting.speakerDetection.description")}
     >
-      <Toggle checked={speakerDiarizationEnabled} onChange={setSpeakerDiarizationEnabled} />
+      <Toggle
+        ariaLabel={t("settings.meeting.speakerDetection.title")}
+        checked={speakerDiarizationEnabled}
+        onChange={setSpeakerDiarizationEnabled}
+      />
     </SettingsRow>
   );
 }

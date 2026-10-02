@@ -1334,7 +1334,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "Nenhum idioma encontrado",
-    "searchPlaceholder": "Buscar idiomas"
+    "searchPlaceholder": "Buscar idiomas",
+    "clearSearch": "Limpar pesquisa"
   },
   "microphoneSettings": {
     "builtIn": "(Integrado)",

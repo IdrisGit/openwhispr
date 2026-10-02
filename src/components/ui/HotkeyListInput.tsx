@@ -8,6 +8,7 @@ import { normalizeHotkey } from "../../utils/hotkeyValidator";
 import { getPlatform } from "../../utils/platform";
 
 export interface HotkeyListInputProps {
+  ariaLabel?: string;
   /** Comma-separated list of hotkeys (a single hotkey is just a one-item list). */
   value: string;
   /**
@@ -35,6 +36,7 @@ export interface HotkeyListInputProps {
  * adopted, and an `onChange`/`onClear` that resolves to `false` rolls back.
  */
 export function HotkeyListInput({
+  ariaLabel,
   value,
   onChange,
   onClear,
@@ -114,7 +116,7 @@ export function HotkeyListInput({
   const showAdd = !adding && items.length > 0 && items.length < maxHotkeys;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div role="group" aria-label={ariaLabel} className="flex flex-col gap-2">
       {items.map((hotkey, index) => (
         <HotkeyInput
           key={`${hotkey}-${index}`}

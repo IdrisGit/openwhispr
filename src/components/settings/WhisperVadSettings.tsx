@@ -94,7 +94,11 @@ function WhisperVadControls() {
             label={t("settingsPage.transcription.vad.toggles.dictation.title")}
             description={t("settingsPage.transcription.vad.toggles.dictation.description")}
           >
-            <Toggle checked={dictationSileroEnabled} onChange={setDictationSileroEnabled} />
+            <Toggle
+              ariaLabel={t("settingsPage.transcription.vad.toggles.dictation.title")}
+              checked={dictationSileroEnabled}
+              onChange={setDictationSileroEnabled}
+            />
           </SettingsRow>
         </SettingsPanelRow>
         <SettingsPanelRow>
@@ -102,7 +106,11 @@ function WhisperVadControls() {
             label={t("settingsPage.transcription.vad.toggles.noteRecording.title")}
             description={t("settingsPage.transcription.vad.toggles.noteRecording.description")}
           >
-            <Toggle checked={noteRecordingSileroEnabled} onChange={setNoteRecordingSileroEnabled} />
+            <Toggle
+              ariaLabel={t("settingsPage.transcription.vad.toggles.noteRecording.title")}
+              checked={noteRecordingSileroEnabled}
+              onChange={setNoteRecordingSileroEnabled}
+            />
           </SettingsRow>
         </SettingsPanelRow>
         <SettingsPanelRow>
@@ -110,7 +118,11 @@ function WhisperVadControls() {
             label={t("settingsPage.transcription.vad.toggles.meeting.title")}
             description={t("settingsPage.transcription.vad.toggles.meeting.description")}
           >
-            <Toggle checked={meetingSileroEnabled} onChange={setMeetingSileroEnabled} />
+            <Toggle
+              ariaLabel={t("settingsPage.transcription.vad.toggles.meeting.title")}
+              checked={meetingSileroEnabled}
+              onChange={setMeetingSileroEnabled}
+            />
           </SettingsRow>
         </SettingsPanelRow>
         <SettingsPanelRow>
@@ -126,6 +138,7 @@ function WhisperVadControls() {
                 step="0.01"
                 min="0.1"
                 max="0.95"
+                aria-label={t("settingsPage.transcription.vad.fields.threshold.label")}
                 value={whisperVadThreshold}
                 onChange={(e) => setWhisperVadThreshold(Number(e.target.value))}
               />
@@ -141,6 +154,7 @@ function WhisperVadControls() {
                 step="10"
                 min="50"
                 max="2000"
+                aria-label={t("settingsPage.transcription.vad.fields.minSpeechDurationMs.label")}
                 value={whisperVadMinSpeechDurationMs}
                 onChange={(e) => setWhisperVadMinSpeechDurationMs(Number(e.target.value))}
               />
@@ -156,6 +170,7 @@ function WhisperVadControls() {
                 step="10"
                 min="50"
                 max="2000"
+                aria-label={t("settingsPage.transcription.vad.fields.minSilenceDurationMs.label")}
                 value={whisperVadMinSilenceDurationMs}
                 onChange={(e) => setWhisperVadMinSilenceDurationMs(Number(e.target.value))}
               />
@@ -171,6 +186,7 @@ function WhisperVadControls() {
                 step="1"
                 min="5"
                 max="120"
+                aria-label={t("settingsPage.transcription.vad.fields.maxSpeechDurationS.label")}
                 value={whisperVadMaxSpeechDurationS}
                 onChange={(e) => setWhisperVadMaxSpeechDurationS(Number(e.target.value))}
               />
@@ -186,6 +202,7 @@ function WhisperVadControls() {
                 step="10"
                 min="0"
                 max="1000"
+                aria-label={t("settingsPage.transcription.vad.fields.speechPadMs.label")}
                 value={whisperVadSpeechPadMs}
                 onChange={(e) => setWhisperVadSpeechPadMs(Number(e.target.value))}
               />
@@ -201,6 +218,7 @@ function WhisperVadControls() {
                 step="0.01"
                 min="0"
                 max="0.95"
+                aria-label={t("settingsPage.transcription.vad.fields.samplesOverlap.label")}
                 value={whisperVadSamplesOverlap}
                 onChange={(e) => setWhisperVadSamplesOverlap(Number(e.target.value))}
               />

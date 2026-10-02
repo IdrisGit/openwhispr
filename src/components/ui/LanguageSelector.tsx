@@ -23,6 +23,7 @@ interface LanguageSelectorProps {
   options?: LanguageOption[];
   className?: string;
   placeholder?: string;
+  ariaLabel?: string;
 }
 
 export default function LanguageSelector({
@@ -31,6 +32,7 @@ export default function LanguageSelector({
   options,
   className = "",
   placeholder,
+  ariaLabel,
 }: LanguageSelectorProps) {
   const { t } = useTranslation();
   const items = options ?? REGISTRY_OPTIONS;
@@ -179,6 +181,7 @@ export default function LanguageSelector({
               : "border-border/70 bg-surface-1/80 hover:border-border-hover hover:bg-surface-2/70 hover:shadow active:scale-[0.985]"
           }
         `}
+        aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
@@ -218,6 +221,7 @@ export default function LanguageSelector({
                     value={searchQuery}
                     onChange={(e) => handleSearchQueryChange(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    aria-label={t("languageSelector.searchPlaceholder")}
                     placeholder={t("languageSelector.searchPlaceholder")}
                     className="w-full h-7 ps-7 pe-6 text-xs bg-transparent text-foreground border-0 focus:outline-none placeholder:text-muted-foreground/70"
                   />
@@ -225,6 +229,7 @@ export default function LanguageSelector({
                     <button
                       type="button"
                       onClick={clearSearch}
+                      aria-label={t("languageSelector.clearSearch")}
                       className="absolute end-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/50"
                     >
                       <X className="w-3 h-3" />

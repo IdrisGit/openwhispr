@@ -111,7 +111,11 @@ const SystemUpdates = React.memo(function SystemUpdates({
               label={t("settingsPage.general.updates.automaticUpdates")}
               description={t("settingsPage.general.updates.automaticUpdatesDescription")}
             >
-              <Toggle checked={autoUpdatesEnabled} onChange={setAutoUpdatesEnabled} />
+              <Toggle
+                ariaLabel={t("settingsPage.general.updates.automaticUpdates")}
+                checked={autoUpdatesEnabled}
+                onChange={setAutoUpdatesEnabled}
+              />
             </SettingsRow>
           </SettingsPanelRow>
         )}

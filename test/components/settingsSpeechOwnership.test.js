@@ -36,6 +36,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     buttons: [],
     rows: [],
     toasts: [],
+    registered: [],
   });
   const emptyComponent = "export default function Stub() { return null; }";
   const vite = await createRendererServer(t, {
@@ -121,7 +122,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/hooks/useSystemAudioPermission": `export const useSystemAudioPermission = () => ({});`,
       "/hooks/useInsightsSyncOptIn": `export const useInsightsSyncOptIn = () => ({});`,
       "/hooks/useLeaderboardParticipation": `export const useLeaderboardParticipation = () => ({});`,
-      "/hooks/useHotkeyRegistration": `export const useHotkeyRegistration = () => ({});`,
+      "/hooks/useHotkeyRegistration": `export const useHotkeyRegistration = () => ({ registerHotkey: key => globalThis.__settingsSpeech.registered.push(key) });`,
       "/hooks/useHotkeyModeInfo": `export const useHotkeyModeInfo = () => ({});`,
       "/hooks/useBillingPortal": `export const useBillingPortal = () => ({});`,
       "/hooks/useUsage": `export const useUsage = () => ({});`,
@@ -132,6 +133,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/models/ModelRegistry": `export const getTranscriptionProvider = () => null; export const enterpriseProviderName = id => id; export const getMeetingStreamingTranscriptionProviders = () => [];`,
       "/ui/dialog": `export const ConfirmDialog = () => null; export const AlertDialog = ConfirmDialog; export const Dialog = ConfirmDialog; export const DialogContent = ConfirmDialog; export const DialogHeader = ConfirmDialog; export const DialogTitle = ConfirmDialog; export const DialogDescription = ConfirmDialog; export const DialogFooter = ConfirmDialog;`,
       "/ui/popover": `export const Popover = ({children}) => children; export const PopoverTrigger = Popover; export const PopoverContent = () => null;`,
+      "/ui/select": `import React from "react"; export const Select = ({children}) => children; export const SelectTrigger = ({children, ...props}) => React.createElement("button", props, children); export const SelectValue = () => null; export const SelectContent = () => null; export const SelectItem = ({children}) => children;`,
       "/ui/SettingsSection": `
         import React from "react";
         export const SettingsPanel = ({children}) => children;
@@ -147,7 +149,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         }
       `,
       "/ui/input": `export function Input(props) { globalThis.__settingsSpeech.inputs.push(props); return null; }`,
-      "/ui/toggle": `export const Toggle = () => null;`,
+      "/utils/platform": `export const getPlatform = () => "linux"; export const getCachedPlatform = getPlatform;`,
       "/ui/ProviderTabs": `export function ProviderTabs(props) { globalThis.__settingsSpeech.tabs = props; return null; }`,
       "/settings/WorkspaceSection": `export default function WorkspaceSection() { globalThis.__settingsSpeech.pageRenders++; return null; }`,
       "/TranscriptionModelPicker": `
@@ -276,6 +278,147 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         container.querySelector('select[aria-label="settings.language.chineseScriptLabel"]').value,
         "traditional"
       );
+      await React.act(async () => root.unmount());
+      root = null;
+    }
+  );
+
+  await t.test(
+    "Settings reads ignore older entries and preserve completed startup read-back",
+    async (scope) => {
+      scope.after(async () => {
+        if (root) await React.act(async () => root.unmount());
+        root = null;
+      });
+      observed.locale.setState({ t: (key) => key });
+      await update({ dictationKey: "F8", noteFilesEnabled: true, noteFilesPath: "" });
+      const api = globalThis.window.electronAPI;
+      const startup = [];
+      const paths = [];
+      const diagnostics = [];
+      const defaults = [];
+      const pending = (queue) => new Promise((resolve, reject) => queue.push({ resolve, reject }));
+      api.getAutoStartEnabled = () => pending(startup);
+      api.setAutoStartEnabled = async () => ({ success: true });
+      api.noteFilesGetDefaultPath = () => pending(paths);
+      api.getYdotoolStatus = () => pending(diagnostics);
+      api.getEffectiveDefaultHotkey = () => pending(defaults);
+      const toggle = () =>
+        container.querySelector('[aria-label="settingsPage.general.startup.launchAtLogin"]');
+      root = createRoot(container);
+      await render("workspace");
+      assert.deepEqual(
+        [startup.length, paths.length, diagnostics.length, defaults.length],
+        [0, 0, 0, 0]
+      );
+      await render("general");
+      assert.equal(defaults.length, 0, "General does not read the Hotkeys default");
+      await React.act(async () => startup[0].resolve({ enabled: false, requiresApproval: false }));
+      assert.equal(toggle().disabled, false);
+      await render("workspace");
+      await render("general");
+      assert.equal(
+        toggle().disabled,
+        true,
+        "a fresh entry is pending, not a usable stale OS value"
+      );
+      await render("workspace");
+      await render("general");
+      await React.act(async () => {
+        startup[2].resolve({ enabled: false, requiresApproval: false });
+        paths[2].resolve("/fresh-notes");
+        diagnostics[2].resolve({
+          isLinux: true,
+          isWayland: true,
+          hasYdotool: true,
+          hasYdotoold: true,
+          hasWtype: true,
+          daemonRunning: true,
+          hasUinput: true,
+          hasUdevRule: true,
+          hasGroup: true,
+          isWlroots: true,
+        });
+      });
+      await React.act(async () => toggle().click());
+      assert.equal(startup.length, 4, "successful startup write reads the OS back");
+      await React.act(async () => startup[3].resolve({ enabled: true, requiresApproval: true }));
+      await React.act(async () => {
+        startup[1].resolve({ enabled: false, requiresApproval: false });
+        paths[1].resolve("/obsolete-notes");
+        diagnostics[1].resolve({ isLinux: false, isWayland: false });
+      });
+      assert.equal(toggle().getAttribute("aria-checked"), "true");
+      assert.equal(toggle().disabled, false);
+      const pathHint = () =>
+        observed.rows.findLast((row) => row.label === "settings.noteFiles.path").description.props
+          .children;
+      assert.equal(pathHint(), "/fresh-notes");
+      assert.ok(container.textContent.includes("settingsPage.general.waylandPaste.title"));
+      assert.ok(
+        container.querySelector('[aria-label="settingsPage.general.waylandPaste.recheck"]')
+      );
+      await render("hotkeys");
+      await render("workspace");
+      await render("hotkeys");
+      await React.act(async () => defaults[1].resolve("F10"));
+      await React.act(async () => defaults[0].resolve("F9"));
+      const reset = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent.includes("resetToDefault")
+      );
+      await React.act(async () => reset.click());
+      assert.equal(observed.registered.at(-1), "F10");
+      await render("general");
+      await React.act(async () => {
+        startup.at(-1).reject(new Error("unavailable"));
+        paths.at(-1).reject(new Error("unavailable"));
+        diagnostics.at(-1).reject(new Error("unavailable"));
+      });
+      assert.equal(
+        toggle().getAttribute("aria-checked"),
+        "true",
+        "failed reads retain valid state"
+      );
+      assert.equal(toggle().disabled, false);
+      assert.equal(pathHint(), "/fresh-notes");
+      let finishWrite;
+      api.setAutoStartEnabled = () =>
+        new Promise((resolve) => {
+          finishWrite = resolve;
+        });
+      await React.act(async () => toggle().click());
+      await render("workspace");
+      const readsBeforeHiddenWrite = startup.length;
+      await React.act(async () => finishWrite({ success: true }));
+      assert.equal(
+        startup.length,
+        readsBeforeHiddenWrite + 1,
+        "completed hidden write still reconciles OS state"
+      );
+      await React.act(async () =>
+        startup.at(-1).resolve({ enabled: false, requiresApproval: false })
+      );
+      await render("general");
+      await React.act(async () =>
+        startup.at(-1).resolve({ enabled: true, requiresApproval: false })
+      );
+      await React.act(async () => toggle().click());
+      await React.act(async () => root.unmount());
+      root = null;
+      const readsAtClose = startup.length;
+      await React.act(async () => finishWrite({ success: true }));
+      assert.equal(startup.length, readsAtClose, "closed owner cannot start a late read-back");
+      await React.act(async () => {
+        paths[0].resolve("/closed-notes");
+        diagnostics[0].resolve({ isLinux: false, isWayland: false });
+      });
+      api.getAutoStartEnabled = async () => ({ enabled: false, requiresApproval: false });
+      api.noteFilesGetDefaultPath = async () => "/reopened-notes";
+      api.getYdotoolStatus = async () => ({ isLinux: false, isWayland: false });
+      root = createRoot(container);
+      await render("general");
+      assert.equal(toggle().getAttribute("aria-checked"), "false");
+      assert.equal(pathHint(), "/reopened-notes");
       await React.act(async () => root.unmount());
       root = null;
     }

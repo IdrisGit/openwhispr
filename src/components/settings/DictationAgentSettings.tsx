@@ -96,6 +96,7 @@ export default function DictationAgentSettings() {
             <div className="space-y-3">
               <div className="flex gap-2">
                 <Input
+                  aria-label={t("settingsPage.agentConfig.agentName")}
                   dir="auto"
                   placeholder={t("settingsPage.agentConfig.placeholder")}
                   value={agentNameInput}
@@ -158,6 +159,7 @@ export default function DictationAgentSettings() {
             }
           >
             <Toggle
+              ariaLabel={t("dictationAgent.enabled")}
               checked={useDictationAgent}
               onChange={setUseDictationAgent}
               disabled={!agentAllowed}
@@ -190,6 +192,7 @@ export default function DictationAgentSettings() {
                 }
               >
                 <Toggle
+                  ariaLabel={t("dictationAgent.screenContext.enable")}
                   checked={screenContextActive}
                   onChange={handleScreenContextToggle}
                   disabled={!screenSupported || !screenContextAllowed}
@@ -203,6 +206,7 @@ export default function DictationAgentSettings() {
                   description={t("dictationAgent.screenContext.visionModelDescription")}
                 >
                   <Toggle
+                    ariaLabel={t("dictationAgent.screenContext.visionModel")}
                     checked={useDictationAgentVisionModel}
                     onChange={setUseDictationAgentVisionModel}
                   />

@@ -296,7 +296,11 @@ export default function InferenceConfigEditor({
             </h4>
             <p className="text-xs text-muted-foreground">{t("reasoning.disableThinking.help")}</p>
           </div>
-          <Toggle checked={config.disableThinking} onChange={setField("disableThinking")} />
+          <Toggle
+            ariaLabel={t("reasoning.disableThinking.label")}
+            checked={config.disableThinking}
+            onChange={setField("disableThinking")}
+          />
         </div>
       )}
 

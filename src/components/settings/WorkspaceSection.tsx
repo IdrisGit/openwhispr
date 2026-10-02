@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Users, UserPlus, Trash2, LogOut, ChevronDown, Loader2 } from "../icons";
@@ -58,6 +58,24 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusedControl = useRef<HTMLElement | null>(null);
+  const workspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const canManage = !!workspace && canManageWorkspace(workspace.role);
+  const visibleTabs = SUB_TABS.filter((id) => id !== "developer" || canManage);
+  const tab: WorkspaceTab = visibleTabs.includes(storedTab as WorkspaceTab)
+    ? (storedTab as WorkspaceTab)
+    : "members";
+
+  useLayoutEffect(() => {
+    const previous = focusedControl.current;
+    if (!previous || previous.isConnected) return;
+    focusedControl.current = null;
+    if (document.activeElement !== document.body) return;
+    rootRef.current
+      ?.querySelector<HTMLButtonElement>('[data-workspace-choice][aria-pressed="true"]')
+      ?.focus();
+  }, [workspace?.id, workspace?.role, tab]);
 
   useEffect(() => {
     if (isSignedIn && !loaded) void refresh();
@@ -150,15 +168,18 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
     );
   }
 
-  const workspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
-  const canManage = canManageWorkspace(workspace.role);
-  const visibleTabs = SUB_TABS.filter((id) => id !== "developer" || canManage);
-  const tab: WorkspaceTab = visibleTabs.includes(storedTab as WorkspaceTab)
-    ? (storedTab as WorkspaceTab)
-    : "members";
-
   return (
-    <div className="space-y-4">
+    <div
+      ref={rootRef}
+      onFocusCapture={(event) => {
+        focusedControl.current = event.target as HTMLElement;
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          focusedControl.current = null;
+      }}
+      className="space-y-4"
+    >
       <div className="flex items-center justify-between">
         <div className="min-w-0">
           <DropdownMenu modal={false}>
@@ -200,12 +221,13 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
       </div>
 
       <div className="border-b border-border/70 dark:border-border-subtle/60 -mx-1">
-        <div role="tablist" className="flex gap-0.5 px-1">
+        <div className="flex gap-0.5 px-1">
           {visibleTabs.map((id) => (
             <button
               key={id}
-              role="tab"
-              aria-selected={tab === id}
+              type="button"
+              data-workspace-choice={id}
+              aria-pressed={tab === id}
               onClick={() => setStoredTab(id)}
               className={cn(
                 "px-3 h-8 text-xs font-medium outline-none transition-colors relative",

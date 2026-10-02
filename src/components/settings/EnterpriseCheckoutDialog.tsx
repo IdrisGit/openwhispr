@@ -210,7 +210,7 @@ export default function EnterpriseCheckoutDialog({
                   {t("settingsPage.enterpriseCheckout.workspaceLabel")}
                 </Label>
                 <Select value={selected.id} onValueChange={setWorkspaceId}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label={t("settingsPage.enterpriseCheckout.workspaceLabel")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

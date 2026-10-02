@@ -2,11 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const {
-  createRendererServer,
-  installBrowserGlobals,
-  installHostDom,
-} = require("../lib/rendererTestHarness");
+const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
 test("workspace switch remounts developer-owned secret without remounting create flow", async (t) => {
   let root = null;
@@ -17,8 +13,23 @@ test("workspace switch remounts developer-owned secret without remounting create
     delete globalThis.__setDeveloperSecret;
     delete globalThis.__createMounts;
   });
+  const { Window } = await import("happy-dom");
+  const dom = new Window();
+  const documentBefore = globalThis.document;
+  const actBefore = globalThis.IS_REACT_ACT_ENVIRONMENT;
   installBrowserGlobals(t);
-  const container = installHostDom(t);
+  globalThis.window = dom;
+  globalThis.document = dom.document;
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+    root = null;
+    globalThis.document = documentBefore;
+    globalThis.IS_REACT_ACT_ENVIRONMENT = actBefore;
+    await dom.happyDOM.close();
+  });
+  const container = dom.document.createElement("div");
+  dom.document.body.appendChild(container);
   globalThis.__createMounts = 0;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-workspace-section-test-",
@@ -69,7 +80,7 @@ test("workspace switch remounts developer-owned secret without remounting create
           const [secret, setSecret] = useState("");
           globalThis.__developerSecret = secret;
           globalThis.__setDeveloperSecret = setSecret;
-          return React.createElement("div", null, workspace.id, secret);
+          return React.createElement("div", null, workspace.id, secret, React.createElement("input", {"aria-label": "Developer draft"}));
         }
       `,
       "/EnterpriseConsoleRow": `export default function EnterpriseConsoleRow() { return null; }`,
@@ -100,4 +111,50 @@ test("workspace switch remounts developer-owned secret without remounting create
   );
   assert.equal(globalThis.__developerSecret, "");
   assert.equal(globalThis.__createMounts, 1);
+
+  const choices = () => [...container.querySelectorAll("[data-workspace-choice]")];
+  const choice = (id) => choices().find((button) => button.dataset.workspaceChoice === id);
+  const role = (role) =>
+    React.act(async () =>
+      globalThis.__workspaceStore.setState((state) => ({
+        workspaces: state.workspaces.map((workspace) =>
+          workspace.id === "two" ? { ...workspace, role } : workspace
+        ),
+      }))
+    );
+  assert.equal(container.querySelector('[role="tab"]'), null);
+  assert.equal(container.querySelector('[role="tablist"]'), null);
+  assert.ok(choices().every((button) => button.type === "button" && button.tabIndex === 0));
+  await React.act(async () => choice("developer").focus());
+  await role("member");
+  assert.equal(
+    globalThis.document.activeElement,
+    choice("members"),
+    "removing a focused choice restores focus to the fallback"
+  );
+  assert.equal(choice("developer"), undefined);
+  assert.equal(container.querySelector('input[aria-label="Developer draft"]'), null);
+  await role("owner");
+  await React.act(async () =>
+    container.querySelector('input[aria-label="Developer draft"]').focus()
+  );
+  await role("member");
+  assert.equal(
+    globalThis.document.activeElement,
+    choice("members"),
+    "removed panel focus is restored before paint"
+  );
+  await role("owner");
+  const outside = dom.document.createElement("button");
+  dom.document.body.appendChild(outside);
+  await React.act(async () => outside.focus());
+  await role("member");
+  assert.equal(
+    globalThis.document.activeElement,
+    outside,
+    "role removal never steals unrelated focus"
+  );
+  await React.act(async () => choice("teams").click());
+  assert.equal(choice("teams").getAttribute("aria-pressed"), "true");
+  assert.equal(choice("members").getAttribute("aria-pressed"), "false");
 });

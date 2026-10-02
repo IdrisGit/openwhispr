@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Loader2, Search } from "./icons";
@@ -63,12 +63,18 @@ function AuthModeToggle({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="flex gap-1 p-0.5 bg-muted rounded-md w-fit">
+    <div
+      role="group"
+      aria-label={t("reasoning.enterprise.authMode")}
+      className="flex gap-1 p-0.5 bg-muted rounded-md w-fit"
+    >
       {options.map((opt) => (
         <button
           key={opt.id}
           type="button"
+          aria-pressed={value === opt.id}
           onClick={() => onChange(opt.id)}
           className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
             value === opt.id
@@ -83,8 +89,12 @@ function AuthModeToggle({
   );
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-xs font-medium text-muted-foreground">{children}</label>;
+function FieldLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+  return (
+    <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
+      {children}
+    </label>
+  );
 }
 
 function FieldHint({ children }: { children: React.ReactNode }) {
@@ -117,6 +127,7 @@ type BedrockCatalogState =
 
 function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
+  const fieldId = useId();
   const store = useSettingsStore(
     useShallow((s) => ({
       bedrockAuthMode: s.bedrockAuthMode,
@@ -214,11 +225,12 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
       {store.bedrockAuthMode === "sso" ? (
         <div className="space-y-2">
           <div className="space-y-1.5">
-            <FieldLabel>
+            <FieldLabel htmlFor={`${fieldId}-profile`}>
               {t("reasoning.enterprise.profile", { defaultValue: "Profile Name" })}
             </FieldLabel>
             <Input
               dir="ltr"
+              id={`${fieldId}-profile`}
               value={store.bedrockProfile}
               onChange={(e) => store.setBedrockProfile(e.target.value)}
               placeholder="default"
@@ -235,10 +247,12 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
       ) : (
         <div className="space-y-2">
           <div className="space-y-1.5">
-            <FieldLabel>
+            <FieldLabel htmlFor={`${fieldId}-access-key`}>
               {t("reasoning.enterprise.accessKeyId", { defaultValue: "Access Key ID" })}
             </FieldLabel>
             <ApiKeyInput
+              id={`${fieldId}-access-key`}
+              ariaLabel={t("reasoning.enterprise.accessKeyId")}
               apiKey={store.bedrockAccessKeyId}
               setApiKey={store.setBedrockAccessKeyId}
               label=""
@@ -246,23 +260,26 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
             />
           </div>
           <div className="space-y-1.5">
-            <FieldLabel>
+            <FieldLabel htmlFor={`${fieldId}-secret-key`}>
               {t("reasoning.enterprise.secretAccessKey", { defaultValue: "Secret Access Key" })}
             </FieldLabel>
             <ApiKeyInput
+              id={`${fieldId}-secret-key`}
+              ariaLabel={t("reasoning.enterprise.secretAccessKey")}
               apiKey={store.bedrockSecretAccessKey}
               setApiKey={store.setBedrockSecretAccessKey}
               label=""
             />
           </div>
           <div className="space-y-1.5">
-            <FieldLabel>
+            <FieldLabel htmlFor={`${fieldId}-session-token`}>
               {t("reasoning.enterprise.sessionToken", {
                 defaultValue: "Session Token (optional)",
               })}
             </FieldLabel>
             <Input
               dir="ltr"
+              id={`${fieldId}-session-token`}
               value={store.bedrockSessionToken}
               onChange={(e) => store.setBedrockSessionToken(e.target.value)}
               placeholder=""
@@ -273,9 +290,12 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
       )}
 
       <div className="space-y-1.5">
-        <FieldLabel>{t("reasoning.enterprise.region", { defaultValue: "Region" })}</FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-region`}>
+          {t("reasoning.enterprise.region", { defaultValue: "Region" })}
+        </FieldLabel>
         <select
           dir="ltr"
+          id={`${fieldId}-region`}
           value={store.bedrockRegion}
           onChange={(e) => handleRegionChange(e.target.value)}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -358,6 +378,7 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
 
 function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
+  const fieldId = useId();
   const store = useSettingsStore(
     useShallow((s) => ({
       azureEndpoint: s.azureEndpoint,
@@ -381,11 +402,12 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-endpoint`}>
           {t("reasoning.enterprise.endpoint", { defaultValue: "Endpoint URL" })}
         </FieldLabel>
         <Input
           dir="ltr"
+          id={`${fieldId}-endpoint`}
           value={store.azureEndpoint}
           onChange={(e) => store.setAzureEndpoint(e.target.value)}
           placeholder="https://yourresource.openai.azure.com"
@@ -400,16 +422,22 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
       </div>
 
       <div className="space-y-1.5">
-        <FieldLabel>API Key</FieldLabel>
-        <ApiKeyInput apiKey={store.azureApiKey} setApiKey={store.setAzureApiKey} label="" />
+        <FieldLabel htmlFor={`${fieldId}-api-key`}>{t("common.apiKey")}</FieldLabel>
+        <ApiKeyInput
+          id={`${fieldId}-api-key`}
+          apiKey={store.azureApiKey}
+          setApiKey={store.setAzureApiKey}
+          label=""
+        />
       </div>
 
       <div className="space-y-1.5">
-        <FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-deployment`}>
           {t("reasoning.enterprise.deploymentName", { defaultValue: "Deployment Name" })}
         </FieldLabel>
         <Input
           dir="ltr"
+          id={`${fieldId}-deployment`}
           value={store.azureDeploymentName}
           onChange={(e) => {
             store.setAzureDeploymentName(e.target.value);
@@ -426,11 +454,12 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
       </div>
 
       <div className="space-y-1.5">
-        <FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-version`}>
           {t("reasoning.enterprise.apiVersion", { defaultValue: "API Version" })}
         </FieldLabel>
         <Input
           dir="ltr"
+          id={`${fieldId}-version`}
           value={store.azureApiVersion}
           onChange={(e) => store.setAzureApiVersion(e.target.value)}
           placeholder="2024-10-21"
@@ -445,6 +474,7 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
 
 function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderConfigProps) {
   const { t } = useTranslation();
+  const fieldId = useId();
   const store = useSettingsStore(
     useShallow((s) => ({
       vertexAuthMode: s.vertexAuthMode,
@@ -492,8 +522,9 @@ function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderC
 
       {store.vertexAuthMode === "apikey" ? (
         <div className="space-y-1.5">
-          <FieldLabel>API Key</FieldLabel>
+          <FieldLabel htmlFor={`${fieldId}-api-key`}>{t("common.apiKey")}</FieldLabel>
           <ApiKeyInput
+            id={`${fieldId}-api-key`}
             apiKey={store.vertexApiKey}
             setApiKey={store.setVertexApiKey}
             label=""
@@ -512,11 +543,12 @@ function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderC
       )}
 
       <div className="space-y-1.5">
-        <FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-project`}>
           {t("reasoning.enterprise.projectId", { defaultValue: "Project ID" })}
         </FieldLabel>
         <Input
           dir="ltr"
+          id={`${fieldId}-project`}
           value={store.vertexProject}
           onChange={(e) => store.setVertexProject(e.target.value)}
           placeholder="my-gcp-project-123"
@@ -525,9 +557,12 @@ function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderC
       </div>
 
       <div className="space-y-1.5">
-        <FieldLabel>{t("reasoning.enterprise.location", { defaultValue: "Location" })}</FieldLabel>
+        <FieldLabel htmlFor={`${fieldId}-location`}>
+          {t("reasoning.enterprise.location", { defaultValue: "Location" })}
+        </FieldLabel>
         <select
           dir="ltr"
+          id={`${fieldId}-location`}
           value={store.vertexLocation}
           onChange={(e) => store.setVertexLocation(e.target.value)}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"

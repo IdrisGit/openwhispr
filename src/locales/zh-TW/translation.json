@@ -1355,7 +1355,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "找不到語言",
-    "searchPlaceholder": "搜尋語言"
+    "searchPlaceholder": "搜尋語言",
+    "clearSearch": "清除搜尋"
   },
   "microphoneSettings": {
     "builtIn": "（內建）",

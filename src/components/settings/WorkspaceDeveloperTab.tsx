@@ -73,18 +73,24 @@ export default function WorkspaceDeveloperTab({ workspace }: Props) {
   const [loadError, setLoadError] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const keysRequest = useRef(0);
   async function refresh() {
+    const request = ++keysRequest.current;
     setLoadError(false);
     try {
-      setKeys(await WorkspaceApiKeysService.list(workspace.id));
+      const list = await WorkspaceApiKeysService.list(workspace.id);
+      if (request === keysRequest.current) setKeys(list);
     } catch {
-      setKeys([]);
-      setLoadError(true);
+      if (request === keysRequest.current) setLoadError(true);
     }
   }
 
   useEffect(() => {
     void refresh();
+    const requests = keysRequest;
+    return () => {
+      ++requests.current;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id]);
 

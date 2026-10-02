@@ -1408,7 +1408,8 @@
   },
   "languageSelector": {
     "noLanguagesFound": "No se encontraron idiomas",
-    "searchPlaceholder": "Buscar idiomas"
+    "searchPlaceholder": "Buscar idiomas",
+    "clearSearch": "Borrar búsqueda"
   },
   "microphoneSettings": {
     "builtIn": "(Integrado)",

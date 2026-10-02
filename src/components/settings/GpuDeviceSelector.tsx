@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GpuDevice } from "../../types/electron";
 import { SettingsPanel, SettingsPanelRow, SectionHeader } from "../ui/SettingsSection";
@@ -11,22 +11,29 @@ export default function GpuDeviceSelector({
   const { t } = useTranslation();
   const [gpus, setGpus] = useState<GpuDevice[]>([]);
   const [selectedUuid, setSelectedUuid] = useState("");
-  const [loaded, setLoaded] = useState(false);
+  const [loadedPurpose, setLoadedPurpose] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   useEffect(() => {
+    const request = ++requestId.current;
     Promise.all([
       window.electronAPI?.listGpus?.() ?? Promise.resolve([]),
       window.electronAPI?.getGpuDeviceIndex?.(purpose) ?? Promise.resolve(""),
     ])
       .then(([gpuList, savedUuid]) => {
+        if (request !== requestId.current) return;
         setGpus(gpuList);
         setSelectedUuid(savedUuid || gpuList[0]?.uuid || "");
-        setLoaded(true);
+        setLoadedPurpose(purpose);
       })
-      .catch(() => setLoaded(true));
+      .catch(() => {});
+    const requests = requestId;
+    return () => {
+      ++requests.current;
+    };
   }, [purpose]);
 
-  if (!loaded || gpus.length < 2) return null;
+  if (loadedPurpose !== purpose || gpus.length < 2) return null;
 
   return (
     <div className="border-t border-border/70 pt-4 mt-4">
@@ -38,9 +45,11 @@ export default function GpuDeviceSelector({
         <SettingsPanelRow>
           <div className="relative w-full">
             <select
+              aria-label={t(`settingsPage.${purpose}.gpuDevice.title`)}
               value={selectedUuid}
               onChange={async (event) => {
                 const uuid = event.target.value;
+                ++requestId.current;
                 setSelectedUuid(uuid);
                 await window.electronAPI?.setGpuDeviceIndex?.(purpose, uuid);
               }}

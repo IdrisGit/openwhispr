@@ -1236,6 +1236,7 @@ export default function TranscriptionModelPicker({
                       {t("transcription.endpointUrl")}
                     </label>
                     <Input
+                      aria-label={t("transcription.endpointUrl")}
                       dir="ltr"
                       value={cloudTranscriptionBaseUrl}
                       onChange={(e) => setCloudTranscriptionBaseUrl?.(e.target.value)}
@@ -1257,6 +1258,7 @@ export default function TranscriptionModelPicker({
                       {t("common.model")}
                     </label>
                     <Input
+                      aria-label={t("common.model")}
                       dir="ltr"
                       value={
                         selectedCloudProvider === displayedCloudProvider ? displayedCloudModel : ""
@@ -1289,6 +1291,7 @@ export default function TranscriptionModelPicker({
                       </div>
                       {field.input === "secret" ? (
                         <ApiKeyInput
+                          ariaLabel={field.labelKey ? t(field.labelKey) : t("common.apiKey")}
                           apiKey={credentialValues[field.key]}
                           setApiKey={credentialSetters[field.key]}
                           label=""
@@ -1299,7 +1302,10 @@ export default function TranscriptionModelPicker({
                           value={credentialValues[field.key]}
                           onValueChange={credentialSetters[field.key]}
                         >
-                          <SelectTrigger className="h-8 text-sm">
+                          <SelectTrigger
+                            aria-label={field.labelKey ? t(field.labelKey) : t("common.apiKey")}
+                            className="h-8 text-sm"
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1312,6 +1318,7 @@ export default function TranscriptionModelPicker({
                         </Select>
                       ) : (
                         <Input
+                          aria-label={field.labelKey ? t(field.labelKey) : t("common.apiKey")}
                           dir="ltr"
                           value={credentialValues[field.key]}
                           onChange={(e) => credentialSetters[field.key](e.target.value)}

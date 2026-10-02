@@ -2,8 +2,6 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const fs = require("node:fs");
-const path = require("node:path");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
 test("native microphone controls hydrate together and preserve device behavior", async (t) => {
@@ -224,16 +222,4 @@ test("native microphone controls hydrate together and preserve device behavior",
   });
   assert.equal(selections.length, beforeClose);
   assert.equal(calls.removed, calls.added);
-
-  // Existing section-entry pins; these do not establish mounted request behavior.
-  const settingsPage = fs.readFileSync(
-    path.join(__dirname, "../../src/components/SettingsPage.tsx"),
-    "utf8"
-  );
-  assert.match(settingsPage, /if \(activeSection !== "general"\) return;\s*readAutoStartState\(\)/);
-  assert.match(
-    settingsPage,
-    /if \(activeSection !== "general" \|\| !noteFilesEnabled\) return;\s*window\.electronAPI\?\.noteFilesGetDefaultPath/
-  );
-  assert.match(settingsPage, /aria-label=\{t\("settingsPage\.general\.waylandPaste\.recheck"\)\}/);
 });

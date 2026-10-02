@@ -58,6 +58,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
 
 interface SettingsRowProps {
   label: string;
+  htmlFor?: string;
   description?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -65,6 +66,7 @@ interface SettingsRowProps {
 
 export const SettingsRow: React.FC<SettingsRowProps> = ({
   label,
+  htmlFor,
   description,
   children,
   className = "",
@@ -78,7 +80,13 @@ export const SettingsRow: React.FC<SettingsRowProps> = ({
       } ${className}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-foreground">{label}</p>
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="text-xs font-medium text-foreground">
+            {label}
+          </label>
+        ) : (
+          <p className="text-xs font-medium text-foreground">{label}</p>
+        )}
         {description && (
           <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">{description}</p>
         )}

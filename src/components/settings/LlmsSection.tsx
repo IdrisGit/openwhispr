@@ -67,7 +67,11 @@ function CleanupSettings() {
               label={t("settingsPage.aiModels.enableTextCleanup")}
               description={t("settingsPage.aiModels.enableTextCleanupDescription")}
             >
-              <Toggle checked={useCleanupModel} onChange={setUseCleanupModel} />
+              <Toggle
+                ariaLabel={t("settingsPage.aiModels.enableTextCleanup")}
+                checked={useCleanupModel}
+                onChange={setUseCleanupModel}
+              />
             </SettingsRow>
           </SettingsPanelRow>
         </SettingsPanel>
@@ -108,7 +112,11 @@ function NoteFormattingSettings() {
             label={t("settingsPage.noteFormatting.autoGenerateTitle")}
             description={t("settingsPage.noteFormatting.autoGenerateTitleDescription")}
           >
-            <Toggle checked={autoGenerateNoteTitle} onChange={setAutoGenerateNoteTitle} />
+            <Toggle
+              ariaLabel={t("settingsPage.noteFormatting.autoGenerateTitle")}
+              checked={autoGenerateNoteTitle}
+              onChange={setAutoGenerateNoteTitle}
+            />
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
