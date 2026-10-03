@@ -880,12 +880,14 @@ export interface ScreenContextImage {
   data: string;
 }
 
+export type ReleaseNotes = string | Array<{ version: string; note: string | null }> | null;
+
 export interface UpdateCheckResult {
   updateAvailable: boolean;
   version?: string;
   releaseDate?: string;
   files?: any[];
-  releaseNotes?: string;
+  releaseNotes?: ReleaseNotes;
   message?: string;
 }
 
@@ -899,7 +901,7 @@ export interface UpdateStatusResult {
 export interface UpdateInfoResult {
   version?: string;
   releaseDate?: string;
-  releaseNotes?: string | null;
+  releaseNotes?: ReleaseNotes;
   files?: any[];
 }
 
@@ -1784,12 +1786,16 @@ declare global {
 
       // Audio
 
+      onSecretKeyChanged?: (
+        callback: (metadata: { key: string; version: number }) => void
+      ) => () => void;
+
       // Whisper operations (whisper.cpp)
       transcribeLocalWhisper: (audioBlob: Blob | ArrayBuffer, options?: any) => Promise<any>;
       checkWhisperInstallation: () => Promise<WhisperCheckResult>;
       downloadWhisperModel: (modelName: string) => Promise<WhisperModelResult>;
       onWhisperDownloadProgress: (
-        callback: (event: any, data: WhisperDownloadProgressData) => void
+        callback: (unused: undefined, data: WhisperDownloadProgressData) => void
       ) => () => void;
       checkModelStatus: (modelName: string) => Promise<WhisperModelResult>;
       listWhisperModels: () => Promise<WhisperModelsListResult>;
@@ -1866,7 +1872,7 @@ declare global {
       checkParakeetInstallation: () => Promise<ParakeetCheckResult>;
       downloadParakeetModel: (modelName: string) => Promise<ParakeetModelResult>;
       onParakeetDownloadProgress: (
-        callback: (event: any, data: ParakeetDownloadProgressData) => void
+        callback: (unused: undefined, data: ParakeetDownloadProgressData) => void
       ) => () => void;
       checkParakeetModelStatus: (modelName: string) => Promise<ParakeetModelResult>;
       listParakeetModels: () => Promise<ParakeetModelsListResult>;
@@ -1917,7 +1923,7 @@ declare global {
       }>;
       modelCancelDownload: (modelId: string) => Promise<{ success: boolean; error?: string }>;
       onModelDownloadProgress: (
-        callback: (event: any, data: LocalLLMDownloadProgressEvent) => void
+        callback: (unused: undefined, data: LocalLLMDownloadProgressEvent) => void
       ) => () => void;
 
       // Local reasoning
@@ -2089,13 +2095,25 @@ declare global {
       setAutoUpdatesEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
 
       // Update event listeners
-      onUpdateAvailable: (callback: (event: any, info: any) => void) => () => void;
-      onUpdateNotAvailable: (callback: (event: any, info: any) => void) => () => void;
-      onUpdateDownloaded: (callback: (event: any, info: any) => void) => () => void;
-      onUpdateDownloadProgress: (callback: (event: any, progressObj: any) => void) => () => void;
-      onUpdateError: (callback: (event: any, error: any) => void) => () => void;
+      // Legacy payload position is retained; the first argument is always inert.
+      onUpdateAvailable: (
+        callback: (unused: undefined, info: UpdateInfoResult) => void
+      ) => () => void;
+      onUpdateNotAvailable: (
+        callback: (unused: undefined, info: UpdateInfoResult) => void
+      ) => () => void;
+      onUpdateDownloaded: (
+        callback: (unused: undefined, info: UpdateInfoResult) => void
+      ) => () => void;
+      onUpdateDownloadProgress: (
+        callback: (unused: undefined, progressObj: { percent: number }) => void
+      ) => () => void;
+      onUpdateError: (callback: (unused: undefined, error: unknown) => void) => () => void;
 
-      openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+      openExternal: (
+        url: string,
+        expectedAuthGeneration?: number
+      ) => Promise<{ success: boolean; error?: string; code?: string }>;
 
       // Hotkey management
       updateHotkey: (key: string) => Promise<{ success: boolean; message: string }>;
@@ -2507,33 +2525,45 @@ declare global {
           code?: string;
         }
       >;
-      cloudCheckout?: (opts?: {
-        plan?: "monthly" | "annual";
-        tier?: "pro" | "business";
-      }) => Promise<{
+      cloudCheckout?: (
+        opts:
+          | {
+              plan?: "monthly" | "annual";
+              tier?: "pro" | "business";
+            }
+          | undefined,
+        expectedAuthGeneration: number
+      ) => Promise<{
         success: boolean;
         url?: string;
         error?: string;
         code?: string;
       }>;
-      cloudBillingPortal?: () => Promise<{
+      cloudBillingPortal?: (expectedAuthGeneration: number) => Promise<{
         success: boolean;
         url?: string;
         error?: string;
         code?: string;
       }>;
-      cloudSwitchPlan?: (opts: {
-        plan: "monthly" | "annual";
-        tier: "pro" | "business";
-      }) => Promise<{
+      cloudSwitchPlan?: (
+        opts: {
+          plan: "monthly" | "annual";
+          tier: "pro" | "business";
+        },
+        expectedAuthGeneration: number
+      ) => Promise<{
         success: boolean;
         alreadyOnPlan?: boolean;
         error?: string;
+        code?: string;
       }>;
-      cloudPreviewSwitch?: (opts: {
-        plan: "monthly" | "annual";
-        tier: "pro" | "business";
-      }) => Promise<{
+      cloudPreviewSwitch?: (
+        opts: {
+          plan: "monthly" | "annual";
+          tier: "pro" | "business";
+        },
+        expectedAuthGeneration: number
+      ) => Promise<{
         success: boolean;
         immediateAmount?: number;
         currency?: string;

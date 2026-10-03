@@ -25,7 +25,7 @@ test("a remaining usage owner refreshes when checkout's Settings owner unmounts"
       removeEventListener: (name, fn) => listeners.get(name)?.delete(fn),
       electronAPI: {
         cloudCheckout: async () => ({ success: true, url: "https://stripe.test/checkout" }),
-        openExternal: async () => {},
+        openExternal: async () => ({ success: true }),
       },
     },
   });
@@ -37,6 +37,7 @@ test("a remaining usage owner refreshes when checkout's Settings owner unmounts"
     mockModules: {
       "/useAuth": `export const useAuth = () => globalThis.__usageAuth;`,
       "/lib/auth": `export const withSessionRefresh = (fn) => fn();`,
+      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => 7; export const getBoundSessionGeneration = id => id === "account-a" ? 7 : null;`,
       "/lib/usageStore": `
         const state = { status: "success", data: { isSubscribed: false, entitlementSources: { personal: false, workspaceIds: [] } } };
         export const getUsageState = () => state;

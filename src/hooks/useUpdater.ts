@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import type { ReleaseNotes } from "../types/electron";
 
 interface UpdateStatus {
   updateAvailable: boolean;
@@ -10,7 +11,7 @@ interface UpdateStatus {
 interface UpdateInfo {
   version?: string;
   releaseDate?: string;
-  releaseNotes?: string;
+  releaseNotes?: ReleaseNotes;
   files?: any[];
 }
 

@@ -15,7 +15,10 @@ import {
 import { useToast } from "../ui/useToast";
 import { WorkspacesService, type SeatPreview } from "../../services/WorkspacesService";
 import { useWorkspaceStore } from "../../stores/workspaceStore";
-import { hasActiveWorkspaceSubscription } from "../../lib/workspaceBilling";
+import {
+  hasActiveWorkspaceSubscription,
+  workspaceBillingSnapshot,
+} from "../../lib/workspaceBilling";
 import { formatAmount } from "../../utils/formatAmount";
 import type { Workspace } from "../../types/electron";
 
@@ -36,19 +39,7 @@ export default function WorkspaceBillingCard({ workspace, onRefreshEntitlement }
   } | null>(null);
   const seatRequest = useRef(0);
   // Ignore metadata-only refreshes, but never reuse a quote after billing or occupancy changes.
-  const seatSnapshot = JSON.stringify([
-    workspace.id,
-    workspace.role,
-    workspace.seats,
-    workspace.seats_used,
-    workspace.plan,
-    workspace.status,
-    workspace.stripe_customer_id,
-    workspace.stripe_subscription_id,
-    workspace.current_period_end,
-    workspace.trial_ends_at,
-    workspace.cancel_at_period_end,
-  ]);
+  const seatSnapshot = workspaceBillingSnapshot(workspace);
   const seatPreview =
     seatPreviewResult?.snapshot === seatSnapshot ? seatPreviewResult.preview : null;
 

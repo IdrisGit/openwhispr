@@ -38,6 +38,17 @@ const SystemUpdates = React.memo(function SystemUpdates({
   } = useUpdater();
   const isUpdateAvailable =
     !updateStatus.isDevelopment && (updateStatus.updateAvailable || updateStatus.updateDownloaded);
+  // Update metadata is not trusted HTML. Keep notes and URLs inert as text.
+  const notes = updateInfo?.releaseNotes;
+  const releaseNotes =
+    typeof notes === "string"
+      ? notes
+      : Array.isArray(notes)
+        ? notes
+            .filter((entry) => typeof entry?.note === "string")
+            .map((entry) => entry.note)
+            .join("\n\n")
+        : "";
 
   useEffect(() => {
     let mounted = true;
@@ -236,18 +247,17 @@ const SystemUpdates = React.memo(function SystemUpdates({
             )}
           </div>
 
-          {updateInfo?.releaseNotes && (
+          {releaseNotes.trim() && (
             <div className="mt-4 pt-4 border-t border-border/70">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                 <BidiInterpolatedText
                   text={t("settingsPage.general.updates.whatsNew", { version: BIDI_VALUE_TOKEN })}
-                  value={updateInfo.version}
+                  value={updateInfo?.version}
                 />
               </p>
-              <div
-                className="text-xs text-muted-foreground [&_ul]:list-disc [&_ul]:ps-4 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:ps-4 [&_ol]:space-y-1 [&_li]:ps-1 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_a]:text-link [&_a]:underline"
-                dangerouslySetInnerHTML={{ __html: updateInfo.releaseNotes }}
-              />
+              <div className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
+                {releaseNotes}
+              </div>
             </div>
           )}
         </SettingsPanelRow>

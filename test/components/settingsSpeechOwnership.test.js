@@ -143,9 +143,9 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/stores/noteStore.js": `export const useMigration = () => ({}); export const startMigration = () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
       "/stores/meetingRecordingStore": `export const stopRecording = async () => {};`,
       "/services/SyncService.js": `export const syncService = {};`,
-      "/lib/auth": `export const AUTH_URL = ""; export const signOut = async () => {};`,
-      "/lib/accountDeletionRequest": `export const deleteAccount = async () => {};`,
-      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => null;`,
+      "/lib/auth": `export const AUTH_URL = "https://auth.example.test"; export const signOut = async () => {};`,
+      "/lib/accountDeletionRequest": `export const deleteAccount = async generation => { globalThis.__settingsSpeech.deletions.push(generation); throw new Error("fake remote refusal"); };`,
+      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => globalThis.__settingsSpeech.authGeneration ?? null; export const getBoundSessionGeneration = id => id === globalThis.__settingsSpeech.auth.getState().user?.id ? getValidatedAuthGeneration() : null;`,
       "/lib/usageStore": `export const highestPlan = () => "free";`,
       "/hooks/useSettings": `export const useAutoLearnCorrections = () => ({});`,
       "/hooks/useDialogs": `const noop = () => {}; const showAlertDialog = value => globalThis.__settingsSpeech.alerts.push(value); export const useDialogs = () => ({ confirmDialog: {}, alertDialog: {}, showConfirmDialog: noop, showAlertDialog, hideConfirmDialog: noop, hideAlertDialog: noop });`,
@@ -172,7 +172,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/ui/button": `import React from "react"; export function Button(props) { globalThis.__settingsSpeech.buttons.push(props); return React.createElement("button", {onClick: props.onClick, disabled: props.disabled}, props.children); }`,
       "/ui/useSettingsLayout": `export const useSettingsLayout = () => ({isCompact: false});`,
       "/models/ModelRegistry": `export const getTranscriptionProvider = () => null; export const enterpriseProviderName = id => id; export const getMeetingStreamingTranscriptionProviders = () => [];`,
-      "/ui/dialog": `export const ConfirmDialog = () => null; export const AlertDialog = ConfirmDialog; export const Dialog = ConfirmDialog; export const DialogContent = ConfirmDialog; export const DialogHeader = ConfirmDialog; export const DialogTitle = ConfirmDialog; export const DialogDescription = ConfirmDialog; export const DialogFooter = ConfirmDialog;`,
+      "/ui/dialog": `export const ConfirmDialog = props => { if (props.title === "settingsPage.account.deleteAccount.title") {globalThis.__settingsSpeech.deleteDialog = props; return props.open ? props.children : null;} return null; }; export const AlertDialog = ConfirmDialog; export const Dialog = ConfirmDialog; export const DialogContent = ConfirmDialog; export const DialogHeader = ConfirmDialog; export const DialogTitle = ConfirmDialog; export const DialogDescription = ConfirmDialog; export const DialogFooter = ConfirmDialog;`,
       "/ui/popover": `export const Popover = ({children}) => children; export const PopoverTrigger = Popover; export const PopoverContent = () => null;`,
       "/ui/select": `import React from "react"; export const Select = ({children}) => children; export const SelectTrigger = ({children, ...props}) => React.createElement("button", props, children); export const SelectValue = () => null; export const SelectContent = () => null; export const SelectItem = ({children}) => children;`,
       "/ui/SettingsSection": `
@@ -733,6 +733,92 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       await render("general");
       assert.equal(toggle().getAttribute("aria-checked"), "false");
       assert.equal(pathHint(), "/reopened-notes");
+      await React.act(async () => root.unmount());
+      root = null;
+    }
+  );
+
+  await t.test(
+    "delete consent belongs to its opening account and credential generation",
+    async (scope) => {
+      scope.after(async () => {
+        if (root) await React.act(async () => root.unmount());
+        root = null;
+      });
+      if (root) await React.act(async () => root.unmount());
+      root = createRoot(container);
+      observed.locale.setState({ t: (key) => key });
+      observed.deletions = [];
+      observed.authGeneration = 7;
+      await React.act(async () =>
+        observed.auth.setState({ isSignedIn: true, user: { id: "account-a" } })
+      );
+      await render("account");
+      const open = () =>
+        observed.buttons
+          .findLast((button) =>
+            React.Children.toArray(button.children).includes(
+              "settingsPage.account.deleteAccount.button"
+            )
+          )
+          .onClick();
+      await React.act(async () => open());
+      assert.equal(observed.deleteDialog.open, true);
+      const oldConfirm = observed.deleteDialog.onConfirm;
+      await React.act(async () => observed.auth.setState({ user: { id: "account-b" } }));
+      assert.equal(observed.deleteDialog.open, false);
+      await React.act(async () => oldConfirm());
+      assert.deepEqual(
+        observed.deletions,
+        [],
+        "live account binding matters even with the same generation"
+      );
+      observed.authGeneration = 8;
+      await React.act(async () => observed.auth.setState({ user: { id: "account-b" } }));
+      await React.act(async () => open());
+      observed.authGeneration = 9;
+      await React.act(async () => observed.auth.setState({ user: { id: "account-b" } }));
+      assert.equal(
+        observed.deleteDialog.open,
+        false,
+        "same-account token replacement invalidates consent"
+      );
+      await React.act(async () => open());
+      await React.act(async () => observed.auth.setState({ isSignedIn: false, user: null }));
+      assert.equal(observed.deleteDialog.open, false);
+      await React.act(async () =>
+        observed.auth.setState({ isSignedIn: true, user: { id: "account-b" } })
+      );
+      assert.equal(observed.deleteDialog.open, false, "sign-in does not resurrect old consent");
+      await React.act(async () => open());
+      const checkbox = container.querySelector('input[type="checkbox"]');
+      await React.act(async () => checkbox.click());
+      assert.equal(checkbox.checked, true);
+      await React.act(async () => observed.deleteDialog.onOpenChange(false));
+      await React.act(async () => open());
+      assert.equal(
+        container.querySelector('input[type="checkbox"]').checked,
+        false,
+        "reopen requires fresh erasure opt-in"
+      );
+      await React.act(async () => observed.deleteDialog.onConfirm());
+      assert.deepEqual(
+        observed.deletions,
+        [9],
+        "valid consent dispatches only its captured generation"
+      );
+      observed.authGeneration = null;
+      await React.act(async () => observed.auth.setState({ user: { id: "account-b" } }));
+      const deleteButton = observed.buttons.findLast((button) =>
+        React.Children.toArray(button.children).includes(
+          "settingsPage.account.deleteAccount.button"
+        )
+      );
+      assert.equal(
+        deleteButton.disabled,
+        true,
+        "unvalidated identities cannot open deletion consent"
+      );
       await React.act(async () => root.unmount());
       root = null;
     }

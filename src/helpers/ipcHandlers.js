@@ -16,7 +16,7 @@ const { resolveFailedGpuBackends } = require("./whisper");
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
 const accountScopeBinding = require("./accountScopeBinding");
-const { createCloudApiRequestHandler } = require("./cloudApiRequest");
+const { createCloudApiRequestHandler, captureAuthFence } = require("./cloudApiRequest");
 const { decodeLeaderboardPngDataUrl, leaderboardImageFilename } = require("./leaderboardImage");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const {
@@ -4404,16 +4404,21 @@ class IPCHandlers {
       return await this.windowManager.stopControlPanelDrag();
     });
 
-    ipcMain.handle("open-external", async (event, url) => {
+    ipcMain.handle("open-external", async (event, url, expectedAuthGeneration) => {
       try {
+        const fence =
+          expectedAuthGeneration === undefined
+            ? null
+            : captureAuthFence(tokenStore, expectedAuthGeneration);
         const { protocol } = new URL(url);
         if (!["http:", "https:", "mailto:"].includes(protocol)) {
           return { success: false, error: `Blocked URL scheme: ${protocol}` };
         }
-        await openExternalUrl(url);
+        if (fence) await fence.awaitBound(() => openExternalUrl(url));
+        else await openExternalUrl(url);
         return { success: true };
       } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, error: error.message, code: error.code };
       }
     });
 
@@ -9862,115 +9867,28 @@ class IPCHandlers {
       }
     });
 
-    const fetchStripeUrl = async (event, endpoint, errorPrefix, body) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const headers = { ...authHeader };
-        const fetchOpts = { method: "POST", headers };
-        if (body) {
-          headers["Content-Type"] = "application/json";
-          fetchOpts.body = JSON.stringify(body);
-        }
-
-        const response = await proxyFetch(`${apiUrl}${endpoint}`, fetchOpts);
-
-        if (!response.ok) {
-          if (response.status === 401) {
-            return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-          }
-          if (response.status === 503) {
-            return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-          }
-          const errorData = await response.json().catch(() => ({}));
-          const message = errorData.error || `API error: ${response.status}`;
-          debugLogger.error(`${errorPrefix}: ${message}`);
-          return { success: false, error: message, code: errorData.code };
-        }
-
-        const data = await response.json();
-        return { success: true, url: data.url };
-      } catch (error) {
-        debugLogger.error(`${errorPrefix}: ${error.message}`);
-        return { success: false, error: error.message };
-      }
+    // Named billing channels reuse the same bearer-generation fence as cloud CRUD.
+    const requestBilling = async (path, body, expectedAuthGeneration) => {
+      const result = await handleCloudApiRequest({
+        method: "POST",
+        path,
+        body,
+        expectedAuthGeneration,
+      });
+      return result.success ? { success: true, ...result.data } : result;
     };
-
-    ipcMain.handle("cloud-checkout", (event, opts) =>
-      fetchStripeUrl(event, "/api/stripe/checkout", "Cloud checkout error", opts || undefined)
+    ipcMain.handle("cloud-checkout", (_event, opts, generation) =>
+      requestBilling("/api/stripe/checkout", opts, generation)
     );
-
-    ipcMain.handle("cloud-billing-portal", (event) =>
-      fetchStripeUrl(event, "/api/stripe/portal", "Cloud billing portal error")
+    ipcMain.handle("cloud-billing-portal", (_event, generation) =>
+      requestBilling("/api/stripe/portal", undefined, generation)
     );
-
-    ipcMain.handle("cloud-switch-plan", async (event, opts) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stripe/switch-plan`, {
-          method: "POST",
-          headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify(opts),
-        });
-
-        if (response.status === 401) {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        if (response.status === 503) {
-          return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-        }
-
-        const data = await response.json();
-        if (!response.ok) {
-          return { success: false, error: data.error || "Failed to switch plan" };
-        }
-        return data;
-      } catch (error) {
-        debugLogger.error(`Cloud switch plan error: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
-
-    ipcMain.handle("cloud-preview-switch", async (event, opts) => {
-      try {
-        const apiUrl = getApiUrl();
-        if (!apiUrl) throw new Error("OpenWhispr API URL not configured");
-
-        const authHeader = await getAuthHeader(event);
-        if (!Object.keys(authHeader).length) throw new Error("Not authenticated");
-
-        const response = await proxyFetch(`${apiUrl}/api/stripe/preview-switch`, {
-          method: "POST",
-          headers: { ...authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify(opts),
-        });
-
-        if (response.status === 401) {
-          return { success: false, error: "Session expired", code: "AUTH_EXPIRED" };
-        }
-        if (response.status === 503) {
-          return { success: false, error: "Request timed out", code: "SERVER_ERROR" };
-        }
-
-        const data = await response.json();
-        if (!response.ok) {
-          return { success: false, error: data.error || "Failed to preview plan change" };
-        }
-        return { success: true, ...data };
-      } catch (error) {
-        debugLogger.error(`Cloud preview switch error: ${error.message}`);
-        return { success: false, error: error.message };
-      }
-    });
+    ipcMain.handle("cloud-switch-plan", (_event, opts, generation) =>
+      requestBilling("/api/stripe/switch-plan", opts, generation)
+    );
+    ipcMain.handle("cloud-preview-switch", (_event, opts, generation) =>
+      requestBilling("/api/stripe/preview-switch", opts, generation)
+    );
 
     ipcMain.handle("cloud-api-request", (_event, opts) => handleCloudApiRequest(opts));
 

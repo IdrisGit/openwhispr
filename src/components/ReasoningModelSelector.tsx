@@ -767,6 +767,7 @@ export default function ReasoningModelSelector({
             onModelSelect={handleModelSelect}
             onProviderSelect={handleLocalProviderChange}
             modelType="llm"
+            selectionScope={settingsScope}
             colorScheme="purple"
           />
           <GpuStatusBadge settingsScope={settingsScope} navigation={settingsNavigation} />

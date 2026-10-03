@@ -40,7 +40,7 @@ import { useAuth } from "../hooks/useAuth";
 import { AUTH_URL, signOut } from "../lib/auth";
 import { deleteAccount } from "../lib/accountDeletionRequest";
 import { executeAccountDeletion } from "../lib/accountDeletionFlow";
-import { getValidatedAuthGeneration } from "../lib/authRequestContext";
+import { getValidatedAuthGeneration, getBoundSessionGeneration } from "../lib/authRequestContext";
 import { useBillingPortal } from "../hooks/useBillingPortal";
 import MicPermissionWarning from "./ui/MicPermissionWarning";
 import MicrophoneSettings from "./ui/MicrophoneSettings";
@@ -1356,8 +1356,23 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
   });
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
-  const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
+  const [deleteAccountTarget, setDeleteAccountTarget] = useState<{
+    accountId: string;
+    authGeneration: number;
+  } | null>(null);
   const [eraseDeviceData, setEraseDeviceData] = useState(false);
+  const currentAuthGeneration = getValidatedAuthGeneration();
+  const isDeleteAccountDialogOpen = Boolean(
+    deleteAccountTarget &&
+    isSignedIn &&
+    deleteAccountTarget.accountId === user?.id &&
+    deleteAccountTarget.authGeneration === currentAuthGeneration &&
+    getBoundSessionGeneration(deleteAccountTarget.accountId) === currentAuthGeneration
+  );
+  if (deleteAccountTarget && !isDeleteAccountDialogOpen) {
+    setDeleteAccountTarget(null);
+    setEraseDeviceData(false);
+  }
   const { openBillingPortal, isOpening: isOpeningBilling } = useBillingPortal(usage);
   const [billingState, setBillingState] = useState<Record<string, boolean>>({
     pro: true,
@@ -1423,9 +1438,10 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
       setSwitchPreview(null);
       return;
     }
-    const { plan, tier } = switchPreview;
+    const { plan, tier, authGeneration } = switchPreview;
     setSwitchPreview(null);
     const result = await usage.switchPlan({ plan, tier });
+    if (authGeneration !== getValidatedAuthGeneration()) return;
     if (result.success) {
       toast({ title: t("settingsPage.account.pricing.planSwitched") });
     } else {
@@ -1471,14 +1487,31 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
   };
 
   const handleDeleteAccount = () => {
+    const authGeneration = getValidatedAuthGeneration();
+    if (
+      !isSignedIn ||
+      !user?.id ||
+      authGeneration == null ||
+      getBoundSessionGeneration(user.id) !== authGeneration
+    )
+      return;
     setEraseDeviceData(false);
-    setIsDeleteAccountDialogOpen(true);
+    setDeleteAccountTarget({ accountId: user.id, authGeneration });
   };
 
   const confirmDeleteAccount = async () => {
-    const accountId = user?.id;
-    const authGeneration = getValidatedAuthGeneration();
-    if (!accountId || authGeneration == null) {
+    if (isDeletingAccount) return;
+    const accountId = deleteAccountTarget?.accountId;
+    const authGeneration = deleteAccountTarget?.authGeneration;
+    if (
+      !isSignedIn ||
+      !accountId ||
+      accountId !== user?.id ||
+      authGeneration == null ||
+      authGeneration !== getValidatedAuthGeneration() ||
+      getBoundSessionGeneration(accountId) !== authGeneration
+    ) {
+      setDeleteAccountTarget(null);
       showAlertDialog({
         title: t("settingsPage.account.deleteAccount.failedTitle"),
         description: t("settingsPage.account.deleteAccount.failedDescription"),
@@ -1491,7 +1524,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
       const result = await executeAccountDeletion({
         eraseDeviceData,
         dependencies: {
-          deleteRemoteAccount: deleteAccount,
+          deleteRemoteAccount: () => deleteAccount(authGeneration),
           deleteLocalAccountData: async () => {
             const cleanup = await window.electronAPI?.deleteAccountData?.(
               accountId,
@@ -1598,7 +1631,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                       <Button
                         onClick={handleDeleteAccount}
                         variant="outline"
-                        disabled={isDeletingAccount}
+                        disabled={isDeletingAccount || currentAuthGeneration == null}
                         size="sm"
                         className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive"
                       >
@@ -3911,8 +3944,10 @@ EOF`,
       <ConfirmDialog
         open={isDeleteAccountDialogOpen}
         onOpenChange={(open) => {
-          setIsDeleteAccountDialogOpen(open);
-          if (!open) setEraseDeviceData(false);
+          if (!open) {
+            setDeleteAccountTarget(null);
+            setEraseDeviceData(false);
+          }
         }}
         title={t("settingsPage.account.deleteAccount.title")}
         description={t("settingsPage.account.deleteAccount.description")}

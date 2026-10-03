@@ -85,7 +85,7 @@ test("retained local picker loads disk state once per mount and balances progres
         const context = { toast() {} };
         export function useToast() { return context; }
       `,
-      "/stores/settingsStore": `export function clearMissingLocalModelSelections() {}`,
+      "/stores/settingsStore": `export function clearMissingLocalModelSelections() {} export const useSettingsStore = {}; export const selectResolvedLLMConfig = () => ({});`,
       "/utils/providerIcons": `
         export function getProviderIcon() { return ""; }
         export function isMonochromeProvider() { return false; }

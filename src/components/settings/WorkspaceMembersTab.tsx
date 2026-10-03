@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Trash2, MoreVertical, Mail, X, Loader2 } from "../icons";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, EMPTY_WORKSPACE_MEMBERS } from "../../stores/workspaceStore";
 import { WorkspacesService } from "../../services/WorkspacesService";
 import { InvitationsService } from "../../services/InvitationsService";
 import { useDialogs } from "../../hooks/useDialogs";
@@ -41,7 +41,7 @@ export default function WorkspaceMembersTab({ workspace }: Props) {
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const { members, refreshMembers, refresh } = useWorkspaceStore(
     useShallow((s) => ({
-      members: s.members,
+      members: s.membersByWorkspace[workspace.id] ?? EMPTY_WORKSPACE_MEMBERS,
       refreshMembers: s.refreshMembers,
       refresh: s.refresh,
     }))

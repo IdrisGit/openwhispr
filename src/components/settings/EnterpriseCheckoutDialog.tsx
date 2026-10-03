@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Mail } from "../icons";
 import {
@@ -21,6 +21,7 @@ import { useWorkspaceStore } from "../../stores/workspaceStore";
 import {
   canSelfServeEnterprise,
   canUpgradeWorkspaceToEnterprise,
+  workspaceBillingSnapshot,
 } from "../../lib/workspaceBilling";
 import { formatAmount } from "../../utils/formatAmount";
 import { openExternalLink } from "../../utils/externalLinks";
@@ -74,12 +75,14 @@ export default function EnterpriseCheckoutDialog({
   const [billingInterval, setBillingInterval] = useState<"monthly" | "annual">("monthly");
   const [submitting, setSubmitting] = useState(false);
   const [upgradePreviewResult, setUpgradePreviewResult] = useState<{
-    workspaceId: string;
+    snapshot: string;
+    request: number;
     value: EnterpriseUpgradePreview;
   } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState(0);
+  const previewRequest = useRef(0);
 
   const selected = eligible.find((w) => w.id === workspaceId) ?? eligible[0] ?? null;
   const isUpgrade = selected !== null && canUpgradeWorkspaceToEnterprise(selected);
@@ -111,17 +114,20 @@ export default function EnterpriseCheckoutDialog({
   }, [seatsInUse]);
 
   const selectedId = selected?.id ?? null;
+  const billingSnapshot = selected ? workspaceBillingSnapshot(selected) : null;
   const upgradePreview =
-    upgradePreviewResult?.workspaceId === selectedId ? upgradePreviewResult.value : null;
+    open && upgradePreviewResult?.snapshot === billingSnapshot ? upgradePreviewResult.value : null;
   useEffect(() => {
     setUpgradePreviewResult(null);
     setPreviewError(null);
-    if (!open || !isUpgrade || !selectedId) return;
+    const request = ++previewRequest.current;
+    setPreviewLoading(false);
+    if (!open || !isUpgrade || !selectedId || !billingSnapshot) return;
     let stale = false;
     setPreviewLoading(true);
     WorkspacesService.previewEnterpriseUpgrade(selectedId)
       .then((preview) => {
-        if (!stale) setUpgradePreviewResult({ workspaceId: selectedId, value: preview });
+        if (!stale) setUpgradePreviewResult({ snapshot: billingSnapshot, request, value: preview });
       })
       .catch((error: unknown) => {
         if (!stale) setPreviewError(billingErrorMessage(error, t));
@@ -132,7 +138,7 @@ export default function EnterpriseCheckoutDialog({
     return () => {
       stale = true;
     };
-  }, [open, isUpgrade, selectedId, previewAttempt, t]);
+  }, [open, isUpgrade, selectedId, billingSnapshot, previewAttempt, t]);
 
   const seatsValid = Number.isInteger(seats) && seats >= seatsInUse && seats <= SEAT_LIMIT;
 
@@ -159,7 +165,21 @@ export default function EnterpriseCheckoutDialog({
   }
 
   async function handleUpgrade() {
-    if (submitting || !isUpgrade || !selected || !upgradePreview) return;
+    if (
+      submitting ||
+      !isUpgrade ||
+      !selected ||
+      !upgradePreview ||
+      upgradePreviewResult?.request !== previewRequest.current
+    )
+      return;
+    const current = useWorkspaceStore.getState().workspaces.find((w) => w.id === selected.id);
+    if (
+      !current ||
+      !canUpgradeWorkspaceToEnterprise(current) ||
+      workspaceBillingSnapshot(current) !== billingSnapshot
+    )
+      return;
     setSubmitting(true);
     try {
       await WorkspacesService.upgradeToEnterprise(selected.id);

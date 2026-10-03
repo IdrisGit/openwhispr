@@ -18,7 +18,7 @@ import {
   setSpaceMemberRole,
 } from "../../services/spaceActions";
 import { useToast } from "../ui/useToast";
-import { useWorkspaceStore } from "../../stores/workspaceStore";
+import { useWorkspaceStore, EMPTY_WORKSPACE_MEMBERS } from "../../stores/workspaceStore";
 import { formatList } from "../../lib/formatList";
 import { orderMemberCandidates } from "../../lib/memberCandidates";
 import { canManageSpace, canManageWorkspace } from "../../lib/spacePermissions";
@@ -43,7 +43,7 @@ export default function SpaceMembersPanel({ space }: SpaceMembersPanelProps) {
   } = useWorkspaceStore(
     useShallow((s) => ({
       workspace: s.workspaces.find((w) => w.id === space.workspace_id),
-      members: s.members,
+      members: s.membersByWorkspace[space.workspace_id ?? ""] ?? EMPTY_WORKSPACE_MEMBERS,
       refreshMembers: s.refreshMembers,
     }))
   );
