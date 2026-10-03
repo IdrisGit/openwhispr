@@ -195,6 +195,13 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/settings/WorkspaceSection": `export default function WorkspaceSection() { globalThis.__settingsSpeech.pageRenders++; return null; }`,
       "/TranscriptionModelPicker": `
         import React from "react";
+        import { useSettingsModelVisible } from "/stores/settingsNavigationStore.ts";
+        function Status({context, navigation}) {
+          const visible = useSettingsModelVisible(navigation, "speechToText", context === "meeting" ? "noteRecording" : context);
+          globalThis.__settingsSpeech.activity ??= {};
+          globalThis.__settingsSpeech.activity[context] = visible;
+          return null;
+        }
         export default function Picker(props) {
           const context = props.transcriptionContext ?? "dictation";
           const [draft, setDraft] = React.useState("");
@@ -203,28 +210,48 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
           observed.renders[context]++;
           observed.pickers[context] = {props, draft, setDraft, progress, setProgress};
           React.useEffect(() => { observed.mounted++; return () => observed.disposed++; }, []);
-          return null;
+          return React.createElement(Status, {context, navigation: props.settingsNavigation});
         }
       `,
     },
   });
   const { default: SettingsPage } = await vite.ssrLoadModule("/components/SettingsPage.tsx");
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  let navigation, previousRoot;
   root = createRoot(container);
-  const render = (activeSection, initialSubTab, subTabRequest) =>
-    React.act(async () =>
-      root.render(
-        React.createElement(SettingsPage, { activeSection, initialSubTab, subTabRequest })
-      )
-    );
+  const render = (activeSection, initialSubTab) =>
+    React.act(async () => {
+      if (previousRoot !== root) {
+        navigation = createSettingsNavigationStore();
+        previousRoot = root;
+      }
+      const actions = navigation.getState();
+      actions.openSettings(activeSection);
+      if (initialSubTab && activeSection === "speechToText") actions.selectSpeechTab(initialSubTab);
+      if (initialSubTab && activeSection === "llms") actions.selectLlmTab(initialSubTab);
+      root.render(React.createElement(SettingsPage, { navigation }));
+    });
   const update = (values) => React.act(async () => observed.store.setState(values));
 
   await render("workspace");
   assert.equal(observed.mounted, 0, "Speech does not mount before first visit");
   await render("speechToText");
   assert.equal(observed.mounted, 3);
+  assert.deepEqual(
+    observed.activity,
+    { dictation: true, meeting: false, upload: false },
+    "real SettingsPage scopes routine reads to its visible Speech tab"
+  );
   assert.equal(observed.vadRenders, 2, "both local Whisper contexts show VAD");
   await React.act(async () => observed.pickers.dictation.setDraft("unsaved"));
   await render("workspace");
+  assert.deepEqual(
+    observed.activity,
+    { dictation: false, meeting: false, upload: false },
+    "real section exit pauses all retained routine readers"
+  );
   const before = { ...observed.renders };
   const pageBefore = observed.pageRenders;
   await update({ customDictionary: ["OpenWhispr"] });
@@ -283,6 +310,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   assert.match(container.textContent, /translated:settingsPage.transcription.vad.title/);
   await render("speechToText", "upload", {});
   assert.equal(observed.tabs.selectedId, "upload");
+  assert.deepEqual(observed.activity, { dictation: false, meeting: false, upload: true });
   await render("speechToText", "dictation", {});
   assert.equal(observed.tabs.selectedId, "dictation");
   assert.equal(observed.pickers.dictation.draft, "unsaved");

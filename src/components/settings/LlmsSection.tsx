@@ -1,7 +1,7 @@
-import React, { memo, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useMemo, useLayoutEffect, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Languages, MessageSquare, Sparkles, Wand2 } from "../icons";
-import { useVisitedTabs } from "../../hooks/useVisitedTabs";
 import { usePolicyStore } from "../../stores/policyStore";
 import { isAgentAllowed } from "../../stores/policyRules";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -16,22 +16,13 @@ import DictationTranslationSettings from "./DictationTranslationSettings";
 import GpuDeviceSelector from "./GpuDeviceSelector";
 import InferenceConfigEditor from "./InferenceConfigEditor";
 import type { InferenceMode } from "../../types/electron";
-
-export type LlmTab =
-  | "dictationCleanup"
-  | "dictationAgent"
-  | "dictationTranslation"
-  | "noteFormatting"
-  | "chatIntelligence";
-
-const LLM_TABS: LlmTab[] = [
-  "dictationCleanup",
-  "dictationAgent",
-  "dictationTranslation",
-  "noteFormatting",
-  "chatIntelligence",
-];
-const AGENT_LLM_TABS = new Set<LlmTab>(["dictationAgent", "chatIntelligence"]);
+import {
+  LLM_TABS,
+  AGENT_LLM_TABS,
+  type LlmTab,
+  type SettingsNavigationStore,
+} from "../../stores/settingsNavigationStore";
+export type { LlmTab } from "../../stores/settingsNavigationStore";
 const NON_AGENT_LLM_TABS = LLM_TABS.filter((tabId) => !AGENT_LLM_TABS.has(tabId));
 
 const CLEANUP_MODE_TOAST_KEY: Record<InferenceMode, string> = {
@@ -42,7 +33,7 @@ const CLEANUP_MODE_TOAST_KEY: Record<InferenceMode, string> = {
   enterprise: "switchedEnterprise",
 };
 
-function CleanupSettings() {
+function CleanupSettings({ navigation }: { navigation: SettingsNavigationStore }) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const useCleanupModel = useSettingsStore((settings) => settings.useCleanupModel);
@@ -80,6 +71,7 @@ function CleanupSettings() {
           <>
             <InferenceConfigEditor
               scope="dictationCleanup"
+              navigation={navigation}
               onModeChange={handleCleanupModeChange}
             />
             <GpuDeviceSelector purpose="intelligence" />
@@ -97,7 +89,7 @@ function CleanupSettings() {
   );
 }
 
-function NoteFormattingSettings() {
+function NoteFormattingSettings({ navigation }: { navigation: SettingsNavigationStore }) {
   const { t } = useTranslation();
   const autoGenerateNoteTitle = useSettingsStore((settings) => settings.autoGenerateNoteTitle);
   const setAutoGenerateNoteTitle = useSettingsStore(
@@ -120,18 +112,10 @@ function NoteFormattingSettings() {
           </SettingsRow>
         </SettingsPanelRow>
       </SettingsPanel>
-      <InferenceConfigEditor scope="noteFormatting" />
+      <InferenceConfigEditor scope="noteFormatting" navigation={navigation} />
     </div>
   );
 }
-
-const LLM_CONTENT = {
-  dictationCleanup: <CleanupSettings />,
-  dictationAgent: <DictationAgentSettings />,
-  dictationTranslation: <DictationTranslationSettings />,
-  noteFormatting: <NoteFormattingSettings />,
-  chatIntelligence: <ChatAgentSettings />,
-};
 
 function TabPanel({
   active,
@@ -149,22 +133,25 @@ function TabPanel({
   );
 }
 
-const LlmsTabs = memo(function LlmsTabs({
-  initialTab,
-  request,
-}: {
-  initialTab?: LlmTab;
-  request?: object;
-}) {
+const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNavigationStore }) {
   const { t } = useTranslation();
   const agentAllowed = usePolicyStore(isAgentAllowed);
   const visibleTabIds = agentAllowed ? LLM_TABS : NON_AGENT_LLM_TABS;
-  const [tab, selectTab, visitedTabs] = useVisitedTabs<LlmTab>(
-    "settings.llmsTab",
-    visibleTabIds,
-    initialTab,
-    request
+  const tab = useStore(navigation, (state) => state.llmTab ?? "dictationCleanup");
+  const selectTab = useStore(navigation, (state) => state.selectLlmTab);
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<LlmTab>>(() => new Set([tab]));
+  if (!visitedTabs.has(tab)) setVisitedTabs(new Set(visitedTabs).add(tab));
+  const content = useMemo(
+    () => ({
+      dictationCleanup: <CleanupSettings navigation={navigation} />,
+      dictationAgent: <DictationAgentSettings navigation={navigation} />,
+      dictationTranslation: <DictationTranslationSettings navigation={navigation} />,
+      noteFormatting: <NoteFormattingSettings navigation={navigation} />,
+      chatIntelligence: <ChatAgentSettings navigation={navigation} />,
+    }),
+    [navigation]
   );
+
   const rootRef = useRef<HTMLDivElement>(null);
   const previousAgentAllowed = useRef(agentAllowed);
   const focusedPanelWasRemoved =
@@ -207,50 +194,37 @@ const LlmsTabs = memo(function LlmsTabs({
         }}
       />
       {(tab === "dictationCleanup" || visitedTabs.has("dictationCleanup")) && (
-        <TabPanel active={tab === "dictationCleanup"}>{LLM_CONTENT.dictationCleanup}</TabPanel>
+        <TabPanel active={tab === "dictationCleanup"}>{content.dictationCleanup}</TabPanel>
       )}
       {agentAllowed && (tab === "dictationAgent" || visitedTabs.has("dictationAgent")) && (
         <TabPanel active={tab === "dictationAgent"} policyAgent>
-          {LLM_CONTENT.dictationAgent}
+          {content.dictationAgent}
         </TabPanel>
       )}
       {(tab === "dictationTranslation" || visitedTabs.has("dictationTranslation")) && (
-        <TabPanel active={tab === "dictationTranslation"}>
-          {LLM_CONTENT.dictationTranslation}
-        </TabPanel>
+        <TabPanel active={tab === "dictationTranslation"}>{content.dictationTranslation}</TabPanel>
       )}
       {(tab === "noteFormatting" || visitedTabs.has("noteFormatting")) && (
-        <TabPanel active={tab === "noteFormatting"}>{LLM_CONTENT.noteFormatting}</TabPanel>
+        <TabPanel active={tab === "noteFormatting"}>{content.noteFormatting}</TabPanel>
       )}
       {agentAllowed && (tab === "chatIntelligence" || visitedTabs.has("chatIntelligence")) && (
         <TabPanel active={tab === "chatIntelligence"} policyAgent>
-          {LLM_CONTENT.chatIntelligence}
+          {content.chatIntelligence}
         </TabPanel>
       )}
     </div>
   );
 });
 
-export default function LlmsKeepAlive({
-  active,
-  initialTab,
-  request,
-}: {
-  active: boolean;
-  initialTab?: LlmTab;
-  request?: object;
-}) {
+export default function LlmsKeepAlive({ navigation }: { navigation: SettingsNavigationStore }) {
+  const active = useStore(navigation, (state) => state.section === "llms");
   const [mounted, setMounted] = useState(active);
-  const [requestedTab, setRequestedTab] = useState(initialTab);
-  const [requestedRequest, setRequestedRequest] = useState(request);
-  if (active && request && requestedRequest !== request) setRequestedRequest(request);
-  if (active && initialTab && requestedTab !== initialTab) setRequestedTab(initialTab);
   if (active && !mounted) setMounted(true);
 
   if (!mounted) return null;
   return (
     <div hidden={!active}>
-      <LlmsTabs initialTab={requestedTab} request={requestedRequest} />
+      <LlmsTabs navigation={navigation} />
     </div>
   );
 }

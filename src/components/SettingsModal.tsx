@@ -1,5 +1,8 @@
-import React, { useState } from "react";
-import type { SettingsSectionRequest } from "./SettingsHostContext";
+import { useStore } from "zustand";
+import type {
+  SettingsNavigationStore,
+  SettingsSectionType,
+} from "../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { usePolicyStore } from "../stores/policyStore";
 import {
@@ -15,50 +18,19 @@ import {
   Users,
 } from "./icons";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
-import SettingsPage, { AccountAvatar, SettingsSectionType } from "./SettingsPage";
+import SettingsPage, { AccountAvatar } from "./SettingsPage";
 import { useAuth } from "../hooks/useAuth";
 
 export type { SettingsSectionType };
 
-// The old AI Models sidebar had four items (transcription, meetings,
-// intelligence, agentMode) — they now collapse into two: speechToText + llms.
-// Legacy deep-links land on the matching sub-tab via LEGACY_SUB_TAB.
-// "dictationAgent" is a live deep-link (the Home GPU banner), not a legacy alias.
-const SECTION_ALIASES: Record<string, SettingsSectionType> = {
-  aiModels: "llms",
-  agentConfig: "llms",
-  agentMode: "llms",
-  dictationAgent: "llms",
-  intelligence: "llms",
-  meetings: "llms",
-  prompts: "llms",
-  transcription: "speechToText",
-  uploadTranscription: "speechToText",
-  softwareUpdates: "system",
-  privacy: "privacyData",
-  permissions: "privacyData",
-  developer: "system",
-};
-
-const LEGACY_SUB_TAB: Record<string, string> = {
-  transcription: "dictation",
-  uploadTranscription: "upload",
-  dictationAgent: "dictationAgent",
-  meetings: "noteFormatting",
-  intelligence: "dictationCleanup",
-  agentMode: "chatIntelligence",
-  agentConfig: "chatIntelligence",
-  aiModels: "dictationCleanup",
-  prompts: "dictationCleanup",
-};
-
 interface SettingsModalProps {
-  open: boolean;
+  navigation: SettingsNavigationStore;
   onOpenChange: (open: boolean) => void;
-  sectionRequest?: SettingsSectionRequest;
 }
 
-export default function SettingsModal({ open, onOpenChange, sectionRequest }: SettingsModalProps) {
+export default function SettingsModal({ navigation, onOpenChange }: SettingsModalProps) {
+  const activeSection = useStore(navigation, (state) => state.section);
+  const handleSectionChange = useStore(navigation, (state) => state.openSettings);
   const { t } = useTranslation();
   const { isSignedIn, user } = useAuth();
   const policyManaged = usePolicyStore((s) => s.managed);
@@ -129,35 +101,11 @@ export default function SettingsModal({ open, onOpenChange, sectionRequest }: Se
   ];
   const sidebarItems = isSignedIn ? items : items.filter((item) => item.id !== "workspace");
 
-  const resolveSection = (section: string | undefined): SettingsSectionType => {
-    if (!section) return "account";
-    return (SECTION_ALIASES[section] ?? section) as SettingsSectionType;
-  };
-
-  const [activeSection, setActiveSection] = React.useState<SettingsSectionType>(() =>
-    resolveSection(sectionRequest?.section)
-  );
-  const [initialSubTab, setInitialSubTab] = useState<string | undefined>(() =>
-    sectionRequest ? LEGACY_SUB_TAB[sectionRequest.section] : undefined
-  );
-  const [previousRequest, setPreviousRequest] = useState(sectionRequest);
-
-  if (sectionRequest !== previousRequest) {
-    setPreviousRequest(sectionRequest);
-    if (sectionRequest) {
-      setActiveSection(resolveSection(sectionRequest.section));
-      setInitialSubTab(LEGACY_SUB_TAB[sectionRequest.section]);
-    }
-  }
-
-  const handleSectionChange = (section: SettingsSectionType) => {
-    setActiveSection(section);
-    setInitialSubTab(undefined);
-  };
+  if (!activeSection) return null;
 
   return (
     <SidebarModal<SettingsSectionType>
-      open={open}
+      open
       onOpenChange={onOpenChange}
       title={t("settingsModal.title")}
       sidebarItems={sidebarItems}
@@ -187,12 +135,7 @@ export default function SettingsModal({ open, onOpenChange, sectionRequest }: Se
         ) : undefined
       }
     >
-      <SettingsPage
-        activeSection={activeSection}
-        onNavigateToSection={handleSectionChange}
-        initialSubTab={initialSubTab}
-        subTabRequest={sectionRequest}
-      />
+      <SettingsPage navigation={navigation} />
     </SidebarModal>
   );
 }

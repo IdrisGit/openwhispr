@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network, ShieldCheck } from "../icons";
@@ -16,7 +17,7 @@ import TranscriptionModelPicker from "../TranscriptionModelPicker";
 import SelfHostedPanel from "../SelfHostedPanel";
 import type { InferenceMode } from "../../types/electron";
 
-export function UploadTranscriptionPanel() {
+export function UploadTranscriptionPanel({ navigation }: { navigation?: SettingsNavigationStore }) {
   const { t } = useTranslation();
   const policySnapshot = usePolicySnapshot();
 
@@ -157,6 +158,7 @@ export function UploadTranscriptionPanel() {
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      settingsNavigation={navigation}
       transcriptionContext="upload"
       selectedCloudProvider={uploadCloudTranscriptionProvider}
       onCloudProviderSelect={setUploadCloudTranscriptionProvider}

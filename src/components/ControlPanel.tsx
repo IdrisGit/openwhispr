@@ -1,5 +1,7 @@
 import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useStore } from "zustand";
+import type { SettingsNavigationStore } from "../stores/settingsNavigationStore";
 import { Button } from "./ui/button";
 import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
 import { cn } from "./lib/utils";
@@ -80,8 +82,7 @@ import { syncService } from "../services/SyncService.js";
 import logger from "../utils/logger";
 import AcceptInvitationModal from "./AcceptInvitationModal";
 import JoinYourTeamModal from "./JoinYourTeamModal";
-import { GpuAccelerationBanner } from "./SettingsHost";
-import { useOpenSettings } from "./SettingsHostContext";
+import { GpuAccelerationBanner } from "./GpuAccelerationBanner";
 import {
   consumePendingInvitationToken,
   clearPendingInvitationToken,
@@ -101,11 +102,15 @@ const IntegrationsView = React.lazy(() => import("./IntegrationsView"));
 const ChatView = React.lazy(() => import("./chat/ChatView"));
 const CommandSearch = React.lazy(() => import("./CommandSearch"));
 
-export default function ControlPanel() {
+export default function ControlPanel({
+  settingsNavigation,
+}: {
+  settingsNavigation: SettingsNavigationStore;
+}) {
   const { t } = useTranslation();
   const history = useTranscriptions();
   const [isLoading, setIsLoading] = useState(true);
-  const openSettings = useOpenSettings();
+  const openSettings = useStore(settingsNavigation, (state) => state.openSettings);
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
   const [showPostMigration, setShowPostMigration] = useState(false);
   const [limitData, setLimitData] = useState<{ wordsUsed: number; limit: number } | null>(null);
@@ -1036,7 +1041,7 @@ export default function ControlPanel() {
                   </div>
                 </div>
               )}
-              {activeView === "home" && <GpuAccelerationBanner />}
+              {activeView === "home" && <GpuAccelerationBanner navigation={settingsNavigation} />}
               {activeView === "home" && (
                 <HistoryView
                   history={history}

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network } from "../icons";
@@ -38,7 +39,11 @@ export function MeetingSpeakerDetectionRow() {
 
 const noop = () => {};
 
-export function MeetingTranscriptionPanel() {
+export function MeetingTranscriptionPanel({
+  navigation,
+}: {
+  navigation?: SettingsNavigationStore;
+}) {
   const { t } = useTranslation();
   const policySnapshot = usePolicySnapshot();
 
@@ -158,6 +163,7 @@ export function MeetingTranscriptionPanel() {
 
   const renderTranscriptionPicker = (mode: "cloud" | "local") => (
     <TranscriptionModelPicker
+      settingsNavigation={navigation}
       streamingOnly
       transcriptionContext="meeting"
       selectedCloudProvider={meetingCloudTranscriptionProvider}

@@ -153,17 +153,23 @@ test("sidebar navigation preserves layout identity; resize updates active and re
     );
   }
   state.Probe = Probe;
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  const speechNavigation = createSettingsNavigationStore("speechToText");
+  const llmNavigation = createSettingsNavigationStore("llms");
   // Stable content supplied from outside the stateful sidebar isolates context broadcasts
   // from ordinary ancestor reconstruction. These are the actual retained panel shells.
   const content = React.createElement(
     React.Fragment,
     null,
     React.createElement(Speech, {
+      navigation: speechNavigation,
       dictation: React.createElement(Probe, { id: "dictation" }),
       noteRecording: React.createElement(Probe, { id: "noteRecording" }),
       upload: React.createElement(Probe, { id: "upload" }),
     }),
-    React.createElement(Llms, { active: true }),
+    React.createElement(Llms, { navigation: llmNavigation }),
     React.createElement(System, { active: true, showAlertDialog: noop, showConfirmDialog: noop })
   );
   root = createRoot(container);

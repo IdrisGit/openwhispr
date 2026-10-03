@@ -228,7 +228,7 @@ function MainApp() {
   return isControlPanel ? (
     <Suspense fallback={<LoadingFallback />}>
       <SettingsHost initialSection={postOnboardingSettingsSection}>
-        <ControlPanel />
+        {(settingsNavigation) => <ControlPanel settingsNavigation={settingsNavigation} />}
       </SettingsHost>
       <BackgroundModelDownloadTray />
     </Suspense>

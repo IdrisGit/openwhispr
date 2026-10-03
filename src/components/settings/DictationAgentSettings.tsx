@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { Monitor } from "../icons";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -19,7 +20,11 @@ import PermissionCard from "../ui/PermissionCard";
 import PromptStudio from "../ui/PromptStudio";
 import InferenceConfigEditor from "./InferenceConfigEditor";
 
-export default function DictationAgentSettings() {
+export default function DictationAgentSettings({
+  navigation,
+}: {
+  navigation?: SettingsNavigationStore;
+}) {
   const { t } = useTranslation();
   const useDictationAgent = useSettingsStore((s) => s.useDictationAgent);
   const setUseDictationAgent = useSettingsStore((s) => s.setUseDictationAgent);
@@ -168,7 +173,9 @@ export default function DictationAgentSettings() {
         </SettingsPanelRow>
       </SettingsPanel>
 
-      {useDictationAgent && <InferenceConfigEditor scope="dictationAgent" />}
+      {useDictationAgent && (
+        <InferenceConfigEditor scope="dictationAgent" navigation={navigation} />
+      )}
 
       {/* Screen context is a voice-agent sub-feature: hidden when an org
           blocks the agent, since enabling it would grant screen-capture
@@ -230,7 +237,11 @@ export default function DictationAgentSettings() {
             </p>
           )}
           {screenContextActive && visionOverrideAllowed && useDictationAgentVisionModel && (
-            <InferenceConfigEditor scope="dictationAgentVision" allowedModes={["providers"]} />
+            <InferenceConfigEditor
+              scope="dictationAgentVision"
+              navigation={navigation}
+              allowedModes={["providers"]}
+            />
           )}
         </div>
       )}

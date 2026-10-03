@@ -1,0 +1,580 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const React = require("react");
+const { createRoot } = require("react-dom/client");
+const {
+  createRendererServer,
+  installBrowserGlobals,
+  installHostDom,
+} = require("../lib/rendererTestHarness");
+
+const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
+
+async function setup(t) {
+  let root;
+  t.after(async () => {
+    if (root) await React.act(async () => root.unmount());
+  });
+  const counts = {
+    llama: 0,
+    vulkan: 0,
+    whisper: 0,
+    inventory: 0,
+    hydration: 0,
+    progress: 0,
+    disposed: 0,
+    editors: 0,
+  };
+  const listeners = new Map();
+  const api = {
+    getPlatform: () => "linux",
+    llamaServerStatus: async () => {
+      counts.llama++;
+      return { running: true, gpuAccelerated: false };
+    },
+    getLlamaVulkanStatus: async () => {
+      counts.vulkan++;
+      return { downloaded: true };
+    },
+    detectVulkanGpu: async () => ({ available: true }),
+    whisperServerStatus: async () => {
+      counts.whisper++;
+      return { gpuAccelerated: false };
+    },
+    getCudaWhisperStatus: async () => ({
+      downloaded: true,
+      gpuInfo: { hasNvidiaGpu: true, cudaSupported: true },
+    }),
+    getVulkanWhisperStatus: async () => ({ downloaded: false, vulkan: { available: true } }),
+    listWhisperModels: async () => {
+      counts.inventory++;
+      return { success: true, models: [{ model: "base", downloaded: true }] };
+    },
+    listParakeetModels: async () => ({ success: true, models: [] }),
+    modelGetActiveDownloads: async () => {
+      counts.hydration++;
+      return [];
+    },
+    checkParakeetInstallation: async () => ({ supported: true }),
+    whisperGpuRetry: async () => ({ success: true, willRestart: true }),
+    llamaGpuReset: async () => ({ success: true }),
+    deleteLlamaVulkanBinary: async () => ({ success: true }),
+  };
+  for (const name of [
+    "onLlamaVulkanDownloadProgress",
+    "onWhisperDownloadProgress",
+    "onParakeetDownloadProgress",
+    "onCudaFallbackNotification",
+    "onGpuFallbackNotification",
+    "onCudaDownloadProgress",
+    "onVulkanWhisperDownloadProgress",
+  ]) {
+    listeners.set(name, new Set());
+    api[name] = (callback) => {
+      counts.progress++;
+      listeners.get(name).add(callback);
+      return () => {
+        counts.disposed++;
+        listeners.get(name).delete(callback);
+      };
+    };
+  }
+  const events = new EventTarget();
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: api,
+      addEventListener: events.addEventListener.bind(events),
+      removeEventListener: events.removeEventListener.bind(events),
+      dispatchEvent: events.dispatchEvent.bind(events),
+    },
+  });
+  const container = installHostDom(t);
+  globalThis.__gpuActions = {};
+  globalThis.__gpuCounts = counts;
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-gpu-status-",
+    noExternal: ["react-i18next"],
+    resolveAlias: { "@": path.resolve(__dirname, "../../src") },
+    mockModules: {
+      "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
+      "/ui/button": `import React from "react"; export function Button({children, onClick}) { globalThis.__gpuActions[children] = onClick; return React.createElement("button", {onClick}, children); }`,
+      "/ui/ProviderTabs": `export function ProviderTabs({providers, onSelect}) { if (providers.some(p => p.id === "dictationCleanup")) globalThis.__gpuLlmTab = onSelect; if (providers.some(p => p.id === "noteRecording")) globalThis.__gpuSpeechTab = onSelect; if (providers.some(p => p.id === "whisper")) globalThis.__gpuProvider = onSelect; return null; }`,
+      "/ui/ModelCardList": `export default function ModelCardList() { return null; }`,
+      "/LocalModelPicker": `export default function LocalModelPicker() { return null; }`,
+      "/ui/dialog": `export const ConfirmDialog = () => null;`,
+      "/hooks/useDialogs": `const noop = () => {}; const dialogs = {confirmDialog: {open: false}, showConfirmDialog: noop, hideConfirmDialog: noop}; export const useDialogs = () => dialogs;`,
+      "/ui/useToast": `const value = {toast() {}}; export const useToast = () => value;`,
+      "/hooks/usePolicy": `const policy = {status: "unmanaged", policy: null}; export const usePolicySnapshot = () => policy;`,
+      "/stores/policyStore": `import {create} from "zustand"; export const usePolicyStore = create(() => ({agentAllowed: true})); globalThis.__gpuPolicy = usePolicyStore;`,
+      "/stores/policyRules": `export * from "/stores/policyRules.ts"; export const isAgentAllowed = state => state.agentAllowed;`,
+      "/stores/settingsStore": `const settings = {useCleanupModel: true, openaiApiKey: "", setOpenaiApiKey() {}}; export const useSettingsStore = selector => selector(settings); export const clearMissingLocalModelSelections = () => {};`,
+      "/GpuDeviceSelector": `export default function GpuDeviceSelector() { return null; }`,
+      "/ui/PromptStudio": `export default function PromptStudio() { return null; }`,
+      "/InferenceConfigEditor": `import React from "react"; import Selector from "/components/ReasoningModelSelector.tsx"; const noop = () => {}; export default function Editor({scope, navigation}) { globalThis.__gpuCounts.editors++; return React.createElement(Selector, {settingsScope: scope, settingsNavigation: navigation, mode: "local", reasoningModel: "", setReasoningModel: noop, localReasoningProvider: "qwen", setLocalReasoningProvider: noop, cloudReasoningBaseUrl: "", setCloudReasoningBaseUrl: noop}); }`,
+      "/DictationAgentSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Agent({navigation}) { return React.createElement(Editor, {scope: "dictationAgent", navigation}); }`,
+      "/DictationTranslationSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Translation({navigation}) { return React.createElement(Editor, {scope: "dictationTranslation", navigation}); }`,
+      "/ChatAgentSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Chat({navigation}) { return React.createElement(Editor, {scope: "chatIntelligence", navigation}); }`,
+    },
+  });
+  const { default: Llms } = await vite.ssrLoadModule("/components/settings/LlmsSection.tsx");
+  const { default: Speech, TabPanel } = await vite.ssrLoadModule(
+    "/components/settings/SpeechToTextTabs.tsx"
+  );
+  const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
+  const { default: Selector } = await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx");
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  const navigation = createSettingsNavigationStore(
+    undefined,
+    () => globalThis.__gpuPolicy.getState().agentAllowed
+  );
+  const unsubscribePolicy = globalThis.__gpuPolicy.subscribe(() =>
+    navigation.getState().reconcilePolicy()
+  );
+  t.after(unsubscribePolicy);
+  const intervals = new Map();
+  const originalInterval = globalThis.setInterval,
+    originalClear = globalThis.clearInterval;
+  let id = 0;
+  globalThis.setInterval = (callback, delay) => {
+    intervals.set(++id, { callback, delay });
+    return id;
+  };
+  globalThis.clearInterval = (id) => intervals.delete(id);
+  const tick = async (delay) => {
+    for (const [id, timer] of [...intervals]) {
+      if (timer.delay === delay && intervals.has(id)) await React.act(async () => timer.callback());
+    }
+  };
+  root = createRoot(container);
+  t.after(() => {
+    globalThis.setInterval = originalInterval;
+    globalThis.clearInterval = originalClear;
+    for (const key of [
+      "__gpuActions",
+      "__gpuCounts",
+      "__gpuLlmTab",
+      "__gpuSpeechTab",
+      "__gpuProvider",
+      "__gpuPolicy",
+    ])
+      delete globalThis[key];
+  });
+  const render = (element) => React.act(async () => root.render(element));
+  const close = async () => {
+    await React.act(async () => {
+      navigation.getState().setSettingsOpen(false);
+      root.unmount();
+    });
+    root = null;
+  };
+  const renderLlm = (active) =>
+    React.act(async () => {
+      navigation.getState().openSettings(active ? "llms" : "general");
+      root.render(React.createElement(Llms, { navigation }));
+    });
+  const renderSpeech = (active, panels) =>
+    React.act(async () => {
+      navigation.getState().openSettings(active ? "speechToText" : "general");
+      root.render(
+        React.createElement(
+          TabPanel,
+          { active },
+          React.createElement(Speech, { navigation, ...panels })
+        )
+      );
+    });
+  const emit = (name, data) =>
+    React.act(async () => {
+      for (const listener of listeners.get(name)) {
+        if (name === "onWhisperDownloadProgress" || name === "onParakeetDownloadProgress")
+          listener({}, data);
+        else listener(data);
+      }
+    });
+  const props = {
+    mode: "local",
+    selectedLocalProvider: "whisper",
+    selectedLocalModel: "base",
+    selectedCloudProvider: "openai",
+    selectedCloudModel: "whisper-1",
+    useLocalWhisper: true,
+    onLocalModelSelect() {},
+    onCloudProviderSelect() {},
+    onCloudModelSelect() {},
+    onModeChange() {},
+  };
+  const llmProps = {
+    mode: "local",
+    reasoningModel: "",
+    setReasoningModel() {},
+    localReasoningProvider: "qwen",
+    setLocalReasoningProvider() {},
+    cloudReasoningBaseUrl: "",
+    setCloudReasoningBaseUrl() {},
+  };
+  return {
+    counts,
+    navigation,
+    renderLlm,
+    renderSpeech,
+    api,
+    listeners,
+    container,
+    Llms,
+    Speech,
+    TabPanel,
+    Picker,
+    Selector,
+    props,
+    llmProps,
+    tick,
+    render,
+    close,
+    emit,
+    intervals,
+  };
+}
+
+test("LLM routine requests follow actual retained section/subtab shells without rendering editors", async (t) => {
+  const h = await setup(t);
+  const render = h.renderLlm;
+  await render(true);
+  assert.equal(h.counts.llama, 1);
+  await React.act(async () => globalThis.__gpuLlmTab("dictationAgent"));
+  await React.act(async () => globalThis.__gpuLlmTab("noteFormatting"));
+  const editorRenders = h.counts.editors;
+  const before = h.counts.llama;
+  await h.tick(5000);
+  assert.equal(h.counts.llama - before, 1, "only visible retained local tab polls");
+  assert.equal(h.counts.vulkan, h.counts.llama);
+  await render(false);
+  await h.tick(5000);
+  assert.equal(h.counts.llama, before + 1, "active subtab in hidden section stops routine reads");
+  await render(true);
+  assert.equal(h.counts.llama, before + 2, "revisit refreshes immediately");
+  await React.act(async () => globalThis.__gpuLlmTab("dictationAgent"));
+  await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: false }));
+  const afterRemoval = h.counts.llama;
+  await h.tick(5000);
+  assert.equal(h.counts.llama, afterRemoval + 1);
+  assert.equal(
+    h.counts.editors,
+    editorRenders,
+    "primitive activity selectors update status leaves, not stable editors"
+  );
+  await h.close();
+  const closed = h.counts.llama;
+  await h.tick(5000);
+  assert.equal(h.counts.llama, closed);
+  assert.equal(h.counts.progress, h.counts.disposed);
+});
+
+test("Speech routine checks pause hidden while inventory and subscriptions retain their lifetime", async (t) => {
+  const h = await setup(t);
+  const panels = ["dictation", "meeting", "upload"].map((transcriptionContext) =>
+    React.createElement(h.Picker, {
+      ...h.props,
+      settingsNavigation: h.navigation,
+      transcriptionContext,
+    })
+  );
+  const render = (active) =>
+    h.renderSpeech(active, { dictation: panels[0], noteRecording: panels[1], upload: panels[2] });
+  await render(true);
+  assert.equal(h.counts.whisper, 1, "hidden initial siblings do not poll");
+  assert.equal(h.counts.inventory, 3, "hidden inventory still hydrates");
+  const registrations = h.counts.progress;
+  await React.act(async () => globalThis.__gpuSpeechTab("noteRecording"));
+  await React.act(async () => globalThis.__gpuSpeechTab("upload"));
+  const before = h.counts.whisper;
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, before + 1);
+  await render(false);
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, before + 1);
+  await render(true);
+  assert.equal(h.counts.whisper, before + 2);
+  assert.equal(h.counts.inventory, 3);
+  assert.equal(
+    h.counts.progress,
+    registrations,
+    "visibility does not replace download/fallback listeners"
+  );
+  await h.close();
+  assert.equal(h.counts.disposed, h.counts.progress);
+});
+
+test("routine replies are ignored after hide, supersession, rejection and close", async (t) => {
+  const h = await setup(t);
+  const pending = [];
+  h.api.llamaServerStatus = () => {
+    h.counts.llama++;
+    const reply = deferred();
+    pending.push(reply);
+    return reply.promise;
+  };
+  await h.renderLlm(true);
+  await h.tick(5000);
+  await React.act(async () =>
+    pending[1].resolve({ running: true, gpuAccelerated: true, backend: "vulkan" })
+  );
+  assert.match(h.container.textContent, /gpu.active/);
+  await React.act(async () => pending[0].resolve({ running: true, gpuAccelerated: false }));
+  assert.match(
+    h.container.textContent,
+    /gpu.active/,
+    "older poll cannot replace current GPU status"
+  );
+  await h.tick(5000);
+  await React.act(async () => pending[2].reject(new Error("status unavailable")));
+  assert.match(h.container.textContent, /gpu.active/, "failed reads retain valid status");
+  await h.tick(5000);
+  await h.renderLlm(false);
+  await React.act(async () => pending[3].resolve({ gpuAccelerated: false }));
+  assert.match(h.container.textContent, /gpu.active/, "hidden owner ignores its obsolete reply");
+  await h.renderLlm(true);
+  assert.equal(pending.length, 5, "revisit fetches immediately");
+  await h.close();
+  await React.act(async () => pending[4].resolve({ gpuAccelerated: false }));
+  assert.equal(h.intervals.size, 0);
+});
+
+test("Whisper hidden activation, progress, completion and fallback remain live", async (t) => {
+  const h = await setup(t);
+  const polls = [];
+  h.api.whisperServerStatus = () => {
+    h.counts.whisper++;
+    const reply = deferred();
+    polls.push(reply);
+    return reply.promise;
+  };
+  const retry = deferred();
+  h.api.whisperGpuRetry = () => retry.promise;
+  const picker = React.createElement(h.Picker, { ...h.props, settingsNavigation: h.navigation });
+  const render = (active) => h.renderSpeech(active, { dictation: picker });
+  await render(true);
+  await h.emit("onCudaFallbackNotification", {});
+  await React.act(async () => polls[0].resolve({ gpuAccelerated: true }));
+  assert.match(h.container.textContent, /gpu.activationFailed/, "fallback beats pre-event poll");
+  let action;
+  await React.act(async () => {
+    action = globalThis.__gpuActions["gpu.retryActivation"]();
+  });
+  await render(false);
+  await React.act(async () => retry.resolve({ success: true, willRestart: true }));
+  await action;
+  assert.match(h.container.textContent, /gpu.activating/);
+  const before = h.counts.whisper;
+  await h.tick(1000);
+  assert.equal(h.counts.whisper, before + 1, "activation still polls the hidden picker");
+  await h.emit("onGpuFallbackNotification", {});
+  await React.act(async () => polls.at(-1).resolve({ gpuAccelerated: true }));
+  assert.match(h.container.textContent, /gpu.activationFailed/);
+  const afterFallback = h.counts.whisper;
+  await h.tick(1000);
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, afterFallback, "settled hidden owner has no routine timer");
+  const inventory = h.counts.inventory;
+  await h.emit("onWhisperDownloadProgress", {
+    type: "progress",
+    model: "tiny",
+    percentage: 42,
+    sequence: 1,
+  });
+  assert.match(h.container.textContent, /42/);
+  await h.emit("onWhisperDownloadProgress", { type: "complete", model: "tiny", sequence: 2 });
+  assert.equal(h.counts.inventory, inventory + 1, "hidden download completion refreshes inventory");
+  await render(true);
+  assert.equal(h.counts.whisper, afterFallback + 1);
+  await h.close();
+  assert.equal(h.counts.progress, h.counts.disposed);
+});
+
+test("a hidden GPU-pack download finishes and activation polls without routine reads", async (t) => {
+  const h = await setup(t);
+  h.api.getCudaWhisperStatus = async () => ({
+    downloaded: false,
+    gpuInfo: { hasNvidiaGpu: true, cudaSupported: true },
+  });
+  const download = deferred();
+  h.api.downloadCudaWhisperBinary = () => download.promise;
+  const picker = React.createElement(h.Picker, { ...h.props, settingsNavigation: h.navigation });
+  const render = (active) => h.renderSpeech(active, { dictation: picker });
+  await render(true);
+  let action;
+  await React.act(async () => {
+    action = globalThis.__gpuActions["gpu.enableButton"]();
+  });
+  await render(false);
+  await h.emit("onCudaDownloadProgress", { percentage: 57, downloadedBytes: 57, totalBytes: 100 });
+  assert.match(h.container.textContent, /57/);
+  await React.act(async () => download.resolve({ success: true, willRestart: true }));
+  await action;
+  const before = h.counts.whisper;
+  await h.tick(1000);
+  assert.equal(h.counts.whisper, before + 1);
+  h.api.whisperServerStatus = async () => {
+    h.counts.whisper++;
+    return { gpuAccelerated: true };
+  };
+  await h.tick(1000);
+  assert.match(h.container.textContent, /gpu.active/);
+  const settled = h.counts.whisper;
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, settled);
+  await render(true);
+  assert.equal(h.counts.whisper, settled + 1);
+});
+
+test("LLM pack completion stays live while hidden and fences old pack/status replies", async (t) => {
+  const h = await setup(t);
+  const packs = [];
+  h.api.getLlamaVulkanStatus = () => {
+    h.counts.vulkan++;
+    const reply = deferred();
+    packs.push(reply);
+    return reply.promise;
+  };
+  const download = deferred();
+  h.api.downloadLlamaVulkanBinary = () => download.promise;
+  const render = h.renderLlm;
+  await render(true);
+  await React.act(async () => packs[0].resolve({ downloaded: false }));
+  await h.tick(5000);
+  let action;
+  await React.act(async () => {
+    action = globalThis.__gpuActions["gpu.enableButton"]();
+  });
+  await render(false);
+  await h.emit("onLlamaVulkanDownloadProgress", { percentage: 61 });
+  assert.match(h.container.textContent, /61/);
+  await React.act(async () => download.resolve({ success: true }));
+  await action;
+  assert.match(
+    h.container.textContent,
+    /gpu.ready/,
+    "pack completion retains existing ready semantics"
+  );
+  await React.act(async () => packs[1].resolve({ downloaded: false }));
+  assert.match(h.container.textContent, /gpu.ready/, "old pack metadata cannot undo completion");
+  const settled = h.counts.llama;
+  await h.tick(1000);
+  await h.tick(5000);
+  assert.equal(h.counts.llama, settled, "settled hidden badge has no routine poll");
+  h.api.llamaServerStatus = async () => {
+    h.counts.llama++;
+    return { gpuAccelerated: true, backend: "vulkan" };
+  };
+  await render(true);
+  assert.equal(h.counts.llama, settled + 1);
+  assert.match(
+    h.container.textContent,
+    /gpu.active/,
+    "revisit reflects actual server acceleration"
+  );
+});
+
+test("completed LLM pack download still resets native state after Settings close", async (t) => {
+  const h = await setup(t);
+  h.api.getLlamaVulkanStatus = async () => ({ downloaded: false });
+  const download = deferred();
+  h.api.downloadLlamaVulkanBinary = () => download.promise;
+  let resets = 0;
+  h.api.llamaGpuReset = async () => {
+    resets++;
+    return { success: true };
+  };
+  await h.render(React.createElement(h.Selector, h.llmProps));
+  let action;
+  await React.act(async () => {
+    action = globalThis.__gpuActions["gpu.enableButton"]();
+  });
+  await h.close();
+  await React.act(async () => download.resolve({ success: true }));
+  await action;
+  assert.equal(resets, 1);
+  assert.equal(h.intervals.size, 0);
+});
+
+test("changing Whisper provider/mode discards old replies without dropping progress owners", async (t) => {
+  const h = await setup(t);
+  const reply = deferred();
+  h.api.whisperServerStatus = () => {
+    h.counts.whisper++;
+    return reply.promise;
+  };
+  await h.render(React.createElement(h.Picker, h.props));
+  const registrations = h.counts.progress;
+  await React.act(async () => globalThis.__gpuProvider("nvidia"));
+  await React.act(async () => reply.resolve({ gpuAccelerated: true }));
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, 1);
+  assert.equal(h.counts.progress, registrations);
+  await h.render(React.createElement(h.Picker, { ...h.props, mode: "cloud" }));
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, 1);
+  await h.close();
+  assert.equal(h.counts.progress, h.counts.disposed);
+});
+
+test("an agent vision editor shares its containing agent tab's status visibility", async (t) => {
+  const h = await setup(t);
+  h.navigation.getState().openSettings("dictationAgent");
+  await h.render(
+    React.createElement(h.Selector, {
+      ...h.llmProps,
+      settingsNavigation: h.navigation,
+      settingsScope: "dictationAgentVision",
+    })
+  );
+  assert.equal(h.counts.llama, 1);
+  await h.tick(5000);
+  assert.equal(h.counts.llama, 2);
+  await React.act(async () => h.navigation.getState().openSettings("general"));
+  await h.tick(5000);
+  assert.equal(h.counts.llama, 2);
+});
+
+test("non-Settings callers poll independently and StrictMode cleans obsolete reads", async (t) => {
+  const h = await setup(t);
+  const pending = [];
+  h.api.llamaServerStatus = () => {
+    h.counts.llama++;
+    const reply = deferred();
+    pending.push(reply);
+    return reply.promise;
+  };
+  await h.render(
+    React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(h.Selector, h.llmProps),
+      React.createElement(h.Picker, h.props)
+    )
+  );
+  assert.equal(pending.length, 2);
+  assert.equal(h.intervals.size, 2, "one timer per current non-Settings status reader");
+  await React.act(async () => pending[1].resolve({ gpuAccelerated: true, backend: "vulkan" }));
+  await React.act(async () => pending[0].resolve({ gpuAccelerated: false }));
+  assert.match(h.container.textContent, /gpu.active/);
+  const before = [h.counts.llama, h.counts.whisper];
+  await h.tick(5000);
+  assert.deepEqual(
+    [h.counts.llama, h.counts.whisper],
+    before.map((count) => count + 1)
+  );
+  await h.close();
+  await React.act(async () => pending.at(-1).resolve({ gpuAccelerated: false }));
+  assert.equal(h.intervals.size, 0);
+  assert.equal(h.counts.progress, h.counts.disposed);
+});

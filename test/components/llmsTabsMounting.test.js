@@ -2,21 +2,13 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
+const { useStore } = require("zustand");
 const {
   createRendererServer,
   installBrowserGlobals,
   installHookDom,
   installHostDom,
 } = require("../lib/rendererTestHarness");
-
-const ALL_TABS = [
-  "dictationCleanup",
-  "dictationAgent",
-  "dictationTranslation",
-  "noteFormatting",
-  "chatIntelligence",
-];
-const NON_AGENT_TABS = ["dictationCleanup", "dictationTranslation", "noteFormatting"];
 
 test("requested LLM tabs and policy fallbacks persist without writes during render", async (t) => {
   let root = null;
@@ -36,22 +28,20 @@ test("requested LLM tabs and policy fallbacks persist without writes during rend
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-llm-tabs-test-",
   });
-  const { useVisitedTabs } = await vite.ssrLoadModule("/hooks/useVisitedTabs.ts");
-
-  let options = ALL_TABS;
-  let initialTab = "noteFormatting";
-  let request;
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  let agentAllowed = true;
+  rendering = true;
+  const navigation = createSettingsNavigationStore("meetings", () => agentAllowed);
+  rendering = false;
+  const actions = navigation.getState();
   let state;
   function Harness() {
     rendering = true;
     try {
-      const [tab, selectTab, visited] = useVisitedTabs(
-        "settings.llmsTab",
-        options,
-        initialTab,
-        request
-      );
-      state = { tab, selectTab, visited };
+      const tab = useStore(navigation, (state) => state.llmTab);
+      state = { tab };
       return null;
     } finally {
       rendering = false;
@@ -62,34 +52,22 @@ test("requested LLM tabs and policy fallbacks persist without writes during rend
   const render = async () => React.act(async () => root.render(React.createElement(Harness)));
 
   await render();
+  actions.persistCurrentTab();
   assert.equal(state.tab, "noteFormatting");
   assert.equal(storage.getItem("settings.llmsTab"), JSON.stringify("noteFormatting"));
-
-  await React.act(async () => state.selectTab("dictationAgent"));
+  await React.act(async () => actions.selectLlmTab("dictationAgent"));
   assert.equal(state.tab, "dictationAgent");
-  request = {};
-  await render();
+  await React.act(async () => actions.openSettings("meetings"));
   assert.equal(state.tab, "noteFormatting", "a repeated route restores its selected tab");
-
-  initialTab = "dictationTranslation";
-  await render();
-  assert.equal(state.tab, "dictationTranslation", "programmatic selection uses the transition");
-  assert.equal(state.visited.has("dictationTranslation"), true);
-
-  options = NON_AGENT_TABS;
-  initialTab = "dictationAgent";
-  await render();
-  assert.equal(state.tab, "dictationCleanup", "a prohibited selection uses the allowed fallback");
+  await React.act(async () => actions.selectLlmTab("dictationTranslation"));
+  assert.equal(state.tab, "dictationTranslation");
+  agentAllowed = false;
+  await React.act(async () => actions.openSettings("dictationAgent"));
+  assert.equal(state.tab, "dictationCleanup", "a prohibited request uses the allowed fallback");
   assert.equal(storage.getItem("settings.llmsTab"), JSON.stringify("dictationCleanup"));
-
-  options = ALL_TABS;
-  initialTab = undefined;
-  await render();
-  assert.equal(
-    state.tab,
-    "dictationCleanup",
-    "reallowing policy does not revive the old agent tab"
-  );
+  agentAllowed = true;
+  await React.act(async () => actions.reconcilePolicy());
+  assert.equal(state.tab, "dictationCleanup", "reallowing does not revive the prohibited tab");
 });
 
 test("LLM keep-alive isolates retained editors from Settings section visibility", async (t) => {
@@ -221,12 +199,24 @@ test("LLM keep-alive isolates retained editors from Settings section visibility"
   const { default: LlmsKeepAlive } = await vite.ssrLoadModule(
     "/components/settings/LlmsSection.tsx"
   );
-
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  const navigation = createSettingsNavigationStore(
+    undefined,
+    () => globalThis.__llmPolicyStore.getState().agentAllowed
+  );
+  const unsubscribe = globalThis.__llmPolicyStore.subscribe(() =>
+    navigation.getState().reconcilePolicy()
+  );
+  t.after(unsubscribe);
   root = createRoot(container);
-  const render = async (active, initialTab, request) =>
-    React.act(async () =>
-      root.render(React.createElement(LlmsKeepAlive, { active, initialTab, request }))
-    );
+  const render = async (active, initialTab) =>
+    React.act(async () => {
+      navigation.getState().openSettings(active ? "llms" : "general");
+      if (active && initialTab) navigation.getState().selectLlmTab(initialTab);
+      root.render(React.createElement(LlmsKeepAlive, { navigation }));
+    });
 
   await render(false);
   assert.equal(globalThis.__llmCounts.cleanupMounts, 0, "an unvisited section mounts no editor");

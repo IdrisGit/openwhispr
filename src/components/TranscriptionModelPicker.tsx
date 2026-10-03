@@ -48,6 +48,10 @@ import { GetApiKeyLink } from "./ui/GetApiKeyLink";
 import { getCachedPlatform } from "../utils/platform";
 import logger from "../utils/logger";
 import type { ParakeetCheckResult } from "../types/electron";
+import {
+  useSettingsModelVisible,
+  type SettingsNavigationStore,
+} from "../stores/settingsNavigationStore";
 
 interface LocalModel {
   model: string;
@@ -218,6 +222,8 @@ function LocalModelCard({
 interface TranscriptionModelPickerProps {
   /** Settings scope whose provider/model keys this picker edits. */
   transcriptionContext?: TranscriptionPolicyContext;
+  /** Only Settings callers opt into section/subtab-aware routine status reads. */
+  settingsNavigation?: SettingsNavigationStore;
   selectedCloudProvider: string;
   /**
    * Policy reconciliation only — a user-driven pick goes through
@@ -378,6 +384,7 @@ function ModeToggle({ useLocalWhisper, onModeChange }: ModeToggleProps) {
 
 export default function TranscriptionModelPicker({
   transcriptionContext = "dictation",
+  settingsNavigation,
   selectedCloudProvider,
   onCloudProviderSelect,
   selectedCloudModel,
@@ -451,6 +458,12 @@ export default function TranscriptionModelPicker({
   const [gpuActivating, setGpuActivating] = useState(false);
   // Live truth from the running server; "active" is never inferred from a download
   const [gpuActive, setGpuActive] = useState(false);
+  const visible = useSettingsModelVisible(
+    settingsNavigation,
+    "speechToText",
+    transcriptionContext === "meeting" ? "noteRecording" : transcriptionContext
+  );
+  const gpuRequests = useRef({ status: 0, pack: 0, action: 0, fallback: 0 });
 
   useEffect(() => {
     const organization = getSelectedASROrganization(selectedLocalProvider, selectedLocalModel);
@@ -750,12 +763,15 @@ export default function TranscriptionModelPicker({
   useEffect(() => {
     if (!effectiveLocal || internalLocalProvider !== "whisper") return;
     if (getCachedPlatform() === "darwin") return;
+    let cancelled = false;
+    const request = ++gpuRequests.current.pack;
     const detect = async () => {
       try {
         const [cuda, vulkan] = await Promise.all([
           window.electronAPI?.getCudaWhisperStatus?.(),
           window.electronAPI?.getVulkanWhisperStatus?.(),
         ]);
+        if (cancelled || request !== gpuRequests.current.pack) return;
         // Cards below the CUDA build's kernel floor (e.g. Maxwell) crash at the
         // first kernel launch, so they get the Vulkan pack like AMD/Intel GPUs.
         const cudaEligible = !!cuda?.gpuInfo.hasNvidiaGpu && !!cuda.gpuInfo.cudaSupported;
@@ -774,6 +790,9 @@ export default function TranscriptionModelPicker({
       } catch {}
     };
     detect();
+    return () => {
+      cancelled = true;
+    };
   }, [effectiveLocal, internalLocalProvider]);
 
   useEffect(() => {
@@ -789,11 +808,21 @@ export default function TranscriptionModelPicker({
   // actually running on, not just that a pack is on disk (a crashed GPU server
   // silently falls back to CPU). Faster poll while an activation is in flight.
   useEffect(() => {
-    if (!effectiveLocal || internalLocalProvider !== "whisper" || !gpuDownloaded) return;
+    if (
+      !effectiveLocal ||
+      internalLocalProvider !== "whisper" ||
+      !gpuDownloaded ||
+      (!visible && !gpuActivating) ||
+      gpuDownloading
+    )
+      return;
+    let cancelled = false;
     const poll = () => {
+      const request = ++gpuRequests.current.status;
       window.electronAPI
         ?.whisperServerStatus?.()
         .then((status) => {
+          if (cancelled || request !== gpuRequests.current.status) return;
           setGpuActive(!!status?.gpuAccelerated);
           if (status?.gpuAccelerated) setGpuActivating(false);
         })
@@ -801,8 +830,18 @@ export default function TranscriptionModelPicker({
     };
     poll();
     const id = setInterval(poll, gpuActivating ? 1000 : 5000);
-    return () => clearInterval(id);
-  }, [effectiveLocal, internalLocalProvider, gpuDownloaded, gpuActivating]);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [
+    effectiveLocal,
+    internalLocalProvider,
+    gpuDownloaded,
+    gpuActivating,
+    visible,
+    gpuDownloading,
+  ]);
 
   // Safety valve: a Vulkan cold start can take up to ~2 minutes (see #698);
   // past that the live status or a fallback notification settles the state.
@@ -814,7 +853,11 @@ export default function TranscriptionModelPicker({
 
   // Main falls back to CPU (and remembers it) when a GPU server crashes
   useEffect(() => {
+    const owner = gpuRequests.current;
     const onFallback = () => {
+      gpuRequests.current.status++;
+      gpuRequests.current.pack++;
+      gpuRequests.current.fallback++;
       setGpuFailed(true);
       setGpuActivating(false);
       setGpuActive(false);
@@ -822,41 +865,62 @@ export default function TranscriptionModelPicker({
     const disposeCuda = window.electronAPI?.onCudaFallbackNotification?.(onFallback);
     const disposeVulkan = window.electronAPI?.onGpuFallbackNotification?.(onFallback);
     return () => {
+      owner.action++;
       disposeCuda?.();
       disposeVulkan?.();
     };
   }, []);
 
   const handleGpuDownload = async () => {
+    const action = ++gpuRequests.current.action;
+    const fallback = gpuRequests.current.fallback;
+    gpuRequests.current.status++;
+    gpuRequests.current.pack++;
     setGpuDownloading(true);
     try {
       const result =
         gpuBackend === "cuda"
           ? await window.electronAPI?.downloadCudaWhisperBinary?.()
           : await window.electronAPI?.downloadVulkanWhisperBinary?.();
+      if (action !== gpuRequests.current.action) return;
+      gpuRequests.current.status++;
+      gpuRequests.current.pack++;
       if (result?.success) {
         setGpuDownloaded(true);
-        setGpuFailed(false);
-        // Main reloads the server with the new backend only when one is loaded;
-        // otherwise the pack simply engages on the next dictation.
-        setGpuActivating(!!result.willRestart);
+        if (fallback === gpuRequests.current.fallback) {
+          setGpuFailed(false);
+          // Main reloads only when a server is loaded; otherwise the pack is ready.
+          setGpuActivating(!!result.willRestart);
+        }
       }
     } finally {
-      setGpuDownloading(false);
+      if (action === gpuRequests.current.action) setGpuDownloading(false);
     }
   };
 
   const handleGpuRetry = async () => {
+    const action = ++gpuRequests.current.action;
+    const fallback = gpuRequests.current.fallback;
+    gpuRequests.current.status++;
+    gpuRequests.current.pack++;
     setGpuFailed(false);
     const result = await window.electronAPI?.whisperGpuRetry?.();
+    if (action !== gpuRequests.current.action || fallback !== gpuRequests.current.fallback) return;
+    gpuRequests.current.status++;
     setGpuActivating(!!result?.willRestart);
   };
 
   const handleGpuDelete = async () => {
+    const action = ++gpuRequests.current.action;
+    gpuRequests.current.status++;
+    gpuRequests.current.pack++;
     const result =
       gpuBackend === "cuda"
         ? await window.electronAPI?.deleteCudaWhisperBinary?.()
         : await window.electronAPI?.deleteVulkanWhisperBinary?.();
+    if (action !== gpuRequests.current.action) return;
+    gpuRequests.current.status++;
+    gpuRequests.current.pack++;
     if (result?.success) {
       setGpuDownloaded(false);
       setGpuFailed(false);

@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { Cloud, Key, Cpu, Network, Building2, ShieldCheck, AlertTriangle } from "../icons";
 import {
@@ -46,6 +47,7 @@ const MODE_LABEL_PREFIX: Record<InferenceScope, string> = {
 
 interface InferenceConfigEditorProps {
   scope: InferenceScope;
+  navigation?: SettingsNavigationStore;
   onModeChange?: (mode: InferenceMode) => void;
   /** Restrict the selectable modes (e.g. vision override offers cloud/BYOK only). */
   allowedModes?: InferenceMode[];
@@ -53,6 +55,7 @@ interface InferenceConfigEditorProps {
 
 export default function InferenceConfigEditor({
   scope,
+  navigation,
   onModeChange,
   allowedModes,
 }: InferenceConfigEditorProps) {
@@ -153,6 +156,8 @@ export default function InferenceConfigEditor({
 
   const renderModelSelector = (mode?: "cloud" | "local") => (
     <ReasoningModelSelector
+      settingsScope={scope}
+      settingsNavigation={navigation}
       reasoningModel={config.model}
       setReasoningModel={setModel}
       localReasoningProvider={config.provider}

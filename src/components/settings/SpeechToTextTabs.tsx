@@ -1,38 +1,30 @@
 import { useMemo, type ReactNode } from "react";
+import { useStore } from "zustand";
 import { useTranslation } from "react-i18next";
 import { FileAudio, Mic, Upload } from "../icons";
-import { useVisitedTabs } from "../../hooks/useVisitedTabs";
 import { ProviderTabs } from "../ui/ProviderTabs";
 import { SectionHeader } from "../ui/SettingsSection";
-
-export type SpeechTab = "dictation" | "noteRecording" | "upload";
-
-const SPEECH_TABS: SpeechTab[] = ["dictation", "noteRecording", "upload"];
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
+export type { SpeechTab } from "../../stores/settingsNavigationStore";
 
 export function TabPanel({ active, children }: { active: boolean; children: ReactNode }) {
   return <div className={active ? undefined : "hidden"}>{children}</div>;
 }
 
 export default function SpeechToTextTabs({
-  initialTab,
-  request,
+  navigation,
   dictation,
   noteRecording,
   upload,
 }: {
-  initialTab?: SpeechTab;
-  request?: object;
+  navigation: SettingsNavigationStore;
   dictation: ReactNode;
   noteRecording: ReactNode;
   upload: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [tab, setTab] = useVisitedTabs<SpeechTab>(
-    "settings.speechToTextTab",
-    SPEECH_TABS,
-    initialTab,
-    request
-  );
+  const tab = useStore(navigation, (state) => state.speechTab ?? "dictation");
+  const setTab = useStore(navigation, (state) => state.selectSpeechTab);
 
   // ProviderTabs observes the indicator; keep its list stable until labels change.
   const subTabs = useMemo(
@@ -53,7 +45,7 @@ export default function SpeechToTextTabs({
       <ProviderTabs
         providers={subTabs}
         selectedId={tab}
-        onSelect={(id) => setTab(id as SpeechTab)}
+        onSelect={setTab}
         renderIcon={(id) =>
           id === "dictation" ? (
             <Mic className="w-3.5 h-3.5" />

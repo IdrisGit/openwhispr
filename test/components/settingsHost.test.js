@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
+const { useStore } = require("zustand");
 const {
   createRendererServer,
   installBrowserGlobals,
@@ -55,7 +56,7 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
           return EMPTY;
         }
       `,
-      "/stores/policyStore": `export function usePolicyStore() { return true; }`,
+      "/stores/policyStore": `import {create} from "zustand"; export const usePolicyStore = create(() => ({status: "unmanaged", policy: null, appVersion: null}));`,
       "/stores/settingsStore": `
         const settings = {
           useLocalWhisper: false,
@@ -77,22 +78,22 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     },
   });
   const { SettingsHost } = await vite.ssrLoadModule("/components/SettingsHost.tsx");
-  const { useOpenSettings } = await vite.ssrLoadModule("/components/SettingsHostContext.ts");
+  const { GpuAccelerationBanner } = await vite.ssrLoadModule(
+    "/components/GpuAccelerationBanner.tsx"
+  );
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   let openSettings;
   let childRenders = 0;
-  function ControlPanelProbe() {
+  function ControlPanelProbe({ navigation }) {
     childRenders += 1;
-    openSettings = useOpenSettings();
-    return null;
+    openSettings = useStore(navigation, (state) => state.openSettings);
+    return React.createElement(GpuAccelerationBanner, { navigation });
   }
   root = createRoot(container);
   await React.act(async () => {
     root.render(
-      React.createElement(
-        SettingsHost,
-        { initialSection: "transcription" },
-        React.createElement(ControlPanelProbe)
+      React.createElement(SettingsHost, { initialSection: "transcription" }, (navigation) =>
+        React.createElement(ControlPanelProbe, { navigation })
       )
     );
     await flush();
@@ -103,7 +104,8 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
   }
-  assert.equal(globalThis.__settingsModalProps.sectionRequest.section, "transcription");
+  assert.equal(globalThis.__settingsModalProps.navigation.getState().section, "speechToText");
+  assert.equal(globalThis.__settingsModalProps.navigation.getState().speechTab, "dictation");
   assert.equal(childRenders, 1);
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
@@ -112,18 +114,20 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     openSettings("intelligence");
     await flush();
   });
-  assert.equal(globalThis.__settingsModalProps.sectionRequest.section, "intelligence");
-  const firstRequest = globalThis.__settingsModalProps.sectionRequest;
+  assert.equal(globalThis.__settingsModalProps.navigation.getState().section, "llms");
+  const navigation = globalThis.__settingsModalProps.navigation;
+  await React.act(async () => navigation.getState().selectLlmTab("noteFormatting"));
   await React.act(async () => openSettings("intelligence"));
-  assert.notEqual(
-    globalThis.__settingsModalProps.sectionRequest,
-    firstRequest,
-    "repeat route is a new request"
+  assert.equal(
+    navigation.getState().llmTab,
+    "dictationCleanup",
+    "repeat alias restores its requested tab"
   );
+  await React.act(async () => navigation.getState().selectLlmTab("dictationTranslation"));
   await React.act(async () => openSettings());
   assert.equal(
-    globalThis.__settingsModalProps.sectionRequest.section,
-    "intelligence",
+    navigation.getState().llmTab,
+    "dictationTranslation",
     "plain open leaves selection alone"
   );
 
@@ -134,7 +138,7 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     assert.equal(prevented, true);
     await flush();
   });
-  assert.equal(globalThis.__settingsModalProps.sectionRequest, undefined);
+  assert.equal(globalThis.__settingsModalProps.navigation.getState().section, "account");
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   await React.act(async () => {

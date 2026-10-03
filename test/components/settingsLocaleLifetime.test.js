@@ -73,9 +73,11 @@ test("changing language translates Settings and retained Speech without resettin
       `,
       "./SettingsPage": `
         import React, { useState } from "react";
+        import { useStore } from "zustand";
         import { useTranslation } from "react-i18next";
         export function AccountAvatar() { return null; }
-        export default function SettingsPage({activeSection}) {
+        export default function SettingsPage({navigation}) {
+          const activeSection = useStore(navigation, state => state.section);
           const {t} = useTranslation();
           const [draft, setDraft] = useState("");
           globalThis.__localePage = { activeSection, draft, setDraft, title: t("settingsPage.general.title") };
@@ -113,15 +115,17 @@ test("changing language translates Settings and retained Speech without resettin
     }, []);
     return React.createElement("input", { defaultValue: "kept" });
   }
-  const sectionRequest = { section: "speechToText" };
+  const { createSettingsNavigationStore } = await vite.ssrLoadModule(
+    "/stores/settingsNavigationStore.ts"
+  );
+  const navigation = createSettingsNavigationStore("speechToText");
   await React.act(async () => {
     modalRoot = createRoot(modalContainer);
     modalRoot.render(
       wrap(
         React.createElement(SettingsModal, {
-          open: true,
+          navigation,
           onOpenChange() {},
-          sectionRequest,
         })
       )
     );
@@ -129,6 +133,7 @@ test("changing language translates Settings and retained Speech without resettin
     speechRoot.render(
       wrap(
         React.createElement(SpeechToTextTabs, {
+          navigation,
           dictation: React.createElement(DictationDraft),
           noteRecording: React.createElement("span", null, "Meeting"),
           upload: React.createElement("span", null, "Upload"),

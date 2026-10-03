@@ -1,4 +1,5 @@
 import { X } from "../icons";
+import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore, MAX_TRANSLATION_TARGETS } from "../../stores/settingsStore";
 import registry from "../../config/languageRegistry.json";
@@ -16,7 +17,11 @@ const TARGET_OPTIONS = registry.languages
 
 const OPTION_BY_CODE = new Map(TARGET_OPTIONS.map((o) => [o.value, o]));
 
-export default function DictationTranslationSettings() {
+export default function DictationTranslationSettings({
+  navigation,
+}: {
+  navigation?: SettingsNavigationStore;
+}) {
   const { t } = useTranslation();
   const useDictationTranslation = useSettingsStore((s) => s.useDictationTranslation);
   const setUseDictationTranslation = useSettingsStore((s) => s.setUseDictationTranslation);
@@ -151,7 +156,7 @@ export default function DictationTranslationSettings() {
             </p>
           )}
 
-          <InferenceConfigEditor scope="dictationTranslation" />
+          <InferenceConfigEditor scope="dictationTranslation" navigation={navigation} />
 
           <div className="border-t border-border/70 pt-6">
             <SectionHeader

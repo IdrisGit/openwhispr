@@ -1,4 +1,9 @@
-import React, { useState, useCallback, useEffect, useRef, useId } from "react";
+import React, { useState, useCallback, useEffect, useRef, useId, useMemo } from "react";
+import { useStore } from "zustand";
+import type {
+  SettingsNavigationStore,
+  SettingsSectionType,
+} from "../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "./ui/button";
@@ -72,8 +77,8 @@ import {
 import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
 import GpuDeviceSelector from "./settings/GpuDeviceSelector";
-import LlmsKeepAlive, { type LlmTab } from "./settings/LlmsSection";
-import SpeechToTextTabs, { TabPanel, type SpeechTab } from "./settings/SpeechToTextTabs";
+import LlmsKeepAlive from "./settings/LlmsSection";
+import SpeechToTextTabs, { TabPanel } from "./settings/SpeechToTextTabs";
 import { MeetingTranscriptionPanel } from "./settings/MeetingSettings";
 import { UploadTranscriptionPanel } from "./settings/UploadSettings";
 import LanguageSelector from "./ui/LanguageSelector";
@@ -140,23 +145,10 @@ import { enterpriseProviderName, getTranscriptionProvider } from "../models/Mode
 import { useManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 import { supportsLiveTranscriptionPreview } from "../utils/transcriptionPreview";
 
-export type SettingsSectionType =
-  | "account"
-  | "plansBilling"
-  | "workspace"
-  | "general"
-  | "hotkeys"
-  | "speechToText"
-  | "llms"
-  | "privacyData"
-  | "system";
+export type { SettingsSectionType };
 
 interface SettingsPageProps {
-  activeSection?: SettingsSectionType;
-  onNavigateToSection?: (section: SettingsSectionType) => void;
-  /** When a legacy section ID was used (e.g. `meetings`), land on the matching sub-tab. */
-  initialSubTab?: string;
-  subTabRequest?: object;
+  navigation: SettingsNavigationStore;
 }
 
 const UI_LANGUAGE_OPTIONS: import("./ui/LanguageSelector").LanguageOption[] = [
@@ -417,7 +409,13 @@ function GranolaImportSection({
   );
 }
 
-function TranscriptionSection({ isSignedIn }: { isSignedIn: boolean }) {
+function TranscriptionSection({
+  isSignedIn,
+  navigation,
+}: {
+  isSignedIn: boolean;
+  navigation: SettingsNavigationStore;
+}) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const {
@@ -607,6 +605,7 @@ function TranscriptionSection({ isSignedIn }: { isSignedIn: boolean }) {
 
   const renderTranscriptionPicker = (mode?: "cloud" | "local") => (
     <TranscriptionModelPicker
+      settingsNavigation={navigation}
       selectedCloudProvider={cloudTranscriptionProvider}
       onCloudProviderSelect={setCloudTranscriptionProvider}
       selectedCloudModel={cloudTranscriptionModel}
@@ -752,28 +751,20 @@ function TranscriptionSection({ isSignedIn }: { isSignedIn: boolean }) {
 
 // Only validated auth comes from SettingsPage; settings/policy/locale updates
 // belong to the retained children. Avoid mounting a second auth sync owner.
-const DictationPanel = React.memo(function DictationPanel({ isSignedIn }: { isSignedIn: boolean }) {
+const DictationPanel = React.memo(function DictationPanel({
+  isSignedIn,
+  navigation,
+}: {
+  isSignedIn: boolean;
+  navigation: SettingsNavigationStore;
+}) {
   return (
     <div className="space-y-6">
-      <TranscriptionSection isSignedIn={isSignedIn} />
+      <TranscriptionSection isSignedIn={isSignedIn} navigation={navigation} />
       <WhisperVadSettings context="dictation" />
     </div>
   );
 });
-// These panels need no parent props, so stable elements suffice without memo.
-
-const NOTE_RECORDING_PANEL = (
-  <div className="space-y-6">
-    <MeetingTranscriptionPanel />
-    <WhisperVadSettings context="meeting" />
-  </div>
-);
-const UPLOAD_PANEL = (
-  <div className="space-y-6">
-    <UploadTranscriptionPanel />
-  </div>
-);
-
 // "Gabriel Stein" → "GS"; single names fall back to their first letter.
 function nameInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -812,12 +803,25 @@ export function AccountAvatar({ image, name }: { image?: string | null; name: st
   );
 }
 
-export default function SettingsPage({
-  activeSection = "general",
-  onNavigateToSection,
-  initialSubTab,
-  subTabRequest,
-}: SettingsPageProps) {
+export default function SettingsPage({ navigation }: SettingsPageProps) {
+  const activeSection = useStore(navigation, (state) => state.section ?? "general");
+  // Stable children still isolate hidden panels from unrelated page renders.
+  const speechPanels = useMemo(
+    () => ({
+      noteRecording: (
+        <div className="space-y-6">
+          <MeetingTranscriptionPanel navigation={navigation} />
+          <WhisperVadSettings context="meeting" />
+        </div>
+      ),
+      upload: (
+        <div className="space-y-6">
+          <UploadTranscriptionPanel navigation={navigation} />
+        </div>
+      ),
+    }),
+    [navigation]
+  );
   const settingsId = useId();
   const { isCompact } = useSettingsLayout();
   const {
@@ -2393,7 +2397,7 @@ export default function SettingsPage({
         );
 
       case "workspace":
-        return <WorkspaceSection initialSubTab={initialSubTab} />;
+        return <WorkspaceSection />;
 
       case "general":
         return (
@@ -3952,15 +3956,10 @@ EOF`,
       {hasMountedSpeechToText && (
         <TabPanel active={activeSection === "speechToText"}>
           <SpeechToTextTabs
-            initialTab={
-              activeSection === "speechToText"
-                ? (initialSubTab as SpeechTab | undefined)
-                : undefined
-            }
-            request={activeSection === "speechToText" && initialSubTab ? subTabRequest : undefined}
-            dictation={<DictationPanel isSignedIn={isSignedIn ?? false} />}
-            noteRecording={NOTE_RECORDING_PANEL}
-            upload={UPLOAD_PANEL}
+            navigation={navigation}
+            dictation={<DictationPanel isSignedIn={isSignedIn ?? false} navigation={navigation} />}
+            noteRecording={speechPanels.noteRecording}
+            upload={speechPanels.upload}
           />
         </TabPanel>
       )}
@@ -3969,11 +3968,7 @@ EOF`,
         linuxPttAvailable={linuxPttAvailable}
         showAlertDialog={showAlertDialog}
       />
-      <LlmsKeepAlive
-        active={activeSection === "llms"}
-        initialTab={activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined}
-        request={activeSection === "llms" && initialSubTab ? subTabRequest : undefined}
-      />
+      <LlmsKeepAlive navigation={navigation} />
       <SystemUpdates
         active={activeSection === "system"}
         showAlertDialog={showAlertDialog}
