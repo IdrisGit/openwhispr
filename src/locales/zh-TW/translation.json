@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - 語音輸入"
   },
   "menu": {
+    "edit": "編輯",
+    "view": "檢視",
+    "window": "視窗",
     "appLabel": "OpenWhispr",
     "quit": "結束 OpenWhispr",
     "speech": "語音",
@@ -163,6 +166,8 @@
     "pttUnavailable": "按住說話原生監聽程式無法使用"
   },
   "common": {
+    "confirm": "確認",
+    "ok": "確定",
     "continue": "繼續",
     "add": "新增",
     "retry": "重試",
@@ -1458,6 +1463,7 @@
       "modelLabel": "模型",
       "noModelSelected": "未選擇模型",
       "none": "無",
+      "copyOutput": "複製測試輸出",
       "outputLabel": "輸出",
       "processing": "處理中...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2560,6 +2566,7 @@
     }
   },
   "models": {
+    "deleteLabel": "刪除 {{model}}",
     "learnMore": "瞭解更多",
     "noneAvailable": "沒有可用的模型",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "在 設定 → 快捷鍵 → 翻譯快捷鍵 中設定快捷鍵",
     "targetsLabel": "目標語言",
     "addTarget": "新增語言…",
+    "selectTarget": "選擇{{language}}作為目標語言",
     "activeTarget": "目前目標語言",
     "removeTarget": "移除{{language}}",
     "maxTargets": "最多 {{max}} 種語言"

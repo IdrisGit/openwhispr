@@ -111,12 +111,19 @@ function LocalModelCard({
 
   return (
     <div
-      onClick={handleClick}
       className={`relative w-full text-start overflow-hidden rounded-md border transition-colors duration-200 group ${
         isSelected ? cardStyles.modelCard.selected : cardStyles.modelCard.default
       } ${isDownloaded && !isSelected ? "cursor-pointer" : ""}`}
     >
-      <div className="flex items-center gap-1.5 p-2">
+      <button
+        type="button"
+        aria-label={name}
+        aria-pressed={isSelected}
+        disabled={!isDownloaded}
+        onClick={handleClick}
+        className="absolute inset-0 w-full rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      />
+      <div className="flex items-center gap-1.5 p-2 pointer-events-none">
         <div className="shrink-0">
           {isDownloaded ? (
             <div
@@ -151,7 +158,7 @@ function LocalModelCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="relative z-10 pointer-events-none flex items-center gap-1.5 shrink-0">
           {isDownloaded ? (
             <>
               {isSelected && (
@@ -164,9 +171,10 @@ function LocalModelCard({
                   e.stopPropagation();
                   onDelete();
                 }}
+                aria-label={t("models.deleteLabel", { model: name })}
                 size="icon"
                 variant="ghost"
-                className="size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 transition-[color,opacity,transform] active:scale-95"
+                className="pointer-events-auto size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-[color,opacity,transform] active:scale-95"
               >
                 <Trash2 size={12} />
               </Button>
@@ -180,7 +188,7 @@ function LocalModelCard({
               disabled={isCancelling || isInstalling}
               size="sm"
               variant="outline"
-              className="h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
+              className="pointer-events-auto h-6 px-2.5 text-xs text-destructive border-destructive/25 hover:bg-destructive/8"
             >
               <X size={11} className="me-0.5" />
               {isCancelling ? "..." : t("common.cancel")}
@@ -193,7 +201,7 @@ function LocalModelCard({
               }}
               size="sm"
               variant="default"
-              className="h-6 px-2.5 text-xs"
+              className="pointer-events-auto h-6 px-2.5 text-xs"
             >
               <Download size={11} className="me-1" />
               {t("common.download")}
@@ -210,7 +218,7 @@ function LocalModelCard({
             event.stopPropagation();
             createExternalLinkHandler(modelCardUrl)(event);
           }}
-          className="inline-block ms-7 mb-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="relative z-10 inline-block ms-7 mb-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           {t("transcription.modelCard")}
         </a>

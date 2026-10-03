@@ -68,7 +68,6 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
       }};`,
       "/hooks/useDialogs": `export const useDialogs = () => ({alertDialog: {}, showAlertDialog() {}, hideAlertDialog() {}});`,
       "./dialog": `export const AlertDialog = () => null;`,
-      "./button": `import React from "react"; export const Button = ({children, onClick, disabled}) => React.createElement("button", {onClick, disabled}, children);`,
       "./textarea": `export function Textarea(props) { if (props.rows === 16) globalThis.__promptStudio.edit = props; return null; }`,
     },
   });
@@ -151,6 +150,10 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
         assert.match(
           container.textContent,
           action === "failure" ? /promptStudio.test.failed/ : /result/
+        );
+        assert.ok(
+          container.querySelector('button[aria-label="promptStudio.test.copyOutput"]'),
+          "real output-copy leaf has its own accessible name without performing a clipboard action"
         );
       });
     }

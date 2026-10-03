@@ -228,7 +228,7 @@ async function createRendererServer(
     cachePrefix = "openwhispr-renderer-test-",
     mockModules = {},
     noExternal = false,
-    resolveAlias = {},
+    resolveAlias = { "@": path.resolve(__dirname, "../../src") },
   } = {}
 ) {
   const { createServer } = await import("vite");

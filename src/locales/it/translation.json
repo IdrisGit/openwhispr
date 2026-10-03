@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - Dettatura vocale"
   },
   "menu": {
+    "edit": "Modifica",
+    "view": "Visualizza",
+    "window": "Finestra",
     "appLabel": "OpenWhispr",
     "quit": "Esci da OpenWhispr",
     "speech": "Voce",
@@ -163,6 +166,8 @@
     "pttUnavailable": "Il listener nativo Push-to-Talk non è disponibile"
   },
   "common": {
+    "confirm": "Conferma",
+    "ok": "OK",
     "continue": "Continua",
     "add": "Aggiungi",
     "retry": "Riprova",
@@ -1458,6 +1463,7 @@
       "modelLabel": "Modello",
       "noModelSelected": "Nessun modello selezionato",
       "none": "Nessuno",
+      "copyOutput": "Copia il risultato del test",
       "outputLabel": "Output",
       "processing": "Elaborazione...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2560,6 +2566,7 @@
     }
   },
   "models": {
+    "deleteLabel": "Elimina {{model}}",
     "learnMore": "Scopri di più",
     "noneAvailable": "Nessun modello disponibile",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "Imposta la hotkey in Impostazioni → Scorciatoie → Hotkey Traduzione",
     "targetsLabel": "Lingue di destinazione",
     "addTarget": "Aggiungi lingua…",
+    "selectTarget": "Seleziona {{language}} come lingua di destinazione",
     "activeTarget": "Lingua di destinazione attiva",
     "removeTarget": "Rimuovi {{language}}",
     "maxTargets": "Fino a {{max}} lingue"

@@ -113,8 +113,10 @@ export default function DictationTranslationSettings({
                               type="button"
                               onClick={() => setTranslationTargetLanguage(target)}
                               aria-pressed={isActive}
-                              aria-label={t("dictationTranslation.activeTarget")}
-                              className="inline-flex items-center gap-1"
+                              aria-label={t("dictationTranslation.selectTarget", {
+                                language: label,
+                              })}
+                              className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
                               {flag && <span aria-hidden="true">{flag}</span>}
                               <span>{label}</span>
@@ -126,7 +128,7 @@ export default function DictationTranslationSettings({
                                 aria-label={t("dictationTranslation.removeTarget", {
                                   language: label,
                                 })}
-                                className="rounded-full p-0.5 hover:text-destructive"
+                                className="rounded-full p-0.5 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                               >
                                 <X className="h-3 w-3" />
                               </button>

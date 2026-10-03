@@ -31,7 +31,33 @@ export function SettingsHost({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [openSettings]);
 
-  useEffect(() => window.electronAPI?.onShowSettings?.(() => openSettings()), [openSettings]);
+  useEffect(() => {
+    const hostId = crypto.randomUUID();
+    let disposed = false;
+    let documentId: number | null = null;
+    const dispose = window.electronAPI?.onShowSettings?.((request) => {
+      if (disposed || request?.hostId !== hostId || !Number.isSafeInteger(request.requestId))
+        return;
+      openSettings();
+      window.electronAPI?.acknowledgeSettingsOpen?.(hostId, request.requestId);
+    });
+    // This host exists only after AppRouter's auth/policy/onboarding gates and
+    // the normal panel's Suspense commit. Subscribe before announcing readiness.
+    void window.electronAPI
+      ?.getSettingsDocumentId?.()
+      .then((id) => {
+        if (disposed || id === null || !Number.isSafeInteger(id)) return;
+        documentId = id;
+        window.electronAPI?.setSettingsHostReady?.(hostId, true, id);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      if (documentId !== null)
+        window.electronAPI?.setSettingsHostReady?.(hostId, false, documentId);
+      dispose?.();
+    };
+  }, [openSettings]);
 
   return (
     <>

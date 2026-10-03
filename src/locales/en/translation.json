@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - Voice Dictation"
   },
   "menu": {
+    "edit": "Edit",
+    "view": "View",
+    "window": "Window",
     "appLabel": "OpenWhispr",
     "quit": "Quit OpenWhispr",
     "speech": "Speech",
@@ -163,6 +166,8 @@
     "pttUnavailable": "Push-to-Talk native listener not available"
   },
   "common": {
+    "confirm": "Confirm",
+    "ok": "OK",
     "continue": "Continue",
     "add": "Add",
     "retry": "Retry",
@@ -1553,6 +1558,7 @@
       "modelLabel": "Model",
       "noModelSelected": "No model selected",
       "none": "None",
+      "copyOutput": "Copy test output",
       "outputLabel": "Output",
       "processing": "Processing...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2655,6 +2661,7 @@
     }
   },
   "models": {
+    "deleteLabel": "Delete {{model}}",
     "learnMore": "Learn more",
     "noneAvailable": "No models available",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "Set the hotkey under Settings → Hotkeys → Translation Hotkey",
     "targetsLabel": "Target languages",
     "addTarget": "Add language…",
+    "selectTarget": "Select {{language}} as the target language",
     "activeTarget": "Active target language",
     "removeTarget": "Remove {{language}}",
     "maxTargets": "Up to {{max}} languages"

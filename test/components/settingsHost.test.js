@@ -19,6 +19,8 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
   });
   let keydown;
   let showSettingsFromMain;
+  let readyHost;
+  const acknowledgements = [];
   installBrowserGlobals(t, {
     window: {
       addEventListener(type, listener) {
@@ -29,6 +31,13 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
       },
       electronAPI: {
         getPlatform: () => "linux",
+        getSettingsDocumentId: async () => 1,
+        setSettingsHostReady(id, ready) {
+          readyHost = ready ? id : undefined;
+        },
+        acknowledgeSettingsOpen(id, requestId) {
+          acknowledgements.push({ id, requestId });
+        },
         onShowSettings(listener) {
           showSettingsFromMain = listener;
           return () => {
@@ -142,7 +151,9 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   await React.act(async () => {
-    showSettingsFromMain();
+    showSettingsFromMain({ hostId: "disposed", requestId: 1 });
+    assert.equal(globalThis.__gpuBannerOptions.settingsOpen, false);
+    showSettingsFromMain({ hostId: readyHost, requestId: 2 });
     await flush();
   });
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, true);
@@ -152,4 +163,9 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
   root = null;
   assert.equal(keydown, undefined);
   assert.equal(showSettingsFromMain, undefined);
+  assert.equal(readyHost, undefined);
+  assert.deepEqual(
+    acknowledgements.map((item) => item.requestId),
+    [2]
+  );
 });

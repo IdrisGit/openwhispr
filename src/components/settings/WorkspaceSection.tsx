@@ -263,7 +263,6 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
   const { user } = useAuth();
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const refresh = useWorkspaceStore((s) => s.refresh);
-  const setActive = useWorkspaceStore((s) => s.setActiveWorkspaceId);
   const [name, setName] = useState(workspace.name);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -303,7 +302,7 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
         setDeleting(true);
         try {
           await WorkspacesService.remove(workspace.id);
-          setActive(null);
+          // The shared refresh resolves the current selection, not this closure's workspace.
           await refresh();
           toast({ title: t("settingsPage.workspace.general.deleted") });
         } catch (error) {
@@ -330,7 +329,6 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
         setLeaving(true);
         try {
           await WorkspacesService.removeMember(workspace.id, user.id);
-          setActive(null);
           await refresh();
           toast({ title: t("settingsPage.workspace.general.left", { name: workspace.name }) });
         } catch (error) {

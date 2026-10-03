@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - Dictée vocale"
   },
   "menu": {
+    "edit": "Édition",
+    "view": "Affichage",
+    "window": "Fenêtre",
     "appLabel": "OpenWhispr",
     "quit": "Quitter OpenWhispr",
     "speech": "Parole",
@@ -163,6 +166,8 @@
     "pttUnavailable": "L'écouteur natif Push-to-Talk n'est pas disponible"
   },
   "common": {
+    "confirm": "Confirmer",
+    "ok": "OK",
     "continue": "Continuer",
     "add": "Ajouter",
     "retry": "Réessayer",
@@ -1553,6 +1558,7 @@
       "modelLabel": "Modèle",
       "noModelSelected": "Aucun modèle sélectionné",
       "none": "Aucun",
+      "copyOutput": "Copier le résultat du test",
       "outputLabel": "Sortie",
       "processing": "Traitement...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2655,6 +2661,7 @@
     }
   },
   "models": {
+    "deleteLabel": "Supprimer {{model}}",
     "learnMore": "En savoir plus",
     "noneAvailable": "Aucun modèle disponible",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "Définissez le raccourci dans Paramètres → Raccourcis → Raccourci de Traduction",
     "targetsLabel": "Langues cibles",
     "addTarget": "Ajouter une langue…",
+    "selectTarget": "Choisir {{language}} comme langue cible",
     "activeTarget": "Langue cible active",
     "removeTarget": "Supprimer {{language}}",
     "maxTargets": "Jusqu’à {{max}} langues"

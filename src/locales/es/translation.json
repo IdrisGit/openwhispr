@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - Dictado por voz"
   },
   "menu": {
+    "edit": "Editar",
+    "view": "Ver",
+    "window": "Ventana",
     "appLabel": "OpenWhispr",
     "quit": "Salir de OpenWhispr",
     "speech": "Voz",
@@ -163,6 +166,8 @@
     "pttUnavailable": "El módulo nativo de Push-to-Talk no está disponible"
   },
   "common": {
+    "confirm": "Confirmar",
+    "ok": "Aceptar",
     "continue": "Continuar",
     "add": "Añadir",
     "retry": "Reintentar",
@@ -1511,6 +1516,7 @@
       "modelLabel": "Modelo",
       "noModelSelected": "Ningún modelo seleccionado",
       "none": "Ninguno",
+      "copyOutput": "Copiar resultado de la prueba",
       "outputLabel": "Salida",
       "processing": "Procesando...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2613,6 +2619,7 @@
     }
   },
   "models": {
+    "deleteLabel": "Eliminar {{model}}",
     "learnMore": "Más información",
     "noneAvailable": "No hay modelos disponibles",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "Configura el atajo en Ajustes → Atajos → Atajo de Traducción",
     "targetsLabel": "Idiomas de destino",
     "addTarget": "Añadir idioma…",
+    "selectTarget": "Seleccionar {{language}} como idioma de destino",
     "activeTarget": "Idioma de destino activo",
     "removeTarget": "Quitar {{language}}",
     "maxTargets": "Hasta {{max}} idiomas"

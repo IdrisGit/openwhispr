@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Loader2, Search } from "./icons";
@@ -11,6 +11,7 @@ import CustomModelInput from "./ui/CustomModelInput";
 import TestConnectionButton from "./TestConnectionButton";
 import { REASONING_PROVIDERS } from "../models/ModelRegistry";
 import { useSettingsStore } from "../stores/settingsStore";
+import { usePolicyStore } from "../stores/policyStore";
 import { getProviderIcon, isMonochromeProvider } from "../utils/providerIcons";
 import { adjustBedrockModelForRegion, BEDROCK_REGIONS } from "../utils/bedrockRegions";
 
@@ -119,6 +120,8 @@ function useSuggestedModels(provider: "bedrock" | "vertex") {
   }, [t, provider]);
 }
 
+const EMPTY_CATALOG: ModelCardOption[] = [];
+
 type BedrockCatalogState =
   | { status: "idle" }
   | { status: "loading" }
@@ -145,8 +148,17 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
     }))
   );
   const suggestedModels = useSuggestedModels("bedrock");
-  const [catalog, setCatalog] = useState<BedrockCatalogState>({ status: "idle" });
+  const [catalogState, setCatalogState] = useState<{
+    lease: object | null;
+    data: BedrockCatalogState;
+  }>({
+    lease: null,
+    data: { status: "idle" },
+  });
+  const [catalogVisited, setCatalogVisited] = useState(false);
   const catalogRequestRef = useRef(0);
+  const accountId = usePolicyStore((s) => s.accountId);
+  const authGeneration = usePolicyStore((s) => s.authGeneration);
 
   const regionModels = useMemo(
     () =>
@@ -165,26 +177,53 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
     bedrockSessionToken: store.bedrockAuthMode === "keys" ? store.bedrockSessionToken : "",
   });
 
-  const loadCatalog = async (region: string) => {
+  const catalogOwner = JSON.stringify([
+    accountId,
+    authGeneration,
+    store.bedrockAuthMode,
+    getConnectionConfig(),
+  ]);
+  const [configuration, setConfiguration] = useState({ key: catalogOwner });
+  if (configuration.key !== catalogOwner) setConfiguration({ key: catalogOwner });
+  const catalog: BedrockCatalogState =
+    catalogState.lease === configuration ? catalogState.data : { status: "idle" };
+  const catalogLeaseRef = useRef<object | null>(null);
+  const bindCatalog = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return;
+      catalogLeaseRef.current = configuration;
+      return () => {
+        if (catalogLeaseRef.current === configuration) catalogLeaseRef.current = null;
+      };
+    },
+    [configuration]
+  );
+
+  const loadCatalog = async () => {
     const requestId = ++catalogRequestRef.current;
-    setCatalog({ status: "loading" });
-    const result = await window.electronAPI?.listBedrockModels?.({
-      ...getConnectionConfig(),
-      bedrockRegion: region,
-    });
-    if (requestId !== catalogRequestRef.current) return;
-    if (result?.success && result.models) {
-      setCatalog({
-        status: "loaded",
-        models: result.models.map((m) => ({ value: m.value, label: m.label, group: m.vendor })),
-      });
-    } else {
-      setCatalog({
-        status: "error",
-        error:
-          result?.error ||
-          t("reasoning.enterprise.modelListError", { defaultValue: "Could not load models." }),
-      });
+    const isCurrent = () =>
+      catalogLeaseRef.current === configuration && requestId === catalogRequestRef.current;
+    const publish = (data: BedrockCatalogState) => {
+      if (isCurrent()) setCatalogState({ lease: configuration, data });
+    };
+    publish({ status: "loading" });
+    try {
+      const result = await window.electronAPI?.listBedrockModels?.(getConnectionConfig());
+      if (!isCurrent()) return;
+      if (result?.success && Array.isArray(result.models)) {
+        publish({
+          status: "loaded",
+          models: result.models.map((m) => ({ value: m.value, label: m.label, group: m.vendor })),
+        });
+        setCatalogVisited(true);
+      } else {
+        publish({
+          status: "error",
+          error: result?.error || t("reasoning.enterprise.modelListError"),
+        });
+      }
+    } catch {
+      publish({ status: "error", error: t("reasoning.enterprise.modelListError") });
     }
   };
 
@@ -192,7 +231,6 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
     store.setBedrockRegion(region);
     const adjusted = adjustBedrockModelForRegion(reasoningModel, region);
     if (adjusted !== reasoningModel) setReasoningModel(adjusted);
-    if (catalog.status !== "idle") void loadCatalog(region);
   };
 
   const getTestConfig = () => ({
@@ -201,7 +239,7 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
   });
 
   return (
-    <div className="space-y-3">
+    <div ref={bindCatalog} className="space-y-3">
       <div className="space-y-1.5">
         <FieldLabel>
           {t("reasoning.enterprise.authMode", { defaultValue: "Authentication" })}
@@ -322,8 +360,8 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
         </div>
       )}
 
-      {catalog.status === "loaded" ? (
-        <div className="space-y-1.5">
+      {catalogVisited && (
+        <div hidden={catalog.status !== "loaded"} className="space-y-1.5">
           <FieldLabel>
             {t("reasoning.enterprise.allModels", {
               defaultValue: "All Models in {{region}}",
@@ -331,12 +369,13 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
             })}
           </FieldLabel>
           <SearchableModelList
-            models={catalog.models}
+            models={catalog.status === "loaded" ? catalog.models : EMPTY_CATALOG}
             selectedModel={reasoningModel}
             onModelSelect={setReasoningModel}
           />
         </div>
-      ) : (
+      )}
+      {catalog.status !== "loaded" && (
         <div className="space-y-1.5">
           <Button
             type="button"
@@ -345,7 +384,7 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
             className="w-full"
             aria-busy={catalog.status === "loading"}
             onClick={() => {
-              if (catalog.status !== "loading") void loadCatalog(store.bedrockRegion);
+              if (catalog.status !== "loading") void loadCatalog();
             }}
           >
             {catalog.status === "loading" ? (
@@ -371,7 +410,11 @@ function BedrockConfig({ reasoningModel, setReasoningModel }: EnterpriseProvider
 
       <CustomModelInput value={reasoningModel} onChange={setReasoningModel} />
 
-      <TestConnectionButton provider="bedrock" getConfig={getTestConfig} />
+      <TestConnectionButton
+        provider="bedrock"
+        getConfig={getTestConfig}
+        configurationKey={JSON.stringify([store.bedrockAuthMode, getTestConfig()])}
+      />
     </div>
   );
 }
@@ -467,7 +510,11 @@ function AzureConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderCo
         />
       </div>
 
-      <TestConnectionButton provider="azure" getConfig={getTestConfig} />
+      <TestConnectionButton
+        provider="azure"
+        getConfig={getTestConfig}
+        configurationKey={JSON.stringify(getTestConfig())}
+      />
     </div>
   );
 }
@@ -591,7 +638,11 @@ function VertexConfig({ reasoningModel, setReasoningModel }: EnterpriseProviderC
 
       <CustomModelInput value={reasoningModel} onChange={setReasoningModel} />
 
-      <TestConnectionButton provider="vertex" getConfig={getTestConfig} />
+      <TestConnectionButton
+        provider="vertex"
+        getConfig={getTestConfig}
+        configurationKey={JSON.stringify([store.vertexAuthMode, getTestConfig()])}
+      />
     </div>
   );
 }

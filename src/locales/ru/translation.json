@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr — голосовая диктовка"
   },
   "menu": {
+    "edit": "Правка",
+    "view": "Вид",
+    "window": "Окно",
     "appLabel": "OpenWhispr",
     "quit": "Закрыть OpenWhispr",
     "speech": "Речь",
@@ -163,6 +166,8 @@
     "pttUnavailable": "Нативный слушатель Push-to-Talk недоступен"
   },
   "common": {
+    "confirm": "Подтвердить",
+    "ok": "ОК",
     "continue": "Продолжить",
     "add": "Добавить",
     "retry": "Повторить",
@@ -1458,6 +1463,7 @@
       "modelLabel": "Модель",
       "noModelSelected": "Модель не выбрана",
       "none": "Нет",
+      "copyOutput": "Копировать результат теста",
       "outputLabel": "Результат",
       "processing": "Обработка...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2576,6 +2582,7 @@
     }
   },
   "models": {
+    "deleteLabel": "Удалить {{model}}",
     "learnMore": "Подробнее",
     "noneAvailable": "Нет доступных моделей",
     "descriptions": {
@@ -4792,6 +4799,7 @@
     "hotkeyHint": "Задайте горячую клавишу в Настройки → Горячие клавиши → Горячая клавиша перевода",
     "targetsLabel": "Языки перевода",
     "addTarget": "Добавить язык…",
+    "selectTarget": "Выбрать {{language}} языком перевода",
     "activeTarget": "Активный язык перевода",
     "removeTarget": "Удалить {{language}}",
     "maxTargets": "До {{max}} языков"

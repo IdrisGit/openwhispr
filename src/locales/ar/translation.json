@@ -217,6 +217,7 @@
     }
   },
   "models": {
+    "deleteLabel": "حذف {{model}}",
     "learnMore": "اعرف المزيد",
     "noneAvailable": "لا توجد نماذج متاحة",
     "descriptions": {
@@ -1431,6 +1432,7 @@
       "modelLabel": "النموذج",
       "noModelSelected": "لم يتم تحديد أي نموذج",
       "none": "لا شيء",
+      "copyOutput": "نسخ نتيجة الاختبار",
       "outputLabel": "المخرجات",
       "processing": "جاري المعالجة...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -4085,6 +4087,9 @@
     "tooltip": "OpenWhispr - الإملاء الصوتي"
   },
   "menu": {
+    "edit": "تحرير",
+    "view": "عرض",
+    "window": "نافذة",
     "appLabel": "OpenWhispr",
     "quit": "إنهاء OpenWhispr",
     "speech": "النطق",
@@ -4180,6 +4185,8 @@
     "pttUnavailable": "المستمع الأصلي لميزة «اضغط للتحدث» غير متوفر"
   },
   "common": {
+    "confirm": "تأكيد",
+    "ok": "حسنًا",
     "continue": "متابعة",
     "add": "إضافة",
     "retry": "إعادة المحاولة",
@@ -4868,6 +4875,7 @@
     "hotkeyHint": "قم بتعيين الاختصار من خلال الإعدادات ← اختصارات لوحة المفاتيح ← اختصار الترجمة",
     "targetsLabel": "اللغات المستهدفة",
     "addTarget": "إضافة لغة...",
+    "selectTarget": "اختيار {{language}} كلغة مستهدفة",
     "activeTarget": "اللغة المستهدفة النشطة",
     "removeTarget": "إزالة {{language}}",
     "maxTargets": "ما يصل إلى {{max}} لغات"

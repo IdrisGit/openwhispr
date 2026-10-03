@@ -600,6 +600,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
                         {t("promptStudio.test.outputLabel")}
                       </p>
                       <Button
+                        aria-label={t("promptStudio.test.copyOutput")}
                         onClick={() => copyText(testResult)}
                         variant="ghost"
                         size="icon"

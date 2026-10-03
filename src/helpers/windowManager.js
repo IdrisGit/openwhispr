@@ -52,6 +52,10 @@ class WindowManager {
   constructor() {
     this.mainWindow = null;
     this.controlPanelWindow = null;
+    this._settingsHost = null;
+    this._pendingSettingsOpen = null;
+    this._settingsRequestId = 0;
+    this._settingsDocumentId = 0;
     this._resizeMaskTokenCounter = 0;
     this._controlPanelVisibilityTimer = null;
     this._onboardingRestoreBounds = null;
@@ -1351,6 +1355,8 @@ class WindowManager {
       this._clearControlPanelVisibilityTimer();
       this.endOnboardingDemo();
       this.controlPanelWindow = null;
+      this._settingsHost = null;
+      this._settingsDocumentId++;
       this._onboardingActive = true;
       this._hideNormalAppSurfaces();
       this._onboardingRestoreBounds = null;
@@ -1360,6 +1366,16 @@ class WindowManager {
     });
 
     MenuManager.setupControlPanelMenu(this.controlPanelWindow, () => this.openSettings());
+
+    this.controlPanelWindow.webContents.on(
+      "did-start-navigation",
+      (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) {
+          this._settingsHost = null;
+          this._settingsDocumentId++;
+        }
+      }
+    );
 
     this.controlPanelWindow.webContents.on("did-finish-load", () => {
       // Every fresh document starts unresolved. AppRouter releases the gate
@@ -2256,11 +2272,71 @@ class WindowManager {
     }
   }
 
-  async openSettings() {
-    await this.createControlPanelWindow();
-    if (this.controlPanelWindow && !this.controlPanelWindow.isDestroyed()) {
-      this.controlPanelWindow.webContents.send("show-settings");
+  _isSettingsSender(event) {
+    const win = this.controlPanelWindow;
+    return (
+      !!win &&
+      !win.isDestroyed() &&
+      event.sender === win.webContents &&
+      event.senderFrame === win.webContents.mainFrame
+    );
+  }
+
+  getSettingsDocumentId(event) {
+    return this._isSettingsSender(event) ? this._settingsDocumentId : null;
+  }
+
+  setSettingsHostReady(event, hostId, ready, documentId) {
+    if (
+      !this._isSettingsSender(event) ||
+      documentId !== this._settingsDocumentId ||
+      typeof hostId !== "string" ||
+      !hostId ||
+      hostId.length > 128 ||
+      typeof ready !== "boolean"
+    )
+      return;
+    if (ready) {
+      this._settingsHost = { id: hostId, frame: event.senderFrame };
+      this._deliverPendingSettingsOpen();
+    } else if (this._settingsHost?.id === hostId) {
+      this._settingsHost = null;
     }
+  }
+
+  acknowledgeSettingsOpen(event, hostId, requestId) {
+    if (
+      !this._isSettingsSender(event) ||
+      this._settingsHost?.id !== hostId ||
+      this._settingsHost.frame !== event.senderFrame ||
+      requestId !== this._pendingSettingsOpen
+    )
+      return;
+    this._pendingSettingsOpen = null;
+  }
+
+  _deliverPendingSettingsOpen() {
+    const win = this.controlPanelWindow;
+    if (
+      !win ||
+      win.isDestroyed() ||
+      !this._settingsHost ||
+      this._settingsHost.frame !== win.webContents.mainFrame ||
+      this._pendingSettingsOpen === null
+    )
+      return;
+    win.webContents.send("show-settings", {
+      hostId: this._settingsHost.id,
+      requestId: this._pendingSettingsOpen,
+    });
+  }
+
+  async openSettings() {
+    // A document load is not React/auth/policy readiness. Keep one plain-open
+    // intent until the eligible host acknowledges it; reload/cleanup retains it.
+    this._pendingSettingsOpen = ++this._settingsRequestId;
+    await this.createControlPanelWindow();
+    this._deliverPendingSettingsOpen();
   }
 
   showLoadFailureDialog(windowName, errorCode, errorDescription, validatedURL) {

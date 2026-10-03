@@ -1338,6 +1338,16 @@ class IPCHandlers {
   }
 
   setupHandlers() {
+    ipcMain.handle("settings-document-id", (event) =>
+      this.windowManager.getSettingsDocumentId(event)
+    );
+    ipcMain.on("settings-host-ready", (event, hostId, ready, documentId) =>
+      this.windowManager.setSettingsHostReady(event, hostId, ready, documentId)
+    );
+    ipcMain.on("settings-open-consumed", (event, hostId, requestId) =>
+      this.windowManager.acknowledgeSettingsOpen(event, hostId, requestId)
+    );
+
     ipcMain.handle("onboarding-set-window-mode", (_event, mode) =>
       this.windowManager.setOnboardingWindowMode(mode)
     );

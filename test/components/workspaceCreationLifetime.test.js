@@ -27,6 +27,8 @@ test("a workspace created for the previous account cannot become active or start
   const calls = [];
   const handler = vm.runInNewContext(`${code}\nhandleSubmit`, {
     name: "Old account",
+    submitting: false,
+    capture: () => ({ isCurrent: () => false, isAccountCurrent: () => false }),
     createWorkspace: async () => null,
     setSubmitting: () => {},
     setActive: () => calls.push("active"),
@@ -36,5 +38,5 @@ test("a workspace created for the previous account cannot become active or start
     t: (key) => key,
   });
   await handler({ preventDefault() {} });
-  assert.deepEqual(calls, ["closed"]);
+  assert.deepEqual(calls, [], "obsolete account completion cannot close a replacement session");
 });

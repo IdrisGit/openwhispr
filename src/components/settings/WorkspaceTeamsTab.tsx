@@ -196,9 +196,9 @@ export default function WorkspaceTeamsTab({ workspace }: Props) {
         workspaceId={workspace.id}
         open={createOpen}
         onOpenChange={setCreateOpen}
+        onReconciled={() => loadTeams()}
         onCreated={(team) => {
           toast({ title: t("settingsPage.workspace.teams.created", { team: team.name }) });
-          return loadTeams();
         }}
       />
 

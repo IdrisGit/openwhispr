@@ -68,6 +68,9 @@
     "tooltip": "OpenWhispr - 音声ディクテーション"
   },
   "menu": {
+    "edit": "編集",
+    "view": "表示",
+    "window": "ウィンドウ",
     "appLabel": "OpenWhispr",
     "quit": "OpenWhispr を終了",
     "speech": "スピーチ",
@@ -163,6 +166,8 @@
     "pttUnavailable": "プッシュトゥトークのネイティブリスナーが利用できません"
   },
   "common": {
+    "confirm": "確認",
+    "ok": "OK",
     "continue": "続ける",
     "add": "追加",
     "retry": "再試行",
@@ -1458,6 +1463,7 @@
       "modelLabel": "モデル",
       "noModelSelected": "モデル未選択",
       "none": "なし",
+      "copyOutput": "テスト結果をコピー",
       "outputLabel": "出力",
       "processing": "処理中...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2560,6 +2566,7 @@
     }
   },
   "models": {
+    "deleteLabel": "{{model}}を削除",
     "learnMore": "詳細を見る",
     "noneAvailable": "利用可能なモデルがありません",
     "descriptions": {
@@ -4746,6 +4753,7 @@
     "hotkeyHint": "ホットキーは 設定 → ホットキー → 翻訳ホットキー で設定できます",
     "targetsLabel": "翻訳先の言語",
     "addTarget": "言語を追加…",
+    "selectTarget": "{{language}}を翻訳先言語に選択",
     "activeTarget": "使用中の翻訳先言語",
     "removeTarget": "{{language}}を削除",
     "maxTargets": "最大{{max}}言語"

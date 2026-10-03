@@ -2164,7 +2164,12 @@ declare global {
       onLinuxPttPermissionDenied?: (callback: () => void) => () => void;
 
       // Settings shortcut (Cmd+, / Ctrl+,)
-      onShowSettings?: (callback: () => void) => () => void;
+      onShowSettings?: (
+        callback: (request: { hostId: string; requestId: number }) => void
+      ) => () => void;
+      getSettingsDocumentId?: () => Promise<number | null>;
+      setSettingsHostReady?: (hostId: string, ready: boolean, documentId: number) => void;
+      acknowledgeSettingsOpen?: (hostId: string, requestId: number) => void;
 
       // Accessibility permission events (macOS)
       markMacAccessibilityFeaturesReady?: (expectedAccountScope?: ActiveAccountScope) => void;

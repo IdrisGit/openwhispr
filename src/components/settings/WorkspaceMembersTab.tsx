@@ -464,7 +464,7 @@ export default function WorkspaceMembersTab({ workspace }: Props) {
         onOpenChange={setInviteOpen}
         workspaceId={workspace.id}
         workspaceName={workspace.name}
-        onInvited={refreshInvitations}
+        onReconciled={refreshInvitations}
       />
 
       <ConfirmDialog

@@ -16,7 +16,7 @@ test("scoped host survives StrictMode, reconciles hidden policy and cannot leak 
     delete globalThis.__navigationLifecycle;
   });
   const counts = { registered: 0, disposed: 0, probeRenders: 0 };
-  let fromMain, keydown;
+  let fromMain, keydown, hostId;
   const { storage } = installBrowserGlobals(t, {
     window: {
       addEventListener(type, listener) {
@@ -27,6 +27,10 @@ test("scoped host survives StrictMode, reconciles hidden policy and cannot leak 
       },
       electronAPI: {
         getPlatform: () => "linux",
+        getSettingsDocumentId: async () => 1,
+        setSettingsHostReady(id, ready) {
+          hostId = ready ? id : null;
+        },
         onShowSettings(callback) {
           fromMain = callback;
           return () => {
@@ -106,7 +110,7 @@ test("scoped host survives StrictMode, reconciles hidden policy and cannot leak 
   await React.act(async () => keydown({ ctrlKey: true, key: ",", preventDefault() {} }));
   assert.equal(navigation.getState().section, "account");
   await React.act(async () => actions.setSettingsOpen(false));
-  await React.act(async () => fromMain());
+  await React.act(async () => fromMain({ hostId, requestId: 1 }));
   assert.equal(navigation.getState().section, "account");
   const old = navigation;
   await React.act(async () => root.unmount());

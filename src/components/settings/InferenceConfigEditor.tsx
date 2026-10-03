@@ -30,7 +30,10 @@ import {
   getLocalModel,
   enterpriseProviderName,
 } from "../../models/ModelRegistry";
-import { useManagedScopeResolution } from "../../stores/enterpriseIdentityStore";
+import {
+  useManagedScopeResolution,
+  useEnterpriseIdentityStore,
+} from "../../stores/enterpriseIdentityStore";
 import { requestSignIn } from "../../utils/requestSignIn";
 import TestConnectionButton from "../TestConnectionButton";
 import { getEnterpriseCallSettings } from "../../services/ai/enterpriseSettings";
@@ -77,6 +80,14 @@ export default function InferenceConfigEditor({
   const setEnterpriseSetupMode = useSettingsStore((s) => s.setEnterpriseSetupMode);
   const managed = useManagedScopeResolution(scope, enterpriseSetupMode);
   const managedAvailable = useManagedScopeResolution(scope, "managed");
+  const managedIdentity = useEnterpriseIdentityStore(
+    useShallow((s) => ({
+      accountId: s.accountId,
+      workspaceId: s.workspaceId,
+      authGeneration: s.authGeneration,
+      generation: s.config?.generation,
+    }))
+  );
 
   const prefix = MODE_LABEL_PREFIX[scope];
   const { modes, effectiveMode, isModeAllowed } = usePolicyModeOptions<InferenceModeOption>(
@@ -220,6 +231,13 @@ export default function InferenceConfigEditor({
         <div className="flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
           <TestConnectionButton
             provider={managed.provider}
+            configurationKey={JSON.stringify([
+              scope,
+              enterpriseSetupMode,
+              managedIdentity,
+              managed.model,
+              managed.record,
+            ])}
             getConfig={() => ({
               ...getEnterpriseCallSettings(managed.provider, scope),
               model: managed.model,
