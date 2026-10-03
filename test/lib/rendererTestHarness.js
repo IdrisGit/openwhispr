@@ -161,6 +161,13 @@ function installHostDom(t) {
       return child;
     }
 
+    contains(candidate) {
+      for (let current = candidate; current; current = current.parentNode) {
+        if (current === this) return true;
+      }
+      return false;
+    }
+
     setAttribute(name, value) {
       this.attributes[name] = String(value);
     }

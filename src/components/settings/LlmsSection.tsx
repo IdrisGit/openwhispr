@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useLayoutEffect, useRef, useState } from "react";
+import React, { memo, useMemo, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Languages, MessageSquare, Sparkles, Wand2 } from "../icons";
@@ -120,14 +120,14 @@ function NoteFormattingSettings({ navigation }: { navigation: SettingsNavigation
 function TabPanel({
   active,
   children,
-  policyAgent = false,
+  ref,
 }: {
   active: boolean;
   children: React.ReactNode;
-  policyAgent?: boolean;
+  ref?: React.Ref<HTMLDivElement>;
 }) {
   return (
-    <div hidden={!active} data-policy-agent-panel={policyAgent || undefined}>
+    <div hidden={!active} ref={ref}>
       {children}
     </div>
   );
@@ -153,19 +153,33 @@ const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNa
   );
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const previousAgentAllowed = useRef(agentAllowed);
-  const focusedPanelWasRemoved =
-    previousAgentAllowed.current &&
-    !agentAllowed &&
-    Array.from(
-      rootRef.current?.querySelectorAll<HTMLElement>("[data-policy-agent-panel]") ?? []
-    ).some((panel) => panel.contains(document.activeElement));
+  const removedFocusedPanel = useRef<HTMLDivElement | null>(null);
+  const captureRemovedPanelFocus = useCallback((panel: HTMLDivElement | null) => {
+    if (!panel) return;
+    // A StrictMode ref replay reattaches the same connected panel.
+    if (removedFocusedPanel.current === panel) removedFocusedPanel.current = null;
+    // Ref cleanup runs at removal, before the panel's DOM disappears. Unlike
+    // a last-focus event, this cannot retain a control removed on an earlier edit.
+    return () => {
+      if (panel.contains(panel.ownerDocument.activeElement)) removedFocusedPanel.current = panel;
+    };
+  }, []);
 
   useLayoutEffect(() => {
-    previousAgentAllowed.current = agentAllowed;
-    if (!focusedPanelWasRemoved) return;
-    rootRef.current?.querySelector<HTMLButtonElement>(`[data-tab-id="${tab}"]`)?.focus();
-  }, [agentAllowed, focusedPanelWasRemoved, tab]);
+    const panel = removedFocusedPanel.current;
+    removedFocusedPanel.current = null;
+    const root = rootRef.current;
+    if (
+      agentAllowed ||
+      !panel ||
+      panel.isConnected ||
+      !root ||
+      root.closest("[hidden]") ||
+      root.ownerDocument.activeElement !== root.ownerDocument.body
+    )
+      return;
+    root.querySelector<HTMLButtonElement>(`[data-tab-id="${tab}"]`)?.focus();
+  }, [agentAllowed, tab]);
 
   const subTabs = [
     { id: "dictationCleanup", name: t("settingsPage.llms.tabs.dictationCleanup") },
@@ -197,7 +211,7 @@ const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNa
         <TabPanel active={tab === "dictationCleanup"}>{content.dictationCleanup}</TabPanel>
       )}
       {agentAllowed && (tab === "dictationAgent" || visitedTabs.has("dictationAgent")) && (
-        <TabPanel active={tab === "dictationAgent"} policyAgent>
+        <TabPanel active={tab === "dictationAgent"} ref={captureRemovedPanelFocus}>
           {content.dictationAgent}
         </TabPanel>
       )}
@@ -208,7 +222,7 @@ const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNa
         <TabPanel active={tab === "noteFormatting"}>{content.noteFormatting}</TabPanel>
       )}
       {agentAllowed && (tab === "chatIntelligence" || visitedTabs.has("chatIntelligence")) && (
-        <TabPanel active={tab === "chatIntelligence"} policyAgent>
+        <TabPanel active={tab === "chatIntelligence"} ref={captureRemovedPanelFocus}>
           {content.chatIntelligence}
         </TabPanel>
       )}
