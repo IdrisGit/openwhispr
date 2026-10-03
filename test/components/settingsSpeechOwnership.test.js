@@ -37,7 +37,23 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     rows: [],
     toasts: [],
     registered: [],
+    hotkeys: {},
+    hotkeyMounts: 0,
+    hotkeyDisposed: 0,
+    alerts: [],
   });
+  dom.electronAPI.updateHotkey = async (key) => {
+    observed.registered.push(key);
+    return { success: true };
+  };
+  dom.electronAPI.onLinuxPttPermissionDenied = (listener) => {
+    observed.onDenial = listener;
+    return () => {
+      if (observed.onDenial === listener) observed.onDenial = null;
+    };
+  };
+  observed.agentWrite = async () => ({ success: true });
+  observed.translationWrite = async () => ({ success: true });
   const emptyComponent = "export default function Stub() { return null; }";
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-settings-speech-ownership-",
@@ -50,7 +66,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
           "/ui/PermissionCard",
           "/ui/PasteToolsInfo",
           "/ui/NixOsPasteInfo",
-          "/ui/LinuxPttSetupInfo",
           "/ui/LanguageSelector",
           "/DeveloperSection",
           "/settings/GpuDeviceSelector",
@@ -73,6 +88,22 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         import { create } from "zustand";
         export const useSettingsStore = create(set => ({
           isSignedIn: true, customDictionary: [], activationMode: "tap",
+          dictationKey: "F8", meetingKey: "F7", voiceAgentKey: "F6", translationKey: "F5",
+          meetingHotkeyLayoutMode: "side-panel",
+          setActivationMode: value => set({activationMode: value}),
+          setDictationKey: value => set({dictationKey: value}),
+          setMeetingKey: value => set({meetingKey: value}),
+          setMeetingHotkeyLayoutMode: value => set({meetingHotkeyLayoutMode: value}),
+          setVoiceAgentKey: async value => {
+            const result = await globalThis.__settingsSpeech.agentWrite(value);
+            if (result.success) set({voiceAgentKey: value});
+            return result;
+          },
+          setTranslationKey: async value => {
+            const result = await globalThis.__settingsSpeech.translationWrite(value);
+            if (result.success) set({translationKey: value});
+            return result;
+          },
           transcriptionMode: "local", localTranscriptionProvider: "whisper", whisperModel: "base",
           useLocalWhisper: true, showTranscriptionPreview: false,
           meetingTranscriptionMode: "local", meetingLocalTranscriptionProvider: "whisper", meetingWhisperModel: "base",
@@ -107,7 +138,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         }
       `,
       "/stores/enterpriseIdentityStore": `export const useManagedScopeResolution = () => ({kind: "unmanaged"});`,
-      "/stores/policyStore": `export const usePolicyStore = { getState: () => ({}) };`,
+      "/stores/policyStore": `export const usePolicyStore = select => globalThis.__settingsSpeech.policy(select); usePolicyStore.getState = () => globalThis.__settingsSpeech.policy.getState();`,
       "/stores/workspaceStore": `const state = { workspaces: [], loaded: false }; export const useWorkspaceStore = select => select(state);`,
       "/stores/noteStore.js": `export const useMigration = () => ({}); export const startMigration = () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
       "/stores/meetingRecordingStore": `export const stopRecording = async () => {};`,
@@ -117,13 +148,23 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => null;`,
       "/lib/usageStore": `export const highestPlan = () => "free";`,
       "/hooks/useSettings": `export const useAutoLearnCorrections = () => ({});`,
-      "/hooks/useDialogs": `const noop = () => {}; export const useDialogs = () => ({ confirmDialog: {}, alertDialog: {}, showConfirmDialog: noop, showAlertDialog: noop, hideConfirmDialog: noop, hideAlertDialog: noop });`,
+      "/hooks/useDialogs": `const noop = () => {}; const showAlertDialog = value => globalThis.__settingsSpeech.alerts.push(value); export const useDialogs = () => ({ confirmDialog: {}, alertDialog: {}, showConfirmDialog: noop, showAlertDialog, hideConfirmDialog: noop, hideAlertDialog: noop });`,
       "/hooks/usePermissions": `export const usePermissions = () => ({});`,
       "/hooks/useSystemAudioPermission": `export const useSystemAudioPermission = () => ({});`,
       "/hooks/useInsightsSyncOptIn": `export const useInsightsSyncOptIn = () => ({});`,
       "/hooks/useLeaderboardParticipation": `export const useLeaderboardParticipation = () => ({});`,
-      "/hooks/useHotkeyRegistration": `export const useHotkeyRegistration = () => ({ registerHotkey: key => globalThis.__settingsSpeech.registered.push(key) });`,
-      "/hooks/useHotkeyModeInfo": `export const useHotkeyModeInfo = () => ({});`,
+      "/ui/HotkeyListInput": `
+        import React from "react";
+        export function HotkeyListInput(props) {
+          globalThis.__settingsSpeech.hotkeys[props.ariaLabel] = props;
+          React.useEffect(() => {
+            globalThis.__settingsSpeech.hotkeyMounts++;
+            return () => { globalThis.__settingsSpeech.hotkeyDisposed++; };
+          }, []);
+          return React.createElement("div", {"data-hotkey": props.ariaLabel}, props.footerEnd);
+        }
+      `,
+      "/ui/LinuxPttSetupInfo": `export default function Info(props) { globalThis.__settingsSpeech.ptt = props; return null; }`,
       "/hooks/useBillingPortal": `export const useBillingPortal = () => ({});`,
       "/hooks/useUsage": `export const useUsage = () => ({});`,
       "/hooks/useTheme": `export const useTheme = () => ({});`,
@@ -187,7 +228,13 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   const before = { ...observed.renders };
   const pageBefore = observed.pageRenders;
   await update({ customDictionary: ["OpenWhispr"] });
-  assert.equal(observed.pageRenders, pageBefore + 1, "a real SettingsPage subscription updates");
+  assert.equal(
+    observed.pageRenders,
+    pageBefore,
+    "unused dictionary writes do not update SettingsPage"
+  );
+  await update({ notificationsEnabled: true });
+  assert.equal(observed.pageRenders, pageBefore + 1, "a remaining General subscription updates");
   assert.deepEqual(
     observed.renders,
     before,
@@ -246,6 +293,245 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   await React.act(async () => root.unmount());
   root = null;
   assert.equal(observed.disposed, observed.mounted, "Settings close releases every mounted picker");
+
+  await t.test("Hotkeys owns subscriptions and pending writes", async (scope) => {
+    scope.after(async () => {
+      if (root) await React.act(async () => root.unmount());
+      root = null;
+      delete globalThis.window.electronAPI.getHotkeyModeInfo;
+      delete globalThis.window.electronAPI.getEffectiveDefaultHotkey;
+      globalThis.window.electronAPI.updateHotkey = async (key) => {
+        observed.registered.push(key);
+        return { success: true };
+      };
+    });
+    observed.locale.setState({ t: (key) => key });
+    const api = globalThis.window.electronAPI;
+    const modes = [];
+    const defaults = [];
+    const pending = (queue) => new Promise((resolve, reject) => queue.push({ resolve, reject }));
+    api.getHotkeyModeInfo = () => pending(modes);
+    api.getEffectiveDefaultHotkey = () => pending(defaults);
+    const normalMode = {
+      isUsingNativeShortcut: false,
+      isUsingHyprland: false,
+      supportsPushToTalk: true,
+      pushToTalkUnavailableReason: null,
+      linuxInputAccessDenied: false,
+    };
+    let prefix = "";
+    const hotkey = (slot) => observed.hotkeys[prefix + `settingsPage.general.${slot}.title`];
+    root = createRoot(container);
+    await render("speechToText");
+    await React.act(async () => observed.pickers.dictation.setDraft("hotkey-safe"));
+    await render("workspace");
+    const speechLifetimes = { mounted: observed.mounted, disposed: observed.disposed };
+    const before = observed.pageRenders;
+    await update({ customDictionary: ["new word"], dictationKey: "F8", activationMode: "push" });
+    assert.equal(
+      observed.pageRenders,
+      before,
+      "unvisited Hotkeys and dictionary writes do not render the page"
+    );
+    assert.equal(modes.length, 0, "no Hotkeys diagnostic before the first visit");
+    assert.equal(defaults.length, 0);
+    assert.equal(typeof observed.onDenial, "function");
+    await React.act(async () => observed.onDenial());
+    assert.equal(
+      observed.store.getState().activationMode,
+      "tap",
+      "Linux denial remains Settings-wide before the first Hotkeys visit"
+    );
+    assert.equal(observed.toasts.at(-1).variant, "destructive");
+
+    await render("hotkeys");
+    assert.equal(modes.length, 1);
+    assert.equal(defaults.length, 1);
+    await React.act(async () => {
+      modes[0].resolve(normalMode);
+      defaults[0].resolve("F12");
+    });
+    assert.equal(container.querySelectorAll("[data-hotkey]").length, 4);
+    const unchanged = hotkey("hotkey");
+    await update({ customDictionary: ["another word"], whisperVadThreshold: 0.8 });
+    assert.equal(
+      hotkey("hotkey"),
+      unchanged,
+      "unrelated writes leave the active section untouched"
+    );
+    await update({ voiceAgentKey: "F9" });
+    assert.equal(hotkey("voiceAgentHotkey").value, "F9");
+    for (const [slot, conflict] of [
+      ["hotkey", "F7"],
+      ["meetingHotkey", "F8"],
+      ["voiceAgentHotkey", "F5"],
+      ["translationHotkey", "F9"],
+    ]) {
+      assert.equal(hotkey(slot).validate(conflict), "hotkey.errors.slotConflict");
+      assert.equal(hotkey(slot).validate("F10"), null);
+    }
+    await React.act(async () =>
+      observed.auth.setState({ isSignedIn: false, user: { id: "other" } })
+    );
+    assert.equal(
+      hotkey("voiceAgentHotkey").value,
+      "F9",
+      "auth refresh does not remount key controls"
+    );
+    await React.act(async () => observed.locale.setState({ t: (key) => "translated:" + key }));
+    prefix = "translated:";
+    assert.ok(
+      container.querySelector('[data-hotkey="translated:settingsPage.general.hotkey.title"]')
+    );
+    await React.act(async () => observed.policy.setState({ status: "loading" }));
+    assert.equal(
+      container.querySelector(
+        '[data-hotkey="translated:settingsPage.general.voiceAgentHotkey.title"]'
+      ),
+      null
+    );
+    await React.act(async () => observed.policy.setState({ status: "unmanaged" }));
+    assert.equal(hotkey("voiceAgentHotkey").value, "F9");
+    await React.act(async () => observed.locale.setState({ t: (key) => key }));
+    prefix = "";
+    await render("workspace");
+    const hiddenPage = observed.pageRenders;
+    await update({
+      meetingKey: "F4",
+      translationKey: "F3",
+      meetingHotkeyLayoutMode: "full-width",
+    });
+    assert.equal(
+      observed.pageRenders,
+      hiddenPage,
+      "hidden Hotkeys writes do not wake SettingsPage"
+    );
+    assert.equal(
+      observed.hotkeyDisposed,
+      observed.hotkeyMounts,
+      "capture controls unmount on section exit"
+    );
+    await render("hotkeys");
+    assert.equal(hotkey("meetingHotkey").value, "F4");
+    assert.equal(hotkey("translationHotkey").value, "F3");
+    assert.equal(modes.length, 1, "visibility alone does not recreate the registration owner");
+
+    let finishRegistration;
+    let calls = 0;
+    api.updateHotkey = () => {
+      calls++;
+      return new Promise((resolve) => {
+        finishRegistration = resolve;
+      });
+    };
+    let saving;
+    await React.act(async () => {
+      saving = hotkey("hotkey").onChange("F13");
+    });
+    assert.equal(hotkey("hotkey").disabled, true);
+    await render("workspace");
+    await render("hotkeys");
+    assert.equal(
+      hotkey("hotkey").disabled,
+      true,
+      "in-flight registration lock survives leave/re-entry"
+    );
+    let duplicate;
+    await React.act(async () => {
+      duplicate = await hotkey("hotkey").onChange("F12");
+    });
+    assert.equal(duplicate, false);
+    assert.equal(calls, 1);
+    await render("workspace");
+    const beforeCompletion = observed.pageRenders;
+    await React.act(async () => {
+      finishRegistration({ success: true });
+      await saving;
+    });
+    assert.equal(
+      observed.store.getState().dictationKey,
+      "F13",
+      "hidden native write still persists the registered key"
+    );
+    assert.equal(observed.pageRenders, beforeCompletion);
+    await render("hotkeys");
+    assert.equal(hotkey("hotkey").disabled, false);
+    assert.equal(hotkey("hotkey").value, "F13");
+
+    api.updateHotkey = async () => ({ success: false, message: "native refusal" });
+    let accepted;
+    await React.act(async () => {
+      accepted = await hotkey("hotkey").onChange("F12");
+    });
+    assert.equal(accepted, false);
+    assert.equal(
+      observed.alerts.at(-1).description,
+      "native refusal",
+      "errors still use the shared alert owner"
+    );
+    observed.agentWrite = async () => ({ success: false, message: "agent refusal" });
+    await React.act(async () => {
+      accepted = await hotkey("voiceAgentHotkey").onChange("F12");
+    });
+    assert.equal(accepted, false);
+    assert.equal(observed.store.getState().voiceAgentKey, "F9");
+    assert.equal(observed.alerts.at(-1).description, "agent refusal");
+    await React.act(async () => hotkey("translationHotkey").onClear());
+    assert.equal(observed.store.getState().translationKey, "");
+    api.registerMeetingHotkey = async () => ({ success: true });
+    await React.act(async () => hotkey("meetingHotkey").onChange("F2"));
+    assert.equal(observed.store.getState().meetingKey, "F2");
+    await React.act(async () => hotkey("meetingHotkey").onClear());
+    assert.equal(observed.store.getState().meetingKey, "");
+
+    const olderMode = modes.at(-1);
+    await update({ dictationKey: "F12" });
+    await React.act(async () =>
+      modes.at(-1).resolve({
+        ...normalMode,
+        isUsingNativeShortcut: true,
+        supportsPushToTalk: false,
+        linuxInputAccessDenied: true,
+      })
+    );
+    await React.act(async () => olderMode.resolve(normalMode));
+    assert.equal(
+      hotkey("hotkey").maxHotkeys,
+      1,
+      "obsolete mode replies cannot replace a newer key's diagnostics"
+    );
+    assert.equal(observed.ptt.isAvailable, false);
+    await update({ dictationKey: "F13" });
+    const closedMode = modes.at(-1);
+    await React.act(async () => observed.pickers.dictation.setProgress(73));
+    assert.equal(observed.pickers.dictation.draft, "hotkey-safe");
+    assert.equal(observed.pickers.dictation.progress, 73);
+    assert.deepEqual({ mounted: observed.mounted, disposed: observed.disposed }, speechLifetimes);
+    const lateDefault = defaults.at(-1);
+    await React.act(async () => root.unmount());
+    root = null;
+    assert.equal(observed.onDenial, null, "Settings close releases its shared denial listener");
+    await React.act(async () => lateDefault.resolve("F1"));
+    root = createRoot(container);
+    await render("hotkeys");
+    await React.act(async () => closedMode.resolve({ ...normalMode, isUsingNativeShortcut: true }));
+    assert.equal(
+      hotkey("hotkey").maxHotkeys,
+      undefined,
+      "a fresh owner has not adopted old mode replies"
+    );
+    await React.act(async () => {
+      modes.at(-1).resolve(normalMode);
+      defaults.at(-1).resolve("F10");
+    });
+    assert.equal(hotkey("hotkey").footerEnd.props.children.props.value, "F10");
+    await React.act(async () => root.unmount());
+    root = null;
+    await React.act(async () => {
+      observed.auth.setState({ isSignedIn: true });
+      observed.policy.setState({ status: "unmanaged" });
+    });
+  });
 
   await t.test(
     "General's Chinese script control preserves native options and store updates",

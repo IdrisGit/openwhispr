@@ -30,7 +30,6 @@ import {
   BookOpen,
   Copy,
   Trash2,
-  Info,
 } from "./icons";
 import { useAuth } from "../hooks/useAuth";
 import { AUTH_URL, signOut } from "../lib/auth";
@@ -64,19 +63,12 @@ import { usePermissions } from "../hooks/usePermissions";
 import { useSystemAudioPermission } from "../hooks/useSystemAudioPermission";
 import SystemUpdates from "./settings/SystemUpdates";
 
-import { HotkeyListInput } from "./ui/HotkeyListInput";
-import { useHotkeyRegistration } from "../hooks/useHotkeyRegistration";
-import { useHotkeyModeInfo } from "../hooks/useHotkeyModeInfo";
-import { validateHotkeyForSlot } from "../utils/hotkeyValidation";
-import { getPlatform, getCachedPlatform } from "../utils/platform";
-import { formatHotkeyLabel } from "../utils/hotkeys";
+import HotkeysSection from "./settings/HotkeysSection";
+import { getCachedPlatform } from "../utils/platform";
 import {
   getLinuxPasteInstallCommands,
   needsLinuxPasteToolGuidance,
 } from "../utils/linuxPasteTools";
-import { ActivationModeSelector } from "./ui/ActivationModeSelector";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import LinuxPttSetupInfo from "./ui/LinuxPttSetupInfo";
 import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
 import GpuDeviceSelector from "./settings/GpuDeviceSelector";
@@ -118,7 +110,6 @@ import {
   TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS,
   TRANSCRIPTION_POLICY_PROVIDER_IDS,
   useSettingsStore,
-  type HotkeyRegistrationResult,
 } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { highestPlan } from "../lib/usageStore";
@@ -188,12 +179,6 @@ const RETENTION_SELECT_CLASS =
   "h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-200";
 
 const noop = () => {};
-
-const meetingRegisterFn = async (hotkey: string) => {
-  const result = await window.electronAPI?.registerMeetingHotkey?.(hotkey);
-  // Omit message so useHotkeyRegistration uses its translated failure text.
-  return result ?? { success: false };
-};
 
 interface GranolaImportPreview {
   total: number;
@@ -849,9 +834,6 @@ export default function SettingsPage({
     uiLanguage,
     preferredLanguage,
     chineseScriptPreference,
-    dictationKey,
-    activationMode,
-    setActivationMode,
     microphoneSelectionMode,
     selectedMicDeviceId,
     selectedMicDeviceLabel,
@@ -860,11 +842,6 @@ export default function SettingsPage({
     setSelectedMicDevice,
     setMicWarmHoldSeconds,
     setUiLanguage,
-    setDictationKey,
-    meetingKey,
-    setMeetingKey,
-    meetingHotkeyLayoutMode,
-    setMeetingHotkeyLayoutMode,
     updateTranscriptionSettings,
     notificationsEnabled,
     setNotificationsEnabled,
@@ -899,7 +876,6 @@ export default function SettingsPage({
     setDataRetentionEnabled,
     saveDiscardedTranscriptions,
     setSaveDiscardedTranscriptions,
-    customDictionary,
     noteFilesEnabled,
     setNoteFilesEnabled,
     noteFilesPath,
@@ -909,9 +885,6 @@ export default function SettingsPage({
       uiLanguage: settings.uiLanguage,
       preferredLanguage: settings.preferredLanguage,
       chineseScriptPreference: settings.chineseScriptPreference,
-      dictationKey: settings.dictationKey,
-      activationMode: settings.activationMode,
-      setActivationMode: settings.setActivationMode,
       microphoneSelectionMode: settings.microphoneSelectionMode,
       selectedMicDeviceId: settings.selectedMicDeviceId,
       selectedMicDeviceLabel: settings.selectedMicDeviceLabel,
@@ -920,11 +893,6 @@ export default function SettingsPage({
       setSelectedMicDevice: settings.setSelectedMicDevice,
       setMicWarmHoldSeconds: settings.setMicWarmHoldSeconds,
       setUiLanguage: settings.setUiLanguage,
-      setDictationKey: settings.setDictationKey,
-      meetingKey: settings.meetingKey,
-      setMeetingKey: settings.setMeetingKey,
-      meetingHotkeyLayoutMode: settings.meetingHotkeyLayoutMode,
-      setMeetingHotkeyLayoutMode: settings.setMeetingHotkeyLayoutMode,
       updateTranscriptionSettings: settings.updateTranscriptionSettings,
       notificationsEnabled: settings.notificationsEnabled,
       setNotificationsEnabled: settings.setNotificationsEnabled,
@@ -959,7 +927,6 @@ export default function SettingsPage({
       setDataRetentionEnabled: settings.setDataRetentionEnabled,
       saveDiscardedTranscriptions: settings.saveDiscardedTranscriptions,
       setSaveDiscardedTranscriptions: settings.setSaveDiscardedTranscriptions,
-      customDictionary: settings.customDictionary,
       noteFilesEnabled: settings.noteFilesEnabled,
       setNoteFilesEnabled: settings.setNoteFilesEnabled,
       noteFilesPath: settings.noteFilesPath,
@@ -967,13 +934,10 @@ export default function SettingsPage({
     }))
   );
 
-  const voiceAgentKey = useSettingsStore((s) => s.voiceAgentKey);
-  const setVoiceAgentKey = useSettingsStore((s) => s.setVoiceAgentKey);
-  const translationKey = useSettingsStore((s) => s.translationKey);
-  const setTranslationKey = useSettingsStore((s) => s.setTranslationKey);
+  // The Settings-wide Linux denial listener must work before Hotkeys is visited.
+  const setActivationMode = useSettingsStore((s) => s.setActivationMode);
 
   const settingsPolicyState = usePolicySnapshot();
-  const agentAllowedByPolicy = isAgentAllowed(settingsPolicyState);
   const historyLockedByPolicy = lockedLocalHistoryValue(settingsPolicyState) !== null;
   const effectiveDataRetentionEnabled = effectiveLocalHistoryEnabled(
     settingsPolicyState,
@@ -1143,101 +1107,6 @@ export default function SettingsPage({
     }
   }, [usage?.isApproachingLimit, usage?.wordsUsed, usage?.limit, toast, t, i18n.language]);
 
-  const { registerHotkey, isRegistering: isHotkeyRegistering } = useHotkeyRegistration({
-    onSuccess: (registeredHotkey) => {
-      setDictationKey(registeredHotkey);
-    },
-    showSuccessToast: false,
-    showErrorToast: true,
-    showAlert: showAlertDialog,
-  });
-
-  const { registerHotkey: registerMeetingHotkey, isRegistering: isMeetingHotkeyRegistering } =
-    useHotkeyRegistration({
-      onSuccess: (registeredHotkey) => {
-        setMeetingKey(registeredHotkey);
-      },
-      showSuccessToast: false,
-      showErrorToast: true,
-      showAlert: showAlertDialog,
-      registerFn: meetingRegisterFn,
-    });
-
-  // Preserve main's translated failure and return a boolean so HotkeyListInput
-  // rolls an unsuccessful registration back.
-  const [isAgentHotkeyCommitting, setIsAgentHotkeyCommitting] = useState(false);
-  const commitAgentHotkey = async (
-    setter: (key: string) => Promise<HotkeyRegistrationResult>,
-    key: string
-  ) => {
-    setIsAgentHotkeyCommitting(true);
-    try {
-      const result = await setter(key);
-      if (!result.success) {
-        showAlertDialog({
-          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-          description: result.message || t("hooks.hotkeyRegistration.errors.failedToRegister"),
-        });
-      }
-      return result.success;
-    } finally {
-      setIsAgentHotkeyCommitting(false);
-    }
-  };
-
-  const validateDictationHotkey = (hotkey: string) =>
-    validateHotkeyForSlot(
-      hotkey,
-      {
-        "settingsPage.general.meetingHotkey.title": meetingKey,
-        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-        "settingsPage.general.translationHotkey.title": translationKey,
-      },
-      t
-    );
-
-  const validateMeetingHotkey = (hotkey: string) =>
-    validateHotkeyForSlot(
-      hotkey,
-      {
-        "settingsPage.general.hotkey.title": dictationKey,
-        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-        "settingsPage.general.translationHotkey.title": translationKey,
-      },
-      t
-    );
-
-  const validateVoiceAgentHotkey = (hotkey: string) =>
-    validateHotkeyForSlot(
-      hotkey,
-      {
-        "settingsPage.general.hotkey.title": dictationKey,
-        "settingsPage.general.meetingHotkey.title": meetingKey,
-        "settingsPage.general.translationHotkey.title": translationKey,
-      },
-      t
-    );
-
-  const validateTranslationHotkey = (hotkey: string) =>
-    validateHotkeyForSlot(
-      hotkey,
-      {
-        "settingsPage.general.hotkey.title": dictationKey,
-        "settingsPage.general.meetingHotkey.title": meetingKey,
-        "settingsPage.general.voiceAgentHotkey.title": voiceAgentKey,
-      },
-      t
-    );
-
-  const {
-    isUsingNativeShortcut,
-    isUsingHyprland,
-    hyprlandConfigStatus,
-    supportsPushToTalk,
-    pushToTalkUnavailableReason,
-    linuxInputAccessDenied,
-  } = useHotkeyModeInfo("settings", dictationKey);
-  const [effectiveDefaultHotkey, setEffectiveDefaultHotkey] = useState<string | null>(null);
   const [linuxPttAvailable, setLinuxPttAvailable] = useState(true);
 
   const platform = getCachedPlatform();
@@ -1348,23 +1217,6 @@ export default function SettingsPage({
       setNoteFilesRebuilding(false);
     }
   };
-
-  useEffect(() => {
-    if (activeSection !== "hotkeys") return;
-    let active = true;
-    const loadEffectiveDefaultHotkey = async () => {
-      try {
-        const key = await window.electronAPI?.getEffectiveDefaultHotkey?.();
-        if (active && key) setEffectiveDefaultHotkey(key);
-      } catch (error) {
-        if (active) logger.error("Failed to get effective default hotkey", error, "settings");
-      }
-    };
-    void loadEffectiveDefaultHotkey();
-    return () => {
-      active = false;
-    };
-  }, [activeSection]);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onLinuxPttPermissionDenied?.(() => {
@@ -3510,208 +3362,6 @@ EOF`,
         );
 
       case "hotkeys":
-        return (
-          <div className="space-y-6">
-            {isUsingHyprland && hyprlandConfigStatus && !hyprlandConfigStatus.canWrite && (
-              <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>
-                  {t("settingsPage.general.hotkey.hyprlandConfigWriteWarningTitle")}
-                </AlertTitle>
-                <AlertDescription>
-                  <BidiInterpolatedText
-                    text={t("settingsPage.general.hotkey.hyprlandConfigWriteWarningDescription", {
-                      path: BIDI_VALUE_TOKEN,
-                    })}
-                    value={hyprlandConfigStatus.path}
-                  />
-                </AlertDescription>
-              </Alert>
-            )}
-            {/* Dictation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.hotkey.title")}
-                description={t("settingsPage.general.hotkey.description")}
-                note={isUsingHyprland && t("settingsPage.general.hotkey.hyprlandUnbindDescription")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    ariaLabel={t("settingsPage.general.hotkey.title")}
-                    value={dictationKey}
-                    onChange={(list) => registerHotkey(list)}
-                    validate={validateDictationHotkey}
-                    disabled={isHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    required
-                    footerEnd={
-                      effectiveDefaultHotkey &&
-                      dictationKey &&
-                      dictationKey !== effectiveDefaultHotkey ? (
-                        <button
-                          onClick={() => registerHotkey(effectiveDefaultHotkey)}
-                          disabled={isHotkeyRegistering}
-                          className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
-                        >
-                          <BidiInterpolatedText
-                            text={t("settingsPage.general.hotkey.resetToDefault", {
-                              hotkey: BIDI_VALUE_TOKEN,
-                            })}
-                            value={formatHotkeyLabel(effectiveDefaultHotkey)}
-                          />
-                        </button>
-                      ) : null
-                    }
-                  />
-                </SettingsPanelRow>
-
-                {(!isUsingNativeShortcut || getCachedPlatform() === "linux") && (
-                  <SettingsPanelRow>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-muted-foreground/80">
-                        {t("settingsPage.general.hotkey.activationMode")}
-                      </span>
-                      <ActivationModeSelector
-                        value={activationMode}
-                        onChange={setActivationMode}
-                        pushDisabledReason={
-                          !supportsPushToTalk
-                            ? pushToTalkUnavailableReason || t("windows.pttUnavailable")
-                            : undefined
-                        }
-                      />
-                    </div>
-                    {getCachedPlatform() === "linux" &&
-                      (activationMode === "push" || linuxInputAccessDenied) && (
-                        <LinuxPttSetupInfo
-                          isAvailable={!linuxInputAccessDenied && linuxPttAvailable}
-                        />
-                      )}
-                  </SettingsPanelRow>
-                )}
-              </SettingsPanel>
-            </div>
-
-            {/* Voice Agent Hotkey */}
-            {agentAllowedByPolicy && (
-              <div>
-                <SectionHeader
-                  title={t("settingsPage.general.voiceAgentHotkey.title")}
-                  description={t("settingsPage.general.voiceAgentHotkey.description")}
-                />
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <HotkeyListInput
-                      ariaLabel={t("settingsPage.general.voiceAgentHotkey.title")}
-                      value={voiceAgentKey}
-                      onChange={(list) => commitAgentHotkey(setVoiceAgentKey, list)}
-                      onClear={() => commitAgentHotkey(setVoiceAgentKey, "")}
-                      validate={validateVoiceAgentHotkey}
-                      disabled={isAgentHotkeyCommitting}
-                      maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                    />
-                  </SettingsPanelRow>
-                </SettingsPanel>
-              </div>
-            )}
-
-            {/* Translation Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.translationHotkey.title")}
-                description={t("settingsPage.general.translationHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    ariaLabel={t("settingsPage.general.translationHotkey.title")}
-                    value={translationKey}
-                    onChange={(list) => commitAgentHotkey(setTranslationKey, list)}
-                    onClear={() => commitAgentHotkey(setTranslationKey, "")}
-                    validate={validateTranslationHotkey}
-                    disabled={isAgentHotkeyCommitting}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-
-            {/* Meeting Mode Hotkey */}
-            <div>
-              <SectionHeader
-                title={t("settingsPage.general.meetingHotkey.title")}
-                description={t("settingsPage.general.meetingHotkey.description")}
-              />
-              <SettingsPanel>
-                <SettingsPanelRow>
-                  <HotkeyListInput
-                    ariaLabel={t("settingsPage.general.meetingHotkey.title")}
-                    value={meetingKey}
-                    onChange={(list) => registerMeetingHotkey(list)}
-                    onClear={async (): Promise<boolean> => {
-                      try {
-                        const result = await window.electronAPI?.registerMeetingHotkey?.("");
-                        if (result?.success) {
-                          setMeetingKey("");
-                          return true;
-                        }
-                        showAlertDialog({
-                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-                          description:
-                            result?.message ||
-                            t("hooks.hotkeyRegistration.errors.couldNotRegister"),
-                        });
-                      } catch {
-                        showAlertDialog({
-                          title: t("hooks.hotkeyRegistration.titles.notRegistered"),
-                          description: t("hooks.hotkeyRegistration.errors.couldNotRegister"),
-                        });
-                      }
-                      return false;
-                    }}
-                    validate={validateMeetingHotkey}
-                    disabled={isMeetingHotkeyRegistering}
-                    maxHotkeys={isUsingNativeShortcut ? 1 : undefined}
-                  />
-                </SettingsPanelRow>
-                <SettingsPanelRow className="flex items-center justify-between gap-3 border-t border-border/70 dark:border-white/10">
-                  <span className="text-xs text-muted-foreground/80">
-                    {t("settingsPage.general.meetingHotkey.layoutLabel")}
-                  </span>
-                  <Select
-                    value={meetingHotkeyLayoutMode}
-                    onValueChange={(value) =>
-                      setMeetingHotkeyLayoutMode(value as "side-panel" | "full-width")
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label={t("settingsPage.general.meetingHotkey.layoutLabel")}
-                      className="h-7 w-36 text-xs rounded-lg px-2.5 [&>svg]:h-3 [&>svg]:w-3"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem
-                        value="full-width"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutFullWidth")}
-                      </SelectItem>
-                      <SelectItem
-                        value="side-panel"
-                        className="text-xs py-1.5 ps-2.5 pe-7 rounded-md"
-                      >
-                        {t("settingsPage.general.meetingHotkey.layoutSidePanel")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingsPanelRow>
-              </SettingsPanel>
-            </div>
-          </div>
-        );
-
       case "speechToText":
       case "llms":
         return null;
@@ -4314,6 +3964,11 @@ EOF`,
           />
         </TabPanel>
       )}
+      <HotkeysSection
+        active={activeSection === "hotkeys"}
+        linuxPttAvailable={linuxPttAvailable}
+        showAlertDialog={showAlertDialog}
+      />
       <LlmsKeepAlive
         active={activeSection === "llms"}
         initialTab={activeSection === "llms" ? (initialSubTab as LlmTab | undefined) : undefined}

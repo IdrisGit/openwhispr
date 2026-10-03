@@ -88,11 +88,11 @@ test("technical output values remain LTR inside an Arabic document", () => {
     ],
     [
       "src/components/EnterpriseProviderConfig.tsx",
-      /<select\s+dir="ltr"\s+value=\{store\.bedrockRegion\}/,
+      /<select\s+dir="ltr"[^>]*\bvalue=\{store\.bedrockRegion\}/,
     ],
     [
       "src/components/EnterpriseProviderConfig.tsx",
-      /<select\s+dir="ltr"\s+value=\{store\.vertexLocation\}/,
+      /<select\s+dir="ltr"[^>]*\bvalue=\{store\.vertexLocation\}/,
     ],
     [
       "src/components/notes/UploadAudioView.tsx",
@@ -126,15 +126,15 @@ test("localized sentences isolate technical interpolations without changing word
       /<BidiInterpolatedText[\s\S]*?updateRequiredByOrg\.description[\s\S]*?value=\{policyMinAppVersion\}/,
     ],
     [
-      "src/components/SettingsPage.tsx",
+      "src/components/settings/HotkeysSection.tsx",
       /<BidiInterpolatedText[\s\S]*?hyprlandConfigWriteWarningDescription[\s\S]*?value=\{hyprlandConfigStatus\.path\}/,
     ],
     [
-      "src/components/SettingsPage.tsx",
+      "src/components/settings/HotkeysSection.tsx",
       /<BidiInterpolatedText[\s\S]*?resetToDefault[\s\S]*?value=\{formatHotkeyLabel\(effectiveDefaultHotkey\)\}/,
     ],
     [
-      "src/components/SettingsPage.tsx",
+      "src/components/settings/SystemUpdates.tsx",
       /<BidiInterpolatedText[\s\S]*?updates\.whatsNew[\s\S]*?value=\{updateInfo\.version\}/,
     ],
     [

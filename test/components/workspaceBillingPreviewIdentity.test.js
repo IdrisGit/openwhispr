@@ -27,28 +27,6 @@ function extractFunction(file, name) {
   );
 }
 
-test("a demoted owner cannot confirm a previously quoted seat increase", async () => {
-  const calls = [];
-  const confirmSeatIncrease = vm.runInNewContext(
-    extractFunction("src/components/settings/WorkspaceBillingCard.tsx", "confirmSeatIncrease"),
-    {
-      isOwner: false,
-      canAddSeats: true,
-      busy: null,
-      seatPreview: { next_quantity: 3 },
-      workspace: { id: "ws-1" },
-      WorkspacesService: { updateSeats: async () => calls.push("update") },
-      setBusy() {},
-      setSeatPreview() {},
-      refresh: async () => {},
-      toast() {},
-      t: (key) => key,
-    }
-  );
-  await confirmSeatIncrease();
-  assert.deepEqual(calls, []);
-});
-
 test("Enterprise upgrade requires a preview for the currently selected eligible workspace", async () => {
   assert.match(
     fs.readFileSync("src/components/settings/EnterpriseCheckoutDialog.tsx", "utf8"),

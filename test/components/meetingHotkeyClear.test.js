@@ -5,8 +5,8 @@ const test = require("node:test");
 const vm = require("node:vm");
 const ts = require("typescript");
 
-// Exercise the actual Settings callback without loading unrelated settings panels.
-const filename = path.join(__dirname, "../../src/components/SettingsPage.tsx");
+// Exercise the actual Hotkeys owner callbacks without loading unrelated settings panels.
+const filename = path.join(__dirname, "../../src/components/settings/HotkeysSection.tsx");
 const source = ts.createSourceFile(
   filename,
   fs.readFileSync(filename, "utf8"),

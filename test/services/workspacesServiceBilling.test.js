@@ -84,6 +84,36 @@ test("previewEnterpriseUpgrade posts no body and returns the preview unchanged",
   assert.deepEqual(result, preview);
 });
 
+test("seat preview uses a relative increase while confirmation sends the quoted absolute quantity", async (t) => {
+  const preview = {
+    current_quantity: 5,
+    next_quantity: 6,
+    seats_used: 4,
+    amount_due: 1500,
+    currency: "usd",
+  };
+  const requests = installCloudCapture(t, preview);
+  const { WorkspacesService } = require("../../src/services/WorkspacesService.ts");
+
+  assert.deepEqual(await WorkspacesService.previewSeats("ws-1", 1), preview);
+  await WorkspacesService.updateSeats("ws-1", preview.next_quantity);
+  assert.deepEqual(
+    requests.map(({ method, path, body }) => ({ method, path, body })),
+    [
+      {
+        method: "POST",
+        path: "/api/workspaces/ws-1/billing/preview-seats",
+        body: { additional_seats: 1 },
+      },
+      {
+        method: "POST",
+        path: "/api/workspaces/ws-1/billing/seats",
+        body: { quantity: 6 },
+      },
+    ]
+  );
+});
+
 test("upgradeToEnterprise posts to the upgrade endpoint with no body", async (t) => {
   const requests = installCloudCapture(t, { plan: "enterprise" });
   const { WorkspacesService } = require("../../src/services/WorkspacesService.ts");

@@ -50,6 +50,7 @@ export default function SidebarModal<T extends string>({
   const { registerContent, shouldBlockDismiss } = useDismissGuard<HTMLDivElement>();
 
   const [isCompact, setIsCompact] = React.useState(false);
+  const layoutValue = React.useMemo(() => ({ isCompact }), [isCompact]);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
   const observerRef = React.useRef<ResizeObserver | null>(null);
 
@@ -248,7 +249,7 @@ export default function SidebarModal<T extends string>({
 
               {/* Main Content */}
               <div className="flex-1 overflow-y-auto bg-background dark:bg-surface-1">
-                <SettingsLayoutProvider value={{ isCompact }}>
+                <SettingsLayoutProvider value={layoutValue}>
                   <div className={isCompact ? "p-4" : "p-6"}>
                     {/* Starts just below the close button, which floats over this column's top corner. */}
                     {notice && (
