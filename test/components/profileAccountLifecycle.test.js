@@ -1,93 +1,86 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
-const { createRoot } = require("react-dom/client");
-const {
-  createRendererServer,
-  installBrowserGlobals,
-  installHostDom,
-} = require("../lib/rendererTestHarness");
+const { deferred } = require("../lib/settingsAuditHarness");
+const { mountSettingsPageOwner } = require("../lib/settingsPageOwnerHarness");
 
-test("account change resets a same-name profile draft and ignores its old credential lookup", async (t) => {
-  let root = null;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-    delete globalThis.__profileLookup;
-    delete globalThis.__profileInput;
-    delete globalThis.__profileActions;
-  });
-  installBrowserGlobals(t);
-  const container = installHostDom(t);
-  const actions = (globalThis.__profileActions = { buttons: [], saved: [], toasts: [] });
-  const lookup = [];
-  globalThis.__profileLookup = lookup;
-  const vite = await createRendererServer(t, {
-    cachePrefix: "openwhispr-profile-account-test-",
-    noExternal: ["react-i18next"],
-    mockModules: {
-      "react-i18next": `export const useTranslation = () => ({ t: (key) => key });`,
-      "/lib/auth": `
-        export const hasCredentialAccount = () => new Promise((resolve) => globalThis.__profileLookup.push(resolve));
-        export const updateDisplayName = async name => { globalThis.__profileActions.saved.push(name); return globalThis.__profileActions.result ?? {}; };
-        export const changePassword = async () => ({});
-      `,
-      "/components/icons": `export const AlertCircle = () => null; export const KeyRound = () => null; export const Loader2 = () => null;`,
-      "/ui/button": `import React from "react"; export const Button = ({ children, ...props }) => { globalThis.__profileActions.buttons.push({children, ...props}); return React.createElement("button", props, children); };`,
-      "/ui/input": `import React from "react"; export const Input = (props) => { if (props.dir === "auto") globalThis.__profileInput = props; return React.createElement("input", props); };`,
-      "/ui/label": `import React from "react"; export const Label = ({ children, ...props }) => React.createElement("label", props, children);`,
-      "/ui/SettingsSection": `
-        import React from "react";
-        export const SettingsPanel = ({ children }) => React.createElement("div", null, children);
-        export const SettingsPanelRow = SettingsPanel;
-        export const SettingsRow = SettingsPanel;
-      `,
-      "/ui/useToast": `export const useToast = () => ({ toast(value) {globalThis.__profileActions.toasts.push(value);} });`,
-      "/ui/dialog": `
-        import React from "react";
-        const Wrapper = ({ children }) => React.createElement("div", null, children);
-        export const Dialog = Wrapper;
-        export const DialogContent = Wrapper;
-        export const DialogHeader = Wrapper;
-        export const DialogTitle = Wrapper;
-        export const DialogDescription = Wrapper;
-        export const DialogFooter = Wrapper;
-      `,
-    },
-  });
-  const { default: ProfileSection } = await vite.ssrLoadModule(
-    "/components/settings/ProfileSection.tsx"
+test("SettingsPage resets same-name account drafts and fences replayed credential lookups", async (t) => {
+  const { dom, container, render, SettingsPage, navigation, observed } =
+    await mountSettingsPageOwner(t, { section: "account" });
+  const lookups = [];
+  const saved = [];
+  let refetches = 0;
+  let saveResult = {};
+  observed.hasCredentialAccount = () => {
+    const reply = deferred();
+    lookups.push(reply);
+    return reply.promise;
+  };
+  observed.updateDisplayName = async (name) => {
+    saved.push(name);
+    return saveResult;
+  };
+  observed.refetch = () => {
+    refetches += 1;
+  };
+  const nameInput = () =>
+    container.querySelector('input[aria-label="settingsPage.account.profile.name.label"]');
+  const button = (label) =>
+    Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label);
+  const save = () => button("settingsPage.account.profile.name.save");
+  const password = () => button("settingsPage.account.profile.password.change");
+  const editName = async (value) => {
+    const input = nameInput();
+    const props = input[Object.keys(input).find((key) => key.startsWith("__reactProps$"))];
+    await React.act(async () => props.onChange({ target: { value } }));
+  };
+  const clickSave = () =>
+    React.act(async () => save().dispatchEvent(new dom.MouseEvent("click", { bubbles: true })));
+
+  // StrictMode covers the root: setup/cleanup/setup shares the mounted profile's state.
+  await render(
+    React.createElement(React.StrictMode, null, React.createElement(SettingsPage, { navigation }))
   );
-  root = createRoot(container);
-  const render = async (id) =>
-    React.act(async () =>
-      root.render(
-        React.createElement(ProfileSection, { key: id, name: "Alex", onSessionRefresh() {} })
-      )
-    );
+  assert.equal(lookups.length, 2, "root replay starts an obsolete and a current lookup");
+  assert.equal(nameInput().value, "Same name");
+  await editName("Account A draft");
+  const accountAInput = nameInput();
+  await React.act(async () => lookups[0].resolve(true));
+  assert.equal(nameInput(), accountAInput, "obsolete reply settles without an account remount");
+  assert.equal(nameInput().value, "Account A draft");
+  assert.equal(
+    password() !== undefined,
+    false,
+    "obsolete truthy reply cannot expose password controls"
+  );
+  await React.act(async () => lookups[1].resolve(true));
+  assert.ok(password(), "the current truthy reply positively exposes password controls");
 
-  await render("account-a");
-  assert.equal(lookup.length, 1);
-  await React.act(async () => globalThis.__profileInput.onChange({ target: { value: "Draft" } }));
-  assert.equal(globalThis.__profileInput.value, "Draft");
-  await render("account-b");
-  assert.equal(globalThis.__profileInput.value, "Alex");
-  assert.equal(lookup.length, 2);
-  await React.act(async () => lookup[0](false));
-  await React.act(async () => lookup[1](true));
-  assert.match(container.textContent, /settingsPage.account.profile.password.change/);
-  assert.equal(container.textContent.includes("Draft"), false);
-  const save = () =>
-    actions.buttons.findLast((b) => b.children === "settingsPage.account.profile.name.save");
-  await React.act(async () => globalThis.__profileInput.onChange({ target: { value: " Grace " } }));
-  await React.act(async () => save().onClick());
-  assert.deepEqual(actions.saved, ["Grace"]);
-  assert.equal(save().disabled, true, "successful save advances the dirty baseline");
-  actions.result = { error: {} };
+  // Only the auth snapshot changes; the test supplies no ProfileSection or SettingsPage key.
   await React.act(async () =>
-    globalThis.__profileInput.onChange({ target: { value: "New draft" } })
+    observed.auth.setState({ user: { id: "account-b", name: "Same name" } })
   );
-  await React.act(async () => save().onClick());
-  assert.equal(actions.toasts.at(-1).variant, "destructive");
-  assert.equal(actions.toasts.at(-1).description, "settingsPage.account.profile.errors.generic");
+  assert.equal(nameInput().value, "Same name", "production account key discards A's draft");
+  assert.equal(save().disabled, true, "B starts with a clean save baseline");
+  assert.equal(password() !== undefined, false, "B does not inherit A's credential state");
+
+  await editName(" Grace ");
+  await clickSave();
+  assert.deepEqual(saved, ["Grace"], "save trims the display name");
+  assert.equal(save().disabled, true, "successful save advances the dirty baseline before refetch");
+  assert.equal(refetches, 1);
+  assert.deepEqual(observed.toasts.at(-1), { title: "settingsPage.account.profile.name.saved" });
+
+  saveResult = { error: {} };
+  await editName("New draft");
+  await clickSave();
+  assert.deepEqual(saved, ["Grace", "New draft"]);
+  assert.equal(refetches, 1, "failed save does not refresh the session");
+  assert.deepEqual(observed.toasts.at(-1), {
+    title: "settingsPage.account.profile.name.error",
+    description: "settingsPage.account.profile.errors.generic",
+    variant: "destructive",
+  });
+  assert.equal(nameInput().value, "New draft");
   assert.equal(save().disabled, false, "failed save leaves the draft retryable");
 });
