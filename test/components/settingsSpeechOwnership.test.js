@@ -141,9 +141,9 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/stores/policyStore": `export const usePolicyStore = select => globalThis.__settingsSpeech.policy(select); usePolicyStore.getState = () => globalThis.__settingsSpeech.policy.getState();`,
       "/stores/workspaceStore": `const state = { workspaces: [], loaded: false }; export const useWorkspaceStore = select => select(state);`,
       "/stores/noteStore.js": `export const useMigration = () => ({}); export const startMigration = () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
-      "/stores/meetingRecordingStore": `export const stopRecording = async () => {};`,
-      "/services/SyncService.js": `export const syncService = {};`,
-      "/lib/auth": `export const AUTH_URL = "https://auth.example.test"; export const signOut = async () => {};`,
+      "/stores/meetingRecordingStore": `export const stopRecording = () => globalThis.__settingsSpeech.stopRecording?.();`,
+      "/services/SyncService.js": `export const syncService = { purgeTeamSpacesForSignOut: () => globalThis.__settingsSpeech.purgeTeamSpaces?.() };`,
+      "/lib/auth": `export const AUTH_URL = "https://auth.example.test"; export const signOut = () => globalThis.__settingsSpeech.signOut?.();`,
       "/lib/accountDeletionRequest": `export const deleteAccount = async generation => { globalThis.__settingsSpeech.deletions.push(generation); throw new Error("fake remote refusal"); };`,
       "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => globalThis.__settingsSpeech.authGeneration ?? null; export const getBoundSessionGeneration = id => id === globalThis.__settingsSpeech.auth.getState().user?.id ? getValidatedAuthGeneration() : null;`,
       "/lib/usageStore": `export const highestPlan = () => "free";`,
@@ -277,6 +277,17 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   assert.equal(observed.pickers.meeting.props.selectedLocalModel, "medium");
   await update({ uploadWhisperModel: "tiny" });
   assert.equal(observed.pickers.upload.props.selectedLocalModel, "tiny");
+  await update({ uploadTranscriptionMode: "providers" });
+  assert.deepEqual(
+    {
+      context: observed.pickers.upload.props.transcriptionContext,
+      mode: observed.pickers.upload.props.mode,
+    },
+    { context: "upload", mode: "cloud" },
+    "Upload BYOK uses a cloud picker in the upload context, independently of local Dictation/Meeting"
+  );
+  await update({ uploadTranscriptionMode: "local" });
+  const disposalsAfterUploadModeChange = observed.disposed;
   await React.act(async () => observed.pickers.dictation.setProgress(42));
   assert.equal(observed.pickers.dictation.draft, "unsaved");
   assert.equal(observed.pickers.dictation.progress, 42, "hidden child work stays live");
@@ -314,9 +325,17 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   await render("speechToText", "dictation", {});
   assert.equal(observed.tabs.selectedId, "dictation");
   assert.equal(observed.pickers.dictation.draft, "unsaved");
-  assert.equal(observed.disposed, 0, "section and subtab changes retain picker lifetimes");
+  assert.equal(
+    observed.disposed,
+    disposalsAfterUploadModeChange,
+    "section and subtab changes retain picker lifetimes"
+  );
   await React.act(async () => observed.policy.setState({ forcedMode: "openwhispr" }));
-  assert.equal(observed.disposed, 3, "a policy mode change still reaches retained children");
+  assert.equal(
+    observed.disposed,
+    disposalsAfterUploadModeChange + 3,
+    "a policy mode change still reaches retained children"
+  );
   await React.act(async () => observed.policy.setState({ forcedMode: undefined }));
   await React.act(async () => root.unmount());
   root = null;
@@ -737,6 +756,54 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       root = null;
     }
   );
+
+  await t.test("Settings sign-out awaits the meeting before clearing scope", async () => {
+    observed.locale.setState({ t: (key) => key });
+    const calls = [];
+    let finishStop;
+    observed.stopRecording = () =>
+      new Promise((resolve) => {
+        calls.push("stop requested");
+        finishStop = () => {
+          calls.push("meeting stopped");
+          resolve();
+        };
+      });
+    observed.purgeTeamSpaces = async () => {
+      calls.push("team spaces purged");
+    };
+    observed.signOut = async () => {
+      calls.push("signed out");
+    };
+    t.mock.method(dom.location, "reload", () => {
+      calls.push("reloaded");
+    });
+    await React.act(async () =>
+      observed.auth.setState({ isSignedIn: true, user: { id: "account-a" } })
+    );
+    root = createRoot(container);
+    await render("account");
+    const button = [...container.querySelectorAll("button")].find(
+      (entry) => entry.textContent.trim() === "settingsPage.account.signOut.signOut"
+    );
+    assert.ok(button, container.textContent);
+    await React.act(async () => button.click());
+    assert.deepEqual(
+      calls,
+      ["stop requested"],
+      "account scope must remain until the meeting stop settles"
+    );
+    await React.act(async () => finishStop());
+    assert.deepEqual(calls, [
+      "stop requested",
+      "meeting stopped",
+      "team spaces purged",
+      "signed out",
+      "reloaded",
+    ]);
+    await React.act(async () => root.unmount());
+    root = null;
+  });
 
   await t.test(
     "delete consent belongs to its opening account and credential generation",

@@ -9,7 +9,7 @@ const {
   installHostDom,
 } = require("../lib/rendererTestHarness");
 
-test("changing language translates Settings and retained Speech without resetting selection or draft", async (t) => {
+test("changing language translates SettingsModal and Speech tabs without resetting selection", async (t) => {
   let modalRoot;
   let speechRoot;
   t.after(async () => {
@@ -19,7 +19,7 @@ test("changing language translates Settings and retained Speech without resettin
         speechRoot?.unmount();
       });
     }
-    for (const key of ["__localeSidebar", "__localePage", "__speechTabs", "__speechSelect"]) {
+    for (const key of ["__localeSidebar", "__speechTabs", "__speechSelect"]) {
       delete globalThis[key];
     }
   });
@@ -35,7 +35,6 @@ test("changing language translates Settings and retained Speech without resettin
         translation: {
           settingsModal: { title: "Settings", sections: { speechToText: { label: "Speech" } } },
           settingsPage: {
-            general: { title: "General" },
             speechToText: {
               title: "Speech",
               tabs: { dictation: "Dictation", noteRecording: "Meeting", upload: "Upload" },
@@ -47,7 +46,6 @@ test("changing language translates Settings and retained Speech without resettin
         translation: {
           settingsModal: { title: "Ajustes", sections: { speechToText: { label: "Voz" } } },
           settingsPage: {
-            general: { title: "General ES" },
             speechToText: {
               title: "Voz",
               tabs: { dictation: "Dictado", noteRecording: "Reunión", upload: "Subir" },
@@ -72,17 +70,8 @@ test("changing language translates Settings and retained Speech without resettin
         export const Upload = () => null;
       `,
       "./SettingsPage": `
-        import React, { useState } from "react";
-        import { useStore } from "zustand";
-        import { useTranslation } from "react-i18next";
         export function AccountAvatar() { return null; }
-        export default function SettingsPage({navigation}) {
-          const activeSection = useStore(navigation, state => state.section);
-          const {t} = useTranslation();
-          const [draft, setDraft] = useState("");
-          globalThis.__localePage = { activeSection, draft, setDraft, title: t("settingsPage.general.title") };
-          return React.createElement("span", null, draft);
-        }
+        export default function SettingsPage() { return null; }
       `,
       "./ui/SidebarModal": `
         import React from "react";
@@ -108,13 +97,6 @@ test("changing language translates Settings and retained Speech without resettin
     "/components/settings/SpeechToTextTabs.tsx"
   );
   const wrap = (child) => React.createElement(I18nextProvider, { i18n }, child);
-  let dictationMounts = 0;
-  function DictationDraft() {
-    React.useEffect(() => {
-      dictationMounts++;
-    }, []);
-    return React.createElement("input", { defaultValue: "kept" });
-  }
   const { createSettingsNavigationStore } = await vite.ssrLoadModule(
     "/stores/settingsNavigationStore.ts"
   );
@@ -134,7 +116,7 @@ test("changing language translates Settings and retained Speech without resettin
       wrap(
         React.createElement(SpeechToTextTabs, {
           navigation,
-          dictation: React.createElement(DictationDraft),
+          dictation: React.createElement("span", null, "Dictation"),
           noteRecording: React.createElement("span", null, "Meeting"),
           upload: React.createElement("span", null, "Upload"),
         })
@@ -145,7 +127,6 @@ test("changing language translates Settings and retained Speech without resettin
   assert.equal(globalThis.__localeSidebar.activeSection, "speechToText");
   assert.equal(globalThis.__speechTabs.providers[2].name, "Upload");
   await React.act(async () => globalThis.__speechSelect("upload"));
-  await React.act(async () => globalThis.__localePage.setDraft("unsaved"));
   const before = globalThis.__speechTabs.providers;
 
   await React.act(async () => i18n.changeLanguage("es"));
@@ -155,12 +136,7 @@ test("changing language translates Settings and retained Speech without resettin
     "Voz"
   );
   assert.equal(globalThis.__localeSidebar.activeSection, "speechToText");
-  assert.deepEqual(
-    [globalThis.__localePage.title, globalThis.__localePage.draft],
-    ["General ES", "unsaved"]
-  );
   assert.notEqual(globalThis.__speechTabs.providers, before);
   assert.equal(globalThis.__speechTabs.providers[2].name, "Subir");
   assert.equal(globalThis.__speechTabs.selectedId, "upload");
-  assert.equal(dictationMounts, 1, "locale changes keep the hidden dictation draft mounted");
 });

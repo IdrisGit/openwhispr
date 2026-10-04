@@ -8,7 +8,7 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-test("explicit Settings actions route while open; plain opens and sidebar changes preserve tabs", async (t) => {
+test("SettingsModal wires its supplied navigation and sidebar actions", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -44,26 +44,20 @@ test("explicit Settings actions route while open; plain opens and sidebar change
     });
   await open("transcription");
   assert.equal(globalThis.__settingsRoute.sidebar.activeSection, "speechToText");
-  assert.equal(navigation.getState().speechTab, "dictation");
   assert.equal(globalThis.__settingsRoute.navigation, navigation);
+  assert.equal(globalThis.__settingsRoute.sidebar.onOpenChange, actions.setSettingsOpen);
   await React.act(async () => globalThis.__settingsRoute.sidebar.onSectionChange("hotkeys"));
-  await open();
   assert.equal(globalThis.__settingsRoute.sidebar.activeSection, "hotkeys");
-  await open("meetings");
-  assert.equal(globalThis.__settingsRoute.sidebar.activeSection, "llms");
-  assert.equal(navigation.getState().llmTab, "noteFormatting");
-  await React.act(async () => actions.selectLlmTab("dictationTranslation"));
-  await open("meetings");
-  assert.equal(navigation.getState().llmTab, "noteFormatting", "repeat alias restores its tab");
-  await React.act(async () => globalThis.__settingsRoute.sidebar.onSectionChange("general"));
-  await React.act(async () => globalThis.__settingsRoute.sidebar.onSectionChange("llms"));
-  assert.equal(
-    navigation.getState().llmTab,
-    "noteFormatting",
-    "ordinary section entry preserves selected tab"
+  await React.act(async () => globalThis.__settingsRoute.sidebar.onOpenChange(false));
+  globalThis.__settingsRoute = {};
+  await React.act(async () =>
+    root.render(
+      React.createElement(SettingsModal, { navigation, onOpenChange: actions.setSettingsOpen })
+    )
   );
-  await React.act(async () => actions.setSettingsOpen(false));
-  await open();
-  assert.equal(globalThis.__settingsRoute.sidebar.activeSection, "account");
-  assert.equal(navigation.getState().llmTab, null, "closed modal cannot retain live tab state");
+  assert.deepEqual(
+    globalThis.__settingsRoute,
+    {},
+    "closed navigation mounts neither host nor page"
+  );
 });

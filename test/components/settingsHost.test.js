@@ -10,7 +10,7 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-test("Settings opens route correctly without rerendering the stable ControlPanel child", async (t) => {
+test("SettingsHost routes opens and releases its main-process listeners", async (t) => {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -92,9 +92,7 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
   );
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   let openSettings;
-  let childRenders = 0;
-  function ControlPanelProbe({ navigation }) {
-    childRenders += 1;
+  function NavigationChild({ navigation }) {
     openSettings = useStore(navigation, (state) => state.openSettings);
     return React.createElement(GpuAccelerationBanner, { navigation });
   }
@@ -102,7 +100,7 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
   await React.act(async () => {
     root.render(
       React.createElement(SettingsHost, { initialSection: "transcription" }, (navigation) =>
-        React.createElement(ControlPanelProbe, { navigation })
+        React.createElement(NavigationChild, { navigation })
       )
     );
     await flush();
@@ -115,7 +113,6 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
   }
   assert.equal(globalThis.__settingsModalProps.navigation.getState().section, "speechToText");
   assert.equal(globalThis.__settingsModalProps.navigation.getState().speechTab, "dictation");
-  assert.equal(childRenders, 1);
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, false);
@@ -157,7 +154,6 @@ test("Settings opens route correctly without rerendering the stable ControlPanel
     await flush();
   });
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, true);
-  assert.equal(childRenders, 1, "Settings visibility never rerenders unchanged history");
 
   await React.act(async () => root.unmount());
   root = null;

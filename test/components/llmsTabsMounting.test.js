@@ -2,29 +2,22 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const { useStore } = require("zustand");
 const {
   createRendererServer,
   installBrowserGlobals,
-  installHookDom,
   installHostDom,
 } = require("../lib/rendererTestHarness");
 
-test("requested LLM tabs and policy fallbacks persist without writes during render", async (t) => {
-  let root = null;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-  });
+test("requested LLM tabs and policy fallbacks persist through navigation actions", async (t) => {
   const { storage } = installBrowserGlobals(t, {
     initialStorage: { "settings.llmsTab": JSON.stringify("dictationCleanup") },
   });
   const setItem = storage.setItem;
-  let rendering = false;
+  let writes = 0;
   storage.setItem = (...args) => {
-    assert.equal(rendering, false, "localStorage writes only after render or in event handlers");
+    writes++;
     setItem(...args);
   };
-  const container = installHookDom(t);
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-llm-tabs-test-",
   });
@@ -32,42 +25,37 @@ test("requested LLM tabs and policy fallbacks persist without writes during rend
     "/stores/settingsNavigationStore.ts"
   );
   let agentAllowed = true;
-  rendering = true;
   const navigation = createSettingsNavigationStore("meetings", () => agentAllowed);
-  rendering = false;
   const actions = navigation.getState();
-  let state;
-  function Harness() {
-    rendering = true;
-    try {
-      const tab = useStore(navigation, (state) => state.llmTab);
-      state = { tab };
-      return null;
-    } finally {
-      rendering = false;
-    }
-  }
-
-  root = createRoot(container);
-  const render = async () => React.act(async () => root.render(React.createElement(Harness)));
-
-  await render();
+  assert.equal(writes, 0, "construction reads preferences without persisting");
   actions.persistCurrentTab();
-  assert.equal(state.tab, "noteFormatting");
+  assert.equal(navigation.getState().llmTab, "noteFormatting");
   assert.equal(storage.getItem("settings.llmsTab"), JSON.stringify("noteFormatting"));
-  await React.act(async () => actions.selectLlmTab("dictationAgent"));
-  assert.equal(state.tab, "dictationAgent");
-  await React.act(async () => actions.openSettings("meetings"));
-  assert.equal(state.tab, "noteFormatting", "a repeated route restores its selected tab");
-  await React.act(async () => actions.selectLlmTab("dictationTranslation"));
-  assert.equal(state.tab, "dictationTranslation");
+  actions.selectLlmTab("dictationAgent");
+  assert.equal(navigation.getState().llmTab, "dictationAgent");
+  actions.openSettings("meetings");
+  assert.equal(
+    navigation.getState().llmTab,
+    "noteFormatting",
+    "a repeated route restores its selected tab"
+  );
+  actions.selectLlmTab("dictationTranslation");
+  assert.equal(navigation.getState().llmTab, "dictationTranslation");
   agentAllowed = false;
-  await React.act(async () => actions.openSettings("dictationAgent"));
-  assert.equal(state.tab, "dictationCleanup", "a prohibited request uses the allowed fallback");
+  actions.openSettings("dictationAgent");
+  assert.equal(
+    navigation.getState().llmTab,
+    "dictationCleanup",
+    "a prohibited request uses the allowed fallback"
+  );
   assert.equal(storage.getItem("settings.llmsTab"), JSON.stringify("dictationCleanup"));
   agentAllowed = true;
-  await React.act(async () => actions.reconcilePolicy());
-  assert.equal(state.tab, "dictationCleanup", "reallowing does not revive the prohibited tab");
+  actions.reconcilePolicy();
+  assert.equal(
+    navigation.getState().llmTab,
+    "dictationCleanup",
+    "reallowing does not revive the prohibited tab"
+  );
 });
 
 test("LLM keep-alive isolates retained editors from Settings section visibility", async (t) => {

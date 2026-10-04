@@ -229,6 +229,7 @@ test("Enterprise and GPU names distinguish fields and retained instances", async
     )
   );
   assert.equal(container.querySelector('select[aria-label="Transcription GPU"]').value, "GPU-two");
+  assert.equal(container.querySelector('select[aria-label="Intelligence GPU"]').value, "GPU-two");
 });
 
 test("GPU purpose and debug readers ignore superseded and StrictMode replies", async (t) => {
