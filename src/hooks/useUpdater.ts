@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ReleaseNotes } from "../types/electron";
 
 interface UpdateStatus {
@@ -22,6 +22,7 @@ interface UpdateState {
   isChecking: boolean;
   isDownloading: boolean;
   isInstalling: boolean;
+  installStalled: boolean;
 }
 
 let globalState: UpdateState = {
@@ -36,7 +37,9 @@ let globalState: UpdateState = {
   isChecking: false,
   isDownloading: false,
   isInstalling: false,
+  installStalled: false,
 };
+let installTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const stateListeners = new Set<(state: UpdateState) => void>();
 let listenersRegistered = false;
@@ -47,6 +50,10 @@ function notifyListeners() {
 }
 
 function updateGlobalState(updates: Partial<UpdateState>) {
+  if (updates.isInstalling === false && installTimeout !== null) {
+    clearTimeout(installTimeout);
+    installTimeout = null;
+  }
   globalState = { ...globalState, ...updates };
   notifyListeners();
 }
@@ -93,6 +100,7 @@ function registerEventListeners() {
         downloadProgress: 100,
         isDownloading: false,
         isInstalling: false,
+        installStalled: false,
       });
     });
     if (dispose) cleanupFunctions.push(dispose);
@@ -110,7 +118,12 @@ function registerEventListeners() {
 
   if (window.electronAPI.onUpdateError) {
     const dispose = window.electronAPI.onUpdateError(() => {
-      updateGlobalState({ isChecking: false, isDownloading: false, isInstalling: false });
+      updateGlobalState({
+        isChecking: false,
+        isDownloading: false,
+        isInstalling: false,
+        installStalled: false,
+      });
     });
     if (dispose) cleanupFunctions.push(dispose);
   }
@@ -124,9 +137,14 @@ function cleanup() {
   }
 }
 
+function consumeInstallStall(): boolean {
+  if (!globalState.installStalled) return false;
+  updateGlobalState({ installStalled: false });
+  return true;
+}
+
 export function useUpdater() {
   const [state, setState] = useState<UpdateState>(globalState);
-  const isInstallingRef = useRef(false);
 
   useEffect(() => {
     stateListeners.add(setState);
@@ -189,22 +207,17 @@ export function useUpdater() {
       throw new Error("No update available to install");
     }
 
-    updateGlobalState({ isInstalling: true });
-    isInstallingRef.current = true;
-
+    if (globalState.isInstalling) return;
+    updateGlobalState({ isInstalling: true, installStalled: false });
+    // One deadline serves every updater consumer, independent of locale/UI lifetime.
+    const timer = setTimeout(() => {
+      updateGlobalState({ isInstalling: false, installStalled: true });
+    }, 10000);
+    installTimeout = timer;
     try {
       await window.electronAPI.installUpdate();
-
-      // Settings raises its own "almost there" dialog when the restart stalls.
-      setTimeout(() => {
-        if (isInstallingRef.current) {
-          isInstallingRef.current = false;
-          updateGlobalState({ isInstalling: false });
-        }
-      }, 10000);
     } catch (error) {
-      isInstallingRef.current = false;
-      updateGlobalState({ isInstalling: false });
+      if (installTimeout === timer) updateGlobalState({ isInstalling: false });
       throw error;
     }
   }, [state.status.updateDownloaded]);
@@ -226,6 +239,8 @@ export function useUpdater() {
     isChecking: state.isChecking,
     isDownloading: state.isDownloading,
     isInstalling: state.isInstalling,
+    installStalled: state.installStalled,
+    consumeInstallStall,
     checkForUpdates,
     downloadUpdate,
     installUpdate,

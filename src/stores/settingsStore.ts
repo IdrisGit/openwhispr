@@ -3290,7 +3290,10 @@ export async function initializeSettings(): Promise<void> {
     const ownership = secretWriteVersions[key];
     const get = window.electronAPI?.[secretGetters[key]] as
       (() => Promise<string | null>) | undefined;
-    void waitForSecretPublication(key)
+    const publication = secretSaveRequests[key];
+    // Metadata can recover a failed local publication. Wait for an in-flight
+    // write, but let the owned authoritative read replace a settled failure.
+    void (publication ?? Promise.resolve())
       .then(() => get?.())
       .then((value) => {
         if (
@@ -3300,6 +3303,7 @@ export async function initializeSettings(): Promise<void> {
           typeof value !== "string"
         )
           return;
+        if (secretSaveRequests[key] === publication) delete secretSaveRequests[key];
         useSettingsStore.setState({ [key]: value });
         invalidateApiKeyCaches(key === "tinfoilApiKey" ? "tinfoil" : undefined);
       })

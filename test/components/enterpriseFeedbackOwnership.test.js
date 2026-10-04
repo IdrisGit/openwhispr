@@ -113,13 +113,27 @@ test("connection feedback follows tested configuration/auth, not callback identi
   globalThis.__feedbackLocale = "en";
   t.after(() => delete globalThis.__feedbackLocale);
   const requests = [];
-  const timers = [];
+  const timers = new Map();
+  const callbacks = [];
+  let nextTimer = 0;
   const realTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
   t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
     if (delay !== 8000) return realTimeout(callback, delay, ...args);
-    timers.push(callback);
-    return 0;
+    callbacks.push(callback);
+    const id = ++nextTimer;
+    timers.set(id, callback);
+    return id;
   });
+  t.mock.method(globalThis, "clearTimeout", (id) => {
+    if (!timers.delete(id)) realClearTimeout(id);
+  });
+  const expire = () =>
+    React.act(async () => {
+      const [id, callback] = [...timers].at(-1);
+      timers.delete(id);
+      callback();
+    });
   dom.electronAPI = {
     testEnterpriseConnection: (provider, config) => {
       const request = { ...deferred(), provider, config };
@@ -161,7 +175,9 @@ test("connection feedback follows tested configuration/auth, not callback identi
   assert.doesNotMatch(container.textContent, /testSuccess/);
   await finish(1, { success: true });
   assert.match(container.textContent, /testSuccess/);
+  assert.equal(timers.size, 1, "success owns a pending nonzero reset timer");
   await draw();
+  assert.equal(timers.size, 1, "callback identity replacement retains the timer");
   assert.match(
     container.textContent,
     /testSuccess/,
@@ -169,7 +185,8 @@ test("connection feedback follows tested configuration/auth, not callback identi
   );
   await React.act(async () => auth.observeAuthTokenStateEvent({ generation: 99, hasToken: true }));
   assert.doesNotMatch(container.textContent, /testSuccess/);
-  await React.act(async () => timers[0]());
+  assert.equal(timers.size, 0, "auth replacement cancels its pending timer");
+  await React.act(async () => callbacks[0]());
   await click();
   configuration = {
     model: "two",
@@ -193,7 +210,8 @@ test("connection feedback follows tested configuration/auth, not callback identi
   assert.doesNotMatch(container.textContent, /testFailed/);
   await click();
   await finish(4, { success: true });
-  await React.act(async () => timers.at(-1)());
+  await expire();
+  assert.equal(timers.size, 0);
   assert.doesNotMatch(container.textContent, /testSuccess/);
   await click();
   await render(null);
@@ -212,4 +230,13 @@ test("connection feedback follows tested configuration/auth, not callback identi
     /testSuccess/,
     "ABA cannot resurrect obsolete feedback"
   );
+  await click();
+  await finish(7, { success: true });
+  assert.equal(timers.size, 1);
+  await click();
+  assert.equal(timers.size, 0, "retest cancels the previous feedback timer");
+  await finish(8, { success: true });
+  assert.equal(timers.size, 1);
+  await render(null);
+  assert.equal(timers.size, 0, "unmount cancels a pending successful feedback timer");
 });

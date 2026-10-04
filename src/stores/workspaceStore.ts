@@ -15,7 +15,7 @@ interface WorkspaceState {
 
   setActiveWorkspaceId: (id: string | null) => void;
   resetForAccountChange: () => void;
-  refresh: () => Promise<void>;
+  refresh: (afterMutation?: boolean) => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   refreshMembers: (workspaceId: string) => Promise<void>;
 }
@@ -101,9 +101,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     });
   },
 
-  refresh: () => {
-    if (refreshPromise) return refreshPromise;
+  refresh: (afterMutation = false) => {
     const generation = accountGeneration;
+    if (refreshPromise) {
+      if (!afterMutation) return refreshPromise;
+      // A pre-write list cannot reconcile a completed write. Concurrent
+      // waiters share the fresh request started by the first continuation.
+      return refreshPromise.then(() => {
+        if (generation === accountGeneration) return get().refresh();
+      });
+    }
     set({ loading: true });
     let request!: Promise<void>;
     request = (async () => {

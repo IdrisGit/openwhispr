@@ -4,7 +4,7 @@ const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-test("native microphone controls hydrate together and preserve device behavior", async (t) => {
+test("microphone inventory is usable before native label hydration and preserves device behavior", async (t) => {
   const { Window } = await import("happy-dom");
   const dom = new Window();
   const originalDocument = globalThis.document;
@@ -87,17 +87,10 @@ test("native microphone controls hydrate together and preserve device behavior",
     onDeviceSelect: (...args) => selections.push(args),
     onMicWarmHoldSecondsChange: (seconds) => warmHolds.push(seconds),
   };
-  let commits = 0;
   root = createRoot(container);
   const render = (changes = {}) =>
     React.act(async () =>
-      root.render(
-        React.createElement(
-          React.Profiler,
-          { id: "mic", onRender: () => commits++ },
-          React.createElement(MicrophoneSettings, { ...props, ...changes })
-        )
-      )
+      root.render(React.createElement(MicrophoneSettings, { ...props, ...changes }))
     );
   const input = () => container.querySelector("select[aria-labelledby]");
   const warmHold = () =>
@@ -108,14 +101,17 @@ test("native microphone controls hydrate together and preserve device behavior",
       select.dispatchEvent(new dom.Event("change", { bubbles: true }));
     });
   await render();
-  assert.equal(input().options.length, 2, "inventory waits for the complete hydration snapshot");
-  const beforeHydration = commits;
-  await React.act(async () => finishDefault({ name: "USB microphone" }));
-  assert.equal(
-    commits,
-    beforeHydration + 1,
-    "devices, default label and loading settle in one commit"
+  assert.equal(input().options.length, 3, "enumerated devices do not wait for the native lookup");
+  await change(input(), "mic");
+  assert.deepEqual(
+    selections,
+    [["mic", "USB microphone"]],
+    "a specific device is already selectable"
   );
+  assert.deepEqual(modes, ["specific"]);
+  selections.length = 0;
+  modes.length = 0;
+  await React.act(async () => finishDefault({ name: "USB microphone" }));
   assert.equal(input().options.length, 3);
   assert.equal(input().value, "__system__");
   assert.match(input().selectedOptions[0].textContent, /USB microphone/);
@@ -176,6 +172,39 @@ test("native microphone controls hydrate together and preserve device behavior",
   await React.act(async () => deviceChanged());
   assert.equal(calls.permission, 1);
   assert.equal(calls.stopped, 1, "permission-only streams are immediately released");
+
+  let permissionReads = 0,
+    finishPermissionEnumeration,
+    permissionScan;
+  readDevices = async () => {
+    permissionReads++;
+    if (permissionReads === 1) return [{ kind: "audioinput", deviceId: "unlabelled", label: "" }];
+    if (permissionReads === 2)
+      return new Promise((resolve) => {
+        finishPermissionEnumeration = resolve;
+      });
+    return [{ kind: "audioinput", deviceId: "current", label: "Current inventory" }];
+  };
+  await React.act(async () => {
+    permissionScan = deviceChanged();
+  });
+  assert.equal(permissionReads, 2, "permission retry enumeration is pending");
+  await React.act(async () => deviceChanged());
+  assert.ok([...input().options].some((option) => option.value === "current"));
+  await React.act(async () => {
+    finishPermissionEnumeration([
+      { kind: "audioinput", deviceId: "obsolete", label: "Old inventory" },
+    ]);
+    await permissionScan;
+  });
+  assert.ok(
+    [...input().options].some((option) => option.value === "current"),
+    "old permission enumeration cannot replace newer inventory"
+  );
+  assert.equal(
+    [...input().options].some((option) => option.value === "obsolete"),
+    false
+  );
   readDevices = async () => {
     throw Error("permission denied");
   };

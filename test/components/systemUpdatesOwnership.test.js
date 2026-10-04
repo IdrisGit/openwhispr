@@ -15,6 +15,7 @@ test("System update owner mounts on first visit and retains live state and insta
     delete globalThis.__systemUpdateStore;
     delete globalThis.__systemToggleValues;
     delete globalThis.__systemInstallButton;
+    delete globalThis.__systemUpdateLocale;
   });
   const calls = { status: 0, info: 0, listen: 0, dispose: 0, alerts: [], toggles: [] };
   let onAvailable;
@@ -59,11 +60,13 @@ test("System update owner mounts on first visit and retains live state and insta
     },
   });
   const container = installHostDom(t);
+  globalThis.__systemUpdateLocale = require("zustand").create(() => ({ language: "en" }));
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-system-updates-test-",
     noExternal: ["react-i18next"],
     mockModules: {
-      "react-i18next": `export function useTranslation() { return { t: (key, opts) => key + (opts?.progress ?? "") }; }`,
+      "react-i18next": `export function useTranslation() { const language=globalThis.__systemUpdateLocale(s=>s.language);
+          return { t: (key, opts) => language + ":" + key + (opts?.progress ?? "") }; }`,
       "/stores/settingsStore": `
         import { create } from "zustand";
         export const useSettingsStore = create((set) => ({
@@ -140,11 +143,23 @@ test("System update owner mounts on first visit and retains live state and insta
   const realSetTimeout = globalThis.setTimeout;
   const realClearTimeout = globalThis.clearTimeout;
   const timers = new Map();
+  let now = 0;
+  let nextTimer = 0;
+  const advance = async (target) => {
+    while (true) {
+      const next = [...timers].sort((a, b) => a[1].due - b[1].due)[0];
+      if (!next || next[1].due > target) break;
+      now = next[1].due;
+      timers.delete(next[0]);
+      await React.act(async () => next[1].callback());
+    }
+    now = target;
+  };
   try {
     globalThis.setTimeout = (callback, delay, ...args) => {
       if (delay !== 10000) return realSetTimeout(callback, delay, ...args);
-      const id = Symbol("install timer");
-      timers.set(id, callback);
+      const id = ++nextTimer;
+      timers.set(id, { callback, due: now + delay });
       return id;
     };
     globalThis.clearTimeout = (id) => {
@@ -154,13 +169,27 @@ test("System update owner mounts on first visit and retains live state and insta
     await React.act(async () => installButton());
     assert.equal(typeof confirmed?.onConfirm, "function");
     await React.act(async () => confirmed.onConfirm());
-    assert.equal(timers.size, 2, "alert and updater each hold their existing timeout");
+    assert.equal(timers.size, 1, "the updater owns the only install deadline");
     await render(false);
-    await React.act(async () => Array.from(timers.values()).at(-1)());
+    await advance(5000);
+    await React.act(async () => globalThis.__systemUpdateLocale.setState({ language: "fr" }));
+    assert.match(container.textContent, /fr:settingsPage.general.updates.title/);
+    await advance(9999);
+    assert.equal(calls.alerts.length, 0, "no alert before the original deadline");
+    await advance(10000);
+    assert.equal(calls.alerts.length, 1);
     assert.equal(
-      calls.alerts.at(-1)?.title,
-      "settingsPage.general.updates.dialogs.almostThere.title"
+      calls.alerts[0].title,
+      "fr:settingsPage.general.updates.dialogs.almostThere.title"
     );
+    assert.equal(
+      calls.alerts[0].description,
+      "fr:settingsPage.general.updates.dialogs.almostThere.description"
+    );
+    assert.doesNotMatch(container.textContent, /updates.restarting/);
+    assert.equal(timers.size, 0);
+    await React.act(async () => globalThis.__systemUpdateLocale.setState({ language: "de" }));
+    assert.equal(calls.alerts.length, 1, "locale changes cannot replay the stalled alert");
     await React.act(async () => root.unmount());
     root = null;
     assert.equal(calls.dispose, 3, "last owner releases all update listeners");
@@ -178,4 +207,5 @@ test("System update owner mounts on first visit and retains live state and insta
     [2, 2, 6],
     "close/reopen creates a fresh System owner"
   );
+  assert.equal(calls.alerts.length, 1, "a consumed stall alert does not replay on reopen");
 });

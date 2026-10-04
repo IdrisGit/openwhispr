@@ -1,7 +1,5 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
 const {
@@ -10,7 +8,7 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-test("unrelated settings writes bypass cleanup and theme consumers", async (t) => {
+test("useTheme ignores unrelated settings writes and synchronizes theme changes", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -39,7 +37,6 @@ test("unrelated settings writes bypass cleanup and theme consumers", async (t) =
       "/stores/settingsStore": `
         import { create } from "zustand";
         export const useSettingsStore = create((set) => ({
-          useCleanupModel: false,
           theme: "light",
           unrelated: 0,
           setTheme: (theme) => set({ theme }),
@@ -52,15 +49,7 @@ test("unrelated settings writes bypass cleanup and theme consumers", async (t) =
   const useSettingsStore = globalThis.__settingsSubscriptionStore;
   t.after(() => delete globalThis.__settingsSubscriptionStore);
 
-  let cleanupValue;
-  let cleanupRenders = 0;
   let themeRenders = 0;
-
-  function ControlPanelProbe() {
-    cleanupValue = useSettingsStore((state) => state.useCleanupModel);
-    cleanupRenders += 1;
-    return null;
-  }
 
   function ThemeProbe() {
     useTheme();
@@ -69,43 +58,16 @@ test("unrelated settings writes bypass cleanup and theme consumers", async (t) =
   }
 
   root = createRoot(container);
-  await React.act(async () =>
-    root.render(
-      React.createElement(React.Fragment, null, [
-        React.createElement(ControlPanelProbe, { key: "control-panel" }),
-        React.createElement(ThemeProbe, { key: "theme" }),
-      ])
-    )
-  );
-  assert.equal(cleanupValue, false);
+  await React.act(async () => root.render(React.createElement(ThemeProbe)));
   assert.equal(classes.has("dark"), false);
 
-  const initial = { cleanupRenders, themeRenders };
+  const initial = themeRenders;
   await React.act(async () => useSettingsStore.setState({ unrelated: 1 }));
-  assert.deepEqual(
-    { cleanupRenders, themeRenders },
-    initial,
-    "unrelated settings leave selected consumers alone"
-  );
-
-  await React.act(async () => useSettingsStore.setState({ useCleanupModel: true }));
-  assert.equal(cleanupValue, true, "cleanup-model changes reach their consumer");
-  assert.equal(cleanupRenders, initial.cleanupRenders + 1);
+  assert.equal(themeRenders, initial, "unrelated settings leave the actual theme hook alone");
 
   await React.act(async () => useSettingsStore.getState().setTheme("dark"));
   assert.equal(classes.has("dark"), true, "theme changes still synchronize the DOM");
-  assert.equal(themeRenders, initial.themeRenders + 1);
-
-  const controlPanelSource = fs.readFileSync(
-    path.resolve(__dirname, "../../src/components/ControlPanel.tsx"),
-    "utf8"
-  );
-  assert.match(
-    controlPanelSource,
-    /useSettingsStore\(\(settings\) => settings\.useCleanupModel\)/,
-    "ControlPanel uses the tested narrow selector"
-  );
-  assert.doesNotMatch(controlPanelSource, /useSettings\(\)/);
+  assert.equal(themeRenders, initial + 1);
 });
 
 test("SettingsProvider owns initialization and external synchronization once", async (t) => {

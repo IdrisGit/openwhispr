@@ -3,76 +3,60 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer } = require("../lib/rendererTestHarness");
+const { mountAuditDom } = require("../lib/settingsAuditHarness");
 
-test("Settings modal returns focus to its invoker without a Radix trigger", async (t) => {
-  const documentBefore = globalThis.document;
-  t.after(() => {
-    if (documentBefore === undefined) delete globalThis.document;
-    else globalThis.document = documentBefore;
-    delete globalThis.__settingsDialogProps;
-  });
+test("Settings modal returns focus to its invoker through the real Radix focus scope", async (t) => {
+  const { dom, container, render } = await mountAuditDom(t);
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-settings-a11y-modal-",
     noExternal: ["react-i18next", "@radix-ui/react-dialog"],
     mockModules: {
-      "react-i18next": `export function useTranslation() { return { t: (key) => key }; }`,
-      "@radix-ui/react-dialog": `
-        export const Root = ({children}) => children;
-        export const Portal = Root;
-        export const Overlay = () => null;
-        export function Content({children, ...props}) {
-          globalThis.__settingsDialogProps = props;
-          return children;
-        }
-        export const Close = Root;
-        export const Title = Root;
-      `,
-      "../icons": `export const X = () => null;`,
-      "./InfoBox": `export const InfoBox = ({children}) => children;`,
+      "react-i18next": `export const useTranslation=()=>({t:key=>key});`,
     },
   });
   const { default: SidebarModal } = await vite.ssrLoadModule("/components/ui/SidebarModal.tsx");
-  const html = renderToStaticMarkup(
-    React.createElement(SidebarModal, {
-      open: true,
-      onOpenChange() {},
-      title: "Settings",
-      sidebarItems: [{ id: "general", label: "General", icon: () => null }],
-      activeSection: "general",
-      onSectionChange() {},
-      children: React.createElement("span", null, "Content"),
-    })
-  );
-  assert.match(html, /aria-current="page"/, "selected sidebar section is announced");
-  assert.match(html, /focus-visible:ring/, "keyboard focus is visible on navigation buttons");
-
-  const document = { body: {}, activeElement: null };
-  globalThis.document = document;
-  let restored = false;
-  const invoker = {
-    isConnected: true,
-    focus() {
-      restored = true;
-      document.activeElement = this;
-    },
-  };
-  document.activeElement = invoker;
-  let prevented = false;
-  globalThis.__settingsDialogProps.onOpenAutoFocus({
-    preventDefault() {
-      prevented = true;
-    },
-    currentTarget: {
-      focus() {
-        document.activeElement = this;
-      },
-    },
+  function Host() {
+    const [open, setOpen] = React.useState(false);
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement("button", { onClick: () => setOpen(true) }, "Open Settings"),
+      React.createElement(SidebarModal, {
+        open,
+        onOpenChange: setOpen,
+        title: "Settings",
+        sidebarItems: [{ id: "general", label: "General", icon: () => null }],
+        activeSection: "general",
+        onSectionChange() {},
+        children: React.createElement("input", { "aria-label": "Content" }),
+      })
+    );
+  }
+  await render(React.createElement(Host));
+  const invoker = container.querySelector("button");
+  await React.act(async () => {
+    invoker.focus();
+    invoker.click();
   });
-  assert.equal(prevented, true);
-  assert.notEqual(document.activeElement, invoker);
-  globalThis.__settingsDialogProps.onCloseAutoFocus({ preventDefault() {} });
-  assert.equal(restored, true);
-  assert.equal(document.activeElement, invoker);
+  const dialog = dom.document.querySelector('[role="dialog"]');
+  assert.ok(dialog, "Radix content is mounted in its Portal");
+  assert.equal(
+    dom.document.activeElement,
+    dialog,
+    "opening focuses the dialog, not its close button"
+  );
+  assert.equal(
+    dialog.querySelector('[data-section-id="general"]').getAttribute("aria-current"),
+    "page"
+  );
+  await React.act(async () => dialog.querySelector("button").click());
+  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  assert.equal(dom.document.querySelector('[role="dialog"]'), null);
+  assert.equal(
+    dom.document.activeElement,
+    invoker,
+    "delayed Radix close autofocus restores the actual invoker"
+  );
 });
 
 test("shared provider choices announce their selection without claiming tab keyboard semantics", async (t) => {

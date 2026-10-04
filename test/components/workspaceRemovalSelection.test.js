@@ -71,9 +71,29 @@ for (const action of ["delete", "leave"]) {
       React.act(async () =>
         [...container.querySelectorAll("button")].find((b) => b.textContent === "B").click()
       );
+    let preWrite;
+    await React.act(async () => {
+      preWrite = store.getState().refresh();
+    });
+    const oldList = seen.lists.at(-1),
+      beforeWriteLists = seen.lists.length;
     let run = await start();
     await chooseB();
     await React.act(async () => seen.mutations.at(-1).resolve());
+    assert.equal(
+      seen.lists.length,
+      beforeWriteLists,
+      "reconciliation waits for the pre-write read"
+    );
+    await React.act(async () => {
+      oldList.resolve(workspaces);
+      await preWrite;
+    });
+    assert.equal(
+      seen.lists.length,
+      beforeWriteLists + 1,
+      "completion starts a fresh post-write list"
+    );
     assert.equal(
       store.getState().activeWorkspaceId,
       "B",
@@ -104,8 +124,18 @@ for (const action of ["delete", "leave"]) {
     assert.equal(seen.toasts.at(-1).description, "fake membership failure");
 
     await seed();
+    await React.act(async () => {
+      preWrite = store.getState().refresh();
+    });
+    const obsolete = seen.lists.at(-1),
+      overlapLists = seen.lists.length;
     run = await start();
     await React.act(async () => seen.mutations.at(-1).resolve());
+    await React.act(async () => {
+      obsolete.resolve(workspaces);
+      await preWrite;
+    });
+    assert.equal(seen.lists.length, overlapLists + 1);
     await React.act(async () => {
       seen.lists.at(-1).resolve(workspaces.slice(1));
       await run.pending;

@@ -47,7 +47,9 @@ test("download selection leases reject reconfiguration but retain hidden/closed 
     },
   });
   const { default: Picker } = await vite.ssrLoadModule("/components/LocalModelPicker.tsx");
-  const { useSettingsStore: store } = await vite.ssrLoadModule("/stores/settingsStore.ts");
+  const { useSettingsStore: store, setResolvedLLMConfig } = await vite.ssrLoadModule(
+    "/stores/settingsStore.ts"
+  );
   const { usePolicyStore: policy } = await vite.ssrLoadModule("/stores/policyStore.ts");
   const { useEnterpriseIdentityStore: identity } = await vite.ssrLoadModule(
     "/stores/enterpriseIdentityStore.ts"
@@ -150,6 +152,53 @@ test("download selection leases reject reconfiguration but retain hidden/closed 
   store.setState({ cleanupMode: "providers" });
   await finish(request);
   assert.deepEqual(state.selections, [], "closed owner cannot overwrite newer configuration");
+  for (const disabledAtStart of [false, true]) {
+    await reset();
+    store.setState({
+      dictationAgentMode: "local",
+      dictationAgentProvider: "qwen",
+      dictationAgentModel: "",
+      useDictationAgent: !disabledAtStart,
+    });
+    await render({
+      selectionScope: "dictationAgent",
+      onModelSelect: (id) => {
+        state.selections.push(id);
+        setResolvedLLMConfig("dictationAgent", { model: id });
+      },
+    });
+    request = await begin();
+    await React.act(async () => store.setState({ useDictationAgent: false }));
+    await React.act(async () => root.unmount());
+    root = null;
+    await finish(request);
+    assert.deepEqual(
+      state.selections,
+      [],
+      "disabled agent intent cannot select a completed download"
+    );
+    assert.equal(store.getState().dictationAgentModel, "");
+  }
+  await reset();
+  store.setState({
+    dictationAgentMode: "local",
+    dictationAgentProvider: "qwen",
+    dictationAgentModel: "",
+    useDictationAgent: true,
+  });
+  await render({
+    selectionScope: "dictationAgent",
+    onModelSelect: (id) => setResolvedLLMConfig("dictationAgent", { model: id }),
+  });
+  request = await begin();
+  await React.act(async () => root.unmount());
+  root = null;
+  await finish(request);
+  assert.equal(
+    store.getState().dictationAgentModel,
+    "qwen3.5-9b-q4_k_m",
+    "closing alone retains enabled agent intent"
+  );
   await reset();
   await render({ selectionScope: undefined });
   request = await begin();

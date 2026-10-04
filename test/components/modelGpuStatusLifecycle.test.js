@@ -508,21 +508,32 @@ test("completed LLM pack download still resets native state after Settings close
 
 test("changing Whisper provider/mode discards old replies without dropping progress owners", async (t) => {
   const h = await setup(t);
-  const reply = deferred();
+  const replies = [];
   h.api.whisperServerStatus = () => {
     h.counts.whisper++;
+    const reply = deferred();
+    replies.push(reply);
     return reply.promise;
   };
   await h.render(React.createElement(h.Picker, h.props));
   const registrations = h.counts.progress;
   await React.act(async () => globalThis.__gpuProvider("nvidia"));
-  await React.act(async () => reply.resolve({ gpuAccelerated: true }));
   await h.tick(5000);
-  assert.equal(h.counts.whisper, 1);
+  assert.equal(replies.length, 1, "another provider does not poll Whisper");
+  await React.act(async () => globalThis.__gpuProvider("whisper"));
+  assert.equal(replies.length, 2, "returning to Whisper starts a fresh unresolved read");
+  await React.act(async () => replies[0].resolve({ gpuAccelerated: true }));
+  assert.doesNotMatch(
+    h.container.textContent,
+    /gpu.active/,
+    "obsolete reply cannot activate the current GPU badge"
+  );
+  await React.act(async () => replies[1].resolve({ gpuAccelerated: true }));
+  assert.match(h.container.textContent, /gpu.active/, "current reply activates the same badge");
   assert.equal(h.counts.progress, registrations);
   await h.render(React.createElement(h.Picker, { ...h.props, mode: "cloud" }));
   await h.tick(5000);
-  assert.equal(h.counts.whisper, 1);
+  assert.equal(h.counts.whisper, 2);
   await h.close();
   assert.equal(h.counts.progress, h.counts.disposed);
 });

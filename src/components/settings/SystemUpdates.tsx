@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUpdater } from "../../hooks/useUpdater";
@@ -23,7 +23,6 @@ const SystemUpdates = React.memo(function SystemUpdates({
   const autoUpdatesEnabled = useSettingsStore((s) => s.autoUpdatesEnabled);
   const setAutoUpdatesEnabled = useSettingsStore((s) => s.setAutoUpdatesEnabled);
   const [currentVersion, setCurrentVersion] = useState("");
-  const installTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const {
     status: updateStatus,
     info: updateInfo,
@@ -31,6 +30,8 @@ const SystemUpdates = React.memo(function SystemUpdates({
     isChecking: checkingForUpdates,
     isDownloading: downloadingUpdate,
     isInstalling: installInitiated,
+    installStalled,
+    consumeInstallStall,
     checkForUpdates,
     downloadUpdate,
     installUpdate: installUpdateAction,
@@ -64,25 +65,12 @@ const SystemUpdates = React.memo(function SystemUpdates({
   }, [getAppVersion]);
 
   useEffect(() => {
-    if (installInitiated) {
-      if (installTimeoutRef.current) clearTimeout(installTimeoutRef.current);
-      installTimeoutRef.current = setTimeout(() => {
-        showAlertDialog({
-          title: t("settingsPage.general.updates.dialogs.almostThere.title"),
-          description: t("settingsPage.general.updates.dialogs.almostThere.description"),
-        });
-      }, 10000);
-    } else if (installTimeoutRef.current) {
-      clearTimeout(installTimeoutRef.current);
-      installTimeoutRef.current = null;
-    }
-    return () => {
-      if (installTimeoutRef.current) {
-        clearTimeout(installTimeoutRef.current);
-        installTimeoutRef.current = null;
-      }
-    };
-  }, [installInitiated, showAlertDialog, t]);
+    if (!installStalled || !consumeInstallStall()) return;
+    showAlertDialog({
+      title: t("settingsPage.general.updates.dialogs.almostThere.title"),
+      description: t("settingsPage.general.updates.dialogs.almostThere.description"),
+    });
+  }, [installStalled, consumeInstallStall, showAlertDialog, t]);
 
   return (
     <div>

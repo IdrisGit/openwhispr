@@ -72,12 +72,11 @@ export const MicrophoneSettings: React.FC<MicrophoneSettingsProps> = ({
           isBuiltIn: isBuiltInMicrophone(d.label),
         }));
 
-      // Publish one completed snapshot instead of rendering devices before the
-      // native default lookup settles and then rendering again for its label.
+      if (request !== loadRequest.current) return;
+      setDevices(audioInputs);
       const nativeDefault = await window.electronAPI?.getSystemDefaultMicrophone?.();
       if (request !== loadRequest.current) return;
       const resolvedDefault = resolveSystemDefaultMicDevice(audioInputs, nativeDefault);
-      setDevices(audioInputs);
       setSystemDefaultLabel(nativeDefault?.name || resolvedDefault.device?.label || "");
       const resolvedSelection = resolveMicDeviceSelection(
         audioInputs,

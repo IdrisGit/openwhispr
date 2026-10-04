@@ -27,6 +27,7 @@ function captureSelectionLease(scope: InferenceScope) {
       config.model,
       state.enterpriseSetupMode,
       scope === "dictationCleanup" ? state.useCleanupModel : true,
+      scope === "dictationAgent" ? state.useDictationAgent : true,
       scope === "dictationAgentVision" ? state.useDictationAgentVisionModel : true,
     ]);
   };
@@ -42,6 +43,7 @@ function captureSelectionLease(scope: InferenceScope) {
     selectResolvedLLMConfig(initialState, scope).mode === "local" &&
     allowed() &&
     (scope !== "dictationCleanup" || initialState.useCleanupModel) &&
+    (scope !== "dictationAgent" || initialState.useDictationAgent) &&
     (scope !== "dictationAgentVision" || initialState.useDictationAgentVisionModel);
   const unsubscribeSettings = useSettingsStore.subscribe(() => {
     if (snapshot() !== initial) current = false;

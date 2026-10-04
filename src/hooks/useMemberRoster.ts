@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "../components/ui/useToast";
 import { useDialogSession } from "./useDialogSession";
-import { invalidateSpaceRoster, subscribeSpaceRoster } from "../lib/spaceRosterCache";
+import { subscribeSpaceRoster } from "../lib/spaceRosterCache";
 
 // Local roster reads follow the committed resource and latest reload. Mutation
 // services still own completed-write reconciliation, independently of this UI.
@@ -92,14 +92,10 @@ export function useMemberRoster<M>(
       try {
         const result = await action();
         if (!completion.isAccountCurrent()) return;
-        if (!isCurrent()) {
-          // A reopened same-account/resource owner may have read before this
-          // write finished. Notify it, never dispatch the expired loader.
-          invalidateSpaceRoster(owner.resourceKey);
-          return;
-        }
+        if (!isCurrent()) return;
+        // The action service invalidates rosters after the write, including
+        // reopened owners. Local completion only owns feedback and row state.
         onSuccess?.(result);
-        await reload();
       } catch (err) {
         if (isCurrent()) {
           toast({
@@ -119,7 +115,7 @@ export function useMemberRoster<M>(
         }
       }
     },
-    [capture, owner, reload, toast, t]
+    [capture, owner, toast, t]
   );
 
   return { members, loading, loadFailed, reload, busyIds, mutate, bindRoster };

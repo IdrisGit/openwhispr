@@ -139,7 +139,7 @@ export default function WorkspaceMembersTab({ workspace }: Props) {
       await WorkspacesService.updateMemberRole(workspace.id, userId, role);
       await refreshMembers(workspace.id);
       // Ownership transfer demotes the caller — refresh so workspace.role updates everywhere.
-      if (role === "owner") await refresh();
+      if (role === "owner") await refresh(true);
       toast({
         title: t("settingsPage.workspace.members.roleUpdated"),
       });

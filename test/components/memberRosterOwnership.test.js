@@ -37,7 +37,17 @@ for (const kind of ["team", "space"]) {
         "/MemberRoster": `import React from "react";export default props=>{globalThis.__rosterOwner.props=props;return React.createElement("output",null,JSON.stringify({members:props.members,loading:props.loading,error:props.loadFailed,busy:[...props.busyIds]}));};`,
         "/services/TeamsService": `export const TeamsService={listMembers:id=>globalThis.__rosterOwner.load(id)};`,
         "/services/SpacesService": `export const SpacesService={listMembers:id=>globalThis.__rosterOwner.load(id)};`,
-        "/services/spaceActions": `const mutate=(id)=>globalThis.__rosterOwner.mutate(id);export const setTeamMemberRole=mutate,setSpaceMemberRole=space=>mutate(space.cloud_space_id),removeTeamMember=mutate,removeSpaceMember=mutate;export const addTeamMembers=async(id)=>{await mutate(id);return {failures:[]}};export const addSpaceMembers=async(space)=>{await mutate(space.cloud_space_id);return {failures:[]}};`,
+        "/services/spaceActions": `
+          import {invalidateSpaceRoster} from "/lib/spaceRosterCache.ts";
+          import {getAuthRequestContextSnapshot} from "/lib/authRequestContext.ts";
+          const mutate=async(id)=>{const account=getAuthRequestContextSnapshot();
+            const result=await globalThis.__rosterOwner.mutate(id);
+            if(account===getAuthRequestContextSnapshot())invalidateSpaceRoster();
+            return result;
+          };
+          export const setTeamMemberRole=mutate,setSpaceMemberRole=space=>mutate(space.cloud_space_id),removeTeamMember=mutate,removeSpaceMember=mutate;
+          export const addTeamMembers=async(id)=>{await mutate(id);return {failures:[]}};
+          export const addSpaceMembers=async(space)=>{await mutate(space.cloud_space_id);return {failures:[]}};`,
         "/stores/workspaceStore": `const state={workspaces:[{id:"ws",role:"owner"}],membersByWorkspace:{},refreshMembers:async()=>{}};export const EMPTY_WORKSPACE_MEMBERS=[];export const useWorkspaceStore=fn=>fn(state);`,
       },
     });
@@ -109,9 +119,16 @@ for (const kind of ["team", "space"]) {
     });
     assert.equal(seen.writes.length, 2, "different rows are not globally locked");
     assert.deepEqual([...seen.props.busyIds].sort(), ["one", "two"]);
+    const readsBeforeWrites = seen.reads.length;
     await React.act(async () => seen.writes[0].resolve());
+    assert.equal(
+      seen.reads.length,
+      readsBeforeWrites + 1,
+      "service invalidation owns one post-write read"
+    );
     const firstReload = seen.reads.at(-1);
     await React.act(async () => seen.writes[1].resolve());
+    assert.equal(seen.reads.length, readsBeforeWrites + 2, "a second write adds only one read");
     const secondReload = seen.reads.at(-1);
     assert.notEqual(firstReload, secondReload, "every successful current write reloads");
     await finish(secondReload, "both-written");
@@ -181,7 +198,12 @@ for (const kind of ["team", "space"]) {
       oldMutation.resolve();
       oldRead.reject(new Error("old owner"));
     });
-    assert.equal(seen.reads.length, reads, "expired callbacks cannot dispatch their old loader");
+    assert.equal(
+      seen.reads.length,
+      reads + 1,
+      "service invalidation refreshes the live resource, not the expired loader"
+    );
+    assert.equal(seen.reads.at(-1).id, "B");
     assert.equal(seen.publications.length, publications);
     assert.equal(seen.toasts.length, toasts);
     assert.equal(seen.props.loading, true, "old finally cannot end B's load");
@@ -243,3 +265,44 @@ for (const kind of ["team", "space"]) {
     assert.equal(seen.publications.length, count);
   });
 }
+
+test("real membership action invalidation dispatches exactly one roster read", async (t) => {
+  const { render } = await mountAuditDom(t);
+  const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next"],
+    mockModules: {
+      "react-i18next": `export const useTranslation=()=>({t:key=>key});`,
+      "/ui/useToast": `export const useToast=()=>({toast(){}});`,
+    },
+  });
+  const { useMemberRoster } = await vite.ssrLoadModule("/hooks/useMemberRoster.ts");
+  const { createSpaceActions } = await vite.ssrLoadModule("/services/spaceActionsCore.ts");
+  const { invalidateSpaceRoster } = await vite.ssrLoadModule("/lib/spaceRosterCache.ts");
+  let reads = 0,
+    roster,
+    members = [];
+  const load = async () => {
+    reads++;
+    return members;
+  };
+  const actions = createSpaceActions({
+    teams: {
+      addMember: async (_team, id) => {
+        members = [...members, { user_id: id }];
+      },
+    },
+    spaces: { mySpaces: async () => [] },
+    mirror: { upsertCloudSpaces: async () => {} },
+    local: { loadSpaces: async () => {} },
+    invalidateSpaceRoster,
+  });
+  function MountedRoster() {
+    roster = useMemberRoster("team:A", load);
+    return React.createElement("div", { ref: roster.bindRoster });
+  }
+  await render(React.createElement(MountedRoster));
+  assert.equal(reads, 1);
+  await React.act(async () => roster.mutate("new", () => actions.addTeamMembers("A", ["new"])));
+  assert.equal(reads, 2, "one successful write has one refresh owner");
+  assert.deepEqual(roster.members, [{ user_id: "new" }]);
+});

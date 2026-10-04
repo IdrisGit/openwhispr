@@ -102,8 +102,17 @@ test("two renderer owners see rotations/clears without TTL caching or immediate-
   await assert.rejects(one.service.getApiKey("openai"), { code: "SECRET_PUBLICATION_FAILED" });
   assert.equal(await two.service.getApiKey("openai"), "fake-overlap-new");
   api.saveOpenAIKey = publishOpenai;
-  one.store.getState().setOpenaiApiKey("fake-recovered");
+  let recoveryReads = 0;
+  const getOpenai = api.getOpenAIKey;
+  api.getOpenAIKey = async () => {
+    recoveryReads++;
+    return getOpenai();
+  };
+  two.store.getState().setOpenaiApiKey("fake-recovered");
   saves.at(-1).resolve({ success: true });
+  await new Promise(setImmediate);
+  assert.equal(recoveryReads, 2, "metadata reaches both authoritative getters after A's failure");
+  assert.equal(one.store.getState().openaiApiKey, "fake-recovered");
   assert.equal(await one.service.getApiKey("openai"), "fake-recovered");
 
   one.store.getState().setNoteFormattingCustomApiKey("fake-scope");

@@ -279,7 +279,7 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
     setSaving(true);
     try {
       await WorkspacesService.update(workspace.id, { name });
-      await refresh();
+      await refresh(true);
       toast({ title: t("settingsPage.workspace.general.saved") });
     } catch (error) {
       toast({
@@ -302,8 +302,8 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
         setDeleting(true);
         try {
           await WorkspacesService.remove(workspace.id);
-          // The shared refresh resolves the current selection, not this closure's workspace.
-          await refresh();
+          // Read after the write, resolving the current selection rather than this closure's workspace.
+          await refresh(true);
           toast({ title: t("settingsPage.workspace.general.deleted") });
         } catch (error) {
           toast({
@@ -329,7 +329,7 @@ function GeneralTab({ workspace }: { workspace: Workspace }) {
         setLeaving(true);
         try {
           await WorkspacesService.removeMember(workspace.id, user.id);
-          await refresh();
+          await refresh(true);
           toast({ title: t("settingsPage.workspace.general.left", { name: workspace.name }) });
         } catch (error) {
           toast({
