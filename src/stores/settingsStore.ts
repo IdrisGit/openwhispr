@@ -884,6 +884,7 @@ export interface SettingsState
     PrivacySettings,
     ThemeSettings,
     ChatAgentSettings {
+  agentName: string;
   isSignedIn: boolean;
   audioCuesEnabled: boolean;
   pauseMediaOnDictation: boolean;
@@ -1516,6 +1517,7 @@ function syncAfterLocalWrite(method: "syncDictionaryNow" | "syncSnippetsNow"): v
 }
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
+  agentName: readString("agentName", "OpenWhispr").trim() || "OpenWhispr",
   uiLanguage: normalizeUiLanguage(
     isBrowser ? localStorage.getItem("uiLanguage") || i18n.language : null
   ),
@@ -3759,9 +3761,16 @@ export async function initializeSettings(): Promise<void> {
     }
   }
 
-  // Sync Zustand store when another window writes to localStorage
+  // Agent-name storage/removal and native notifications have one app-lifetime subscriber.
+  // Sync remaining Zustand preferences when another window writes to localStorage.
   window.addEventListener("storage", (event) => {
-    if (!event.key || event.storageArea !== localStorage || event.newValue === null) return;
+    if (
+      !event.key ||
+      event.key === "agentName" ||
+      event.storageArea !== localStorage ||
+      event.newValue === null
+    )
+      return;
 
     const { key, newValue } = event;
 

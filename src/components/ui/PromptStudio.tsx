@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "./button";
@@ -64,6 +64,13 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   const [testResult, setTestResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const testRequest = useRef(0);
+  const bindStudio = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    return () => {
+      ++testRequest.current;
+    };
+  }, []);
 
   const { alertDialog, showAlertDialog, hideAlertDialog } = useDialogs();
   const { agentName } = useAgentName();
@@ -114,12 +121,17 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   const customPrompt = useSettingsStore((s) => s.customPrompts[kind]);
   const setCustomPrompt = useSettingsStore((s) => s.setCustomPrompt);
   const defaultPrompt = getDefaultPromptText(kind, uiLanguage);
-  const [editedPrompt, setEditedPrompt] = useState(customPrompt || defaultPrompt);
+  const currentPrompt = customPrompt || defaultPrompt;
+  // Untouched text is derived, not an old snapshot of a default or saved prompt.
+  // Only actual edits survive external changes and hidden retained mounting.
+  const [draft, setDraft] = useState<{ kind: PromptKind; text: string } | null>(null);
+  const editedPrompt = draft?.kind === kind ? draft.text : currentPrompt;
 
   const savePrompt = () => {
     // Saving the unedited default is not a customization; keep resolving the
     // shipped default so future prompt updates still reach this install.
     setCustomPrompt(kind, editedPrompt === defaultPrompt ? "" : editedPrompt);
+    setDraft(null);
     showAlertDialog({
       title: t("promptStudio.dialogs.saved.title"),
       description: t("promptStudio.dialogs.saved.description"),
@@ -127,8 +139,8 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   };
 
   const resetToDefault = () => {
-    setEditedPrompt(defaultPrompt);
     setCustomPrompt(kind, "");
+    setDraft(null);
     showAlertDialog({
       title: t("promptStudio.dialogs.reset.title"),
       description: t("promptStudio.dialogs.reset.description"),
@@ -142,7 +154,11 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   };
 
   const testPrompt = async () => {
-    if (!testText.trim()) return;
+    if (!testText.trim() || isLoading) return;
+    const request = ++testRequest.current;
+    const publishResult = (result: string) => {
+      if (request === testRequest.current) setTestResult(result);
+    };
 
     setIsLoading(true);
     setTestResult("");
@@ -170,11 +186,11 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
 
       if (isTranslate) {
         if (!useDictationTranslation) {
-          setTestResult(t("promptStudio.test.translationDisabled"));
+          publishResult(t("promptStudio.test.translationDisabled"));
           return;
         }
         if (!translationTargetLanguage.trim()) {
-          setTestResult(t("promptStudio.test.noTargetLanguage"));
+          publishResult(t("promptStudio.test.noTargetLanguage"));
           return;
         }
 
@@ -183,10 +199,10 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         });
         if (!translation.reachable) {
           if (translationMode === "self-hosted" && !translationRemoteUrl.trim()) {
-            setTestResult(t("notes.actions.errors.noEndpoint"));
+            publishResult(t("notes.actions.errors.noEndpoint"));
             return;
           }
-          setTestResult(t("promptStudio.test.noModelSelected"));
+          publishResult(t("promptStudio.test.noModelSelected"));
           return;
         }
 
@@ -200,7 +216,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
             promptTemplate: editedPrompt,
           }),
         });
-        setTestResult(result);
+        publishResult(result);
         return;
       }
 
@@ -208,7 +224,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
       // branch would test the cleanup provider with the cleanup prompt.
       if (isAgent) {
         if (!useDictationAgent) {
-          setTestResult(t("promptStudio.test.agentDisabled"));
+          publishResult(t("promptStudio.test.agentDisabled"));
           return;
         }
 
@@ -218,7 +234,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         });
 
         if (!agent.reachable) {
-          setTestResult(t("promptStudio.test.noModelSelected"));
+          publishResult(t("promptStudio.test.noModelSelected"));
           return;
         }
 
@@ -234,7 +250,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
             promptTemplate: editedPrompt,
           }),
         });
-        setTestResult(result);
+        publishResult(result);
         return;
       }
 
@@ -256,12 +272,12 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
       );
 
       if (!useCleanupModel) {
-        setTestResult(t("promptStudio.test.disabledReasoning"));
+        publishResult(t("promptStudio.test.disabledReasoning"));
         return;
       }
 
       if (!isCloudMode && !cleanupModel) {
-        setTestResult(t("promptStudio.test.noModelSelected"));
+        publishResult(t("promptStudio.test.noModelSelected"));
         return;
       }
 
@@ -273,7 +289,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         if (providerConfig.baseStorageKey) {
           const baseUrl = (effectiveSettings.cleanupCloudBaseUrl || "").trim();
           if (!baseUrl) {
-            setTestResult(
+            publishResult(
               t("promptStudio.test.baseUrlMissing", {
                 provider:
                   cleanupProvider === "custom"
@@ -293,24 +309,23 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
         disableThinking: effectiveSettings.cleanupDisableThinking,
         cleanupPrompt: editedPrompt,
       });
-      setTestResult(result);
+      publishResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("PromptStudio test failed", { error: errorMessage }, "prompt-studio");
       const typed = error as { code?: string; provider?: string };
-      setTestResult(
+      publishResult(
         typed?.code === "API_KEY_MISSING"
           ? t("promptStudio.test.apiKeyMissing", { provider: typed.provider })
           : t("promptStudio.test.failed", { error: errorMessage })
       );
     } finally {
-      setIsLoading(false);
+      if (request === testRequest.current) setIsLoading(false);
     }
   };
 
   const isAgentAddressed = testText.toLowerCase().includes(agentName.toLowerCase());
   const isCustomPrompt = customPrompt.length > 0;
-  const currentPrompt = customPrompt || defaultPrompt;
 
   const tabs = [
     { id: "current" as const, label: t("promptStudio.tabs.view"), icon: Eye },
@@ -319,7 +334,7 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
   ];
 
   return (
-    <div className={className}>
+    <div ref={bindStudio} className={className}>
       <AlertDialog
         open={alertDialog.open}
         onOpenChange={(open) => !open && hideAlertDialog()}
@@ -419,7 +434,9 @@ export default function PromptStudio({ className = "", kind = "cleanup" }: Promp
                 aria-label={t("promptStudio.view.customPrompt")}
                 dir="auto"
                 value={editedPrompt}
-                onChange={(e) => setEditedPrompt(e.target.value)}
+                onChange={(e) =>
+                  setDraft(e.target.value === currentPrompt ? null : { kind, text: e.target.value })
+                }
                 rows={16}
                 className="font-mono text-xs leading-relaxed"
                 placeholder={t("promptStudio.edit.placeholder")}

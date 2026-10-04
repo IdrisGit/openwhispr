@@ -47,7 +47,24 @@ const DialogContent = React.forwardRef<
   ) => {
     const { t } = useTranslation();
     const { registerContent, shouldBlockDismiss } =
-      useDismissGuard<React.ElementRef<typeof DialogPrimitive.Content>>(ref);
+      useDismissGuard<React.ElementRef<typeof DialogPrimitive.Content>>();
+    const [contentNode, setContentNode] = React.useState<HTMLDivElement | null>(null);
+    // Radix Presence keeps its composed ref stable across caller-ref changes.
+    // Forward the committed DOM node before paint, with the caller's cleanup,
+    // so replacing a resource ref really replaces its lease while still open.
+    React.useLayoutEffect(() => {
+      if (!contentNode) return;
+      const cleanup =
+        typeof ref === "function"
+          ? (ref as React.RefCallback<HTMLDivElement>)(contentNode)
+          : undefined;
+      if (ref && typeof ref !== "function") ref.current = contentNode;
+      return () => {
+        if (typeof cleanup === "function") cleanup();
+        else if (typeof ref === "function") ref(null);
+        else if (ref) ref.current = null;
+      };
+    }, [contentNode, ref]);
     const contentRef = React.useRef<HTMLDivElement | null>(null);
     const lastContentRef = React.useRef<HTMLDivElement | null>(null);
     const invokerRef = React.useRef<HTMLElement | null>(null);
@@ -71,8 +88,15 @@ const DialogContent = React.forwardRef<
     const attachContent = React.useCallback(
       (node: HTMLDivElement | null) => {
         contentRef.current = node;
+        setContentNode(node);
         if (node) lastContentRef.current = node;
-        registerContent(node);
+        const cleanup = registerContent(node);
+        if (!node) return;
+        return () => {
+          contentRef.current = null;
+          setContentNode(null);
+          cleanup?.();
+        };
       },
       [registerContent]
     );

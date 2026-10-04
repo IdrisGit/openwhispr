@@ -22,6 +22,7 @@ import {
 } from "../stores/policyRules";
 import { usePolicyStore } from "../stores/policyStore";
 import { usePolicySnapshot } from "./usePolicy";
+import { subscribeAgentNameChanges } from "../utils/agentName";
 
 export interface TranscriptionSettings {
   uiLanguage: string;
@@ -156,6 +157,8 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
       );
     });
   }, []);
+
+  useEffect(subscribeAgentNameChanges, []);
 
   // Startup sends the initial snapshot before hydration; subscribe only to changes.
   useEffect(

@@ -1932,6 +1932,10 @@ class IPCHandlers {
       return this.databaseManager.clearDictionaryCloudId(id);
     });
 
+    ipcMain.on("agent-name-changed", () => {
+      broadcastToWindows("agent-name-changed");
+    });
+
     ipcMain.handle("db-broadcast-dictionary-updated", async () => {
       // Emit the normalized list straight from SQLite so renderers see the
       // post-dedupe truth, never a caller-supplied payload.

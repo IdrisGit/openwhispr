@@ -4685,6 +4685,8 @@
       "roleLabel": "Rol",
       "seatUsage": "Usando {{used}} de {{seats}} asientos",
       "seatCost": "Si acepta, se añadirá un puesto a tu plan · cargo prorrateado estimado de {{amount}}.",
+      "pricingLoading": "Comprobando el coste de la invitación…",
+      "pricingUnavailable": "No se pudo confirmar el coste del puesto. Reinténtalo antes de enviar la invitación.",
       "submit": "Enviar invitación",
       "submitting": "Enviando…",
       "sentTitle": "Invitación enviada",

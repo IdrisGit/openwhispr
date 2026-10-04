@@ -4685,6 +4685,8 @@
       "roleLabel": "Função",
       "seatUsage": "Usando {{used}} de {{seats}} assentos",
       "seatCost": "Se a pessoa aceitar, será adicionado um assento ao plano · cobrança proporcional estimada de {{amount}}.",
+      "pricingLoading": "Verificando o custo do convite…",
+      "pricingUnavailable": "Não foi possível confirmar o custo do assento. Tente novamente antes de enviar o convite.",
       "submit": "Enviar convite",
       "submitting": "Enviando…",
       "sentTitle": "Convite enviado",

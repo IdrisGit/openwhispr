@@ -2983,6 +2983,8 @@
       "roleLabel": "Rôle",
       "seatUsage": "{{used}} sur {{seats}} sièges utilisés",
       "seatCost": "En cas d’acceptation, un siège sera ajouté à votre offre · facturation au prorata estimée à {{amount}}.",
+      "pricingLoading": "Vérification du coût de l’invitation…",
+      "pricingUnavailable": "Impossible de confirmer le coût du siège. Réessayez avant d’envoyer l’invitation.",
       "submit": "Envoyer l'invitation",
       "submitting": "Envoi…",
       "sentTitle": "Invitation envoyée",

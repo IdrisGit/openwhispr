@@ -23,7 +23,7 @@ import { useToast } from "./ui/useToast";
 import SnippetsView from "./SnippetsView";
 import { useSettingsStore } from "../stores/settingsStore";
 import DictionaryEmptyIllustration from "./DictionaryEmptyIllustration";
-import { getAgentName } from "../utils/agentName";
+import { useAgentName } from "../utils/agentName";
 import { parseDictionaryImportText } from "../helpers/dictionaryImport";
 import { getDictionaryHintWords } from "../utils/snippets";
 import { WHISPER_DECODER_PROMPT_CHARS } from "../utils/dictionaryPromptCap";
@@ -33,7 +33,7 @@ export default function DictionaryView() {
   const customDictionary = useSettingsStore((settings) => settings.customDictionary);
   const updateCustomDictionary = useSettingsStore((settings) => settings.updateCustomDictionary);
   const snippets = useSettingsStore((settings) => settings.snippets);
-  const agentName = getAgentName();
+  const { agentName } = useAgentName();
   const { toast } = useToast();
 
   const [newWord, setNewWord] = useState("");

@@ -51,7 +51,8 @@ export default function DictationAgentSettings({
   const screenContextActive = voiceAgentScreenContext && screenContextAllowed;
 
   const { agentName, setAgentName } = useAgentName();
-  const [agentNameInput, setAgentNameInput] = useState(agentName);
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const agentNameInput = nameDraft ?? agentName;
   const { showAlertDialog } = useDialogs();
 
   const handleSaveAgentName = () => {
@@ -59,7 +60,7 @@ export default function DictationAgentSettings({
 
     // setAgentName also moves the name in the dictionary.
     setAgentName(trimmed);
-    setAgentNameInput(trimmed);
+    setNameDraft(null);
 
     showAlertDialog({
       title: t("settingsPage.agentConfig.dialogs.updatedTitle"),
@@ -105,7 +106,9 @@ export default function DictationAgentSettings({
                   dir="auto"
                   placeholder={t("settingsPage.agentConfig.placeholder")}
                   value={agentNameInput}
-                  onChange={(e) => setAgentNameInput(e.target.value)}
+                  onChange={(e) =>
+                    setNameDraft(e.target.value === agentName ? null : e.target.value)
+                  }
                   className="flex-1 text-center text-base font-mono"
                 />
                 <Button onClick={handleSaveAgentName} disabled={!agentNameInput.trim()} size="sm">

@@ -4685,6 +4685,8 @@
       "roleLabel": "Ruolo",
       "seatUsage": "{{used}} di {{seats}} posti in uso",
       "seatCost": "Se accetta, verrà aggiunto un posto al piano · addebito proporzionale stimato di {{amount}}.",
+      "pricingLoading": "Verifica del costo dell’invito…",
+      "pricingUnavailable": "Impossibile confermare il costo del posto. Riprova prima di inviare l’invito.",
       "submit": "Invia invito",
       "submitting": "Invio…",
       "sentTitle": "Invito inviato",

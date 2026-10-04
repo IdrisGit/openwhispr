@@ -2983,6 +2983,8 @@
       "roleLabel": "Rolle",
       "seatUsage": "{{used}} von {{seats}} Plätzen belegt",
       "seatCost": "Bei Annahme wird deinem Tarif ein Platz hinzugefügt · geschätzte anteilige Kosten: {{amount}}.",
+      "pricingLoading": "Einladungskosten werden geprüft…",
+      "pricingUnavailable": "Die Kosten für den Platz konnten nicht bestätigt werden. Versuche es vor dem Senden erneut.",
       "submit": "Einladung senden",
       "submitting": "Sende…",
       "sentTitle": "Einladung gesendet",

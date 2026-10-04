@@ -7,6 +7,8 @@ const { EventEmitter } = require("node:events");
 function load() {
   let api;
   const ipc = new EventEmitter();
+  ipc.sent = [];
+  ipc.send = (...args) => ipc.sent.push(args);
   vm.runInNewContext(fs.readFileSync(require.resolve("../../preload.js"), "utf8"), {
     require: () => ({
       contextBridge: { exposeInMainWorld: (_name, value) => (api = value) },
@@ -60,6 +62,20 @@ test("every named preload listener discards native event/sender and removes only
   assert.equal(ipc.eventNames().length, 0);
   api.onUpdateAvailable(null)();
   assert.equal(ipc.eventNames().length, 0);
+});
+
+test("agent-name bridge carries only a notification and disposes the exact payload-free listener", () => {
+  const { api, ipc } = load();
+  api.notifyAgentNameChanged();
+  assert.equal(JSON.stringify(ipc.sent), JSON.stringify([["agent-name-changed"]]));
+  const calls = [];
+  const dispose = api.onAgentNameChanged((...args) => calls.push(args));
+  ipc.emit("agent-name-changed", { sender: ipc }, { name: "fake must not forward" });
+  assert.equal(JSON.stringify(calls), "[[]]");
+  dispose();
+  ipc.emit("agent-name-changed", { sender: ipc });
+  assert.equal(calls.length, 1);
+  assert.equal(ipc.listenerCount("agent-name-changed"), 0);
 });
 
 test("legacy progress/completion/error payloads remain in the expected consumer slot", () => {

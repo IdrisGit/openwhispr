@@ -4685,6 +4685,8 @@
       "roleLabel": "役割",
       "seatUsage": "{{seats}} シート中 {{used}} シートを使用中",
       "seatCost": "承諾されるとプランに 1 席追加され、日割りの見積額 {{amount}} が請求されます。",
+      "pricingLoading": "招待の料金を確認中…",
+      "pricingUnavailable": "席の料金を確認できませんでした。招待を送信する前に再試行してください。",
       "submit": "招待を送信",
       "submitting": "送信中…",
       "sentTitle": "招待を送信しました",

@@ -4685,6 +4685,8 @@
       "roleLabel": "角色",
       "seatUsage": "已使用 {{used}}/{{seats}} 个席位",
       "seatCost": "接受邀请后将为你的方案增加一个席位 · 预计按比例收取 {{amount}}。",
+      "pricingLoading": "正在确认邀请费用…",
+      "pricingUnavailable": "无法确认席位费用。请重试后再发送邀请。",
       "submit": "发送邀请",
       "submitting": "发送中…",
       "sentTitle": "邀请已发送",

@@ -39,7 +39,7 @@ interface OutsideEvent {
   detail: { originalEvent: Event };
 }
 
-export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.ForwardedRef<T>) {
+export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.Ref<T>) {
   const contentRef = React.useRef<T | null>(null);
   const layerWasAboveRef = React.useRef(false);
 
@@ -57,8 +57,15 @@ export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.Forw
   const registerContent = React.useCallback(
     (node: T | null) => {
       contentRef.current = node;
-      if (typeof forwardedRef === "function") forwardedRef(node);
-      else if (forwardedRef) forwardedRef.current = node;
+      const cleanup = typeof forwardedRef === "function" ? forwardedRef(node) : undefined;
+      if (forwardedRef && typeof forwardedRef !== "function") forwardedRef.current = node;
+      if (!node) return;
+      return () => {
+        contentRef.current = null;
+        if (typeof cleanup === "function") cleanup();
+        else if (typeof forwardedRef === "function") forwardedRef(null);
+        else if (forwardedRef) forwardedRef.current = null;
+      };
     },
     [forwardedRef]
   );

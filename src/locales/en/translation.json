@@ -2982,6 +2982,8 @@
       "emailPlaceholder": "teammate@example.com",
       "roleLabel": "Role",
       "seatUsage": "Using {{used}} of {{seats}} seats",
+      "pricingLoading": "Checking invitation pricing…",
+      "pricingUnavailable": "Couldn't confirm the seat cost. Retry before sending this invitation.",
       "seatCost": "If accepted, adds a seat to your plan · estimated prorated charge {{amount}}.",
       "submit": "Send invite",
       "submitting": "Sending…",
