@@ -190,7 +190,6 @@ export function ModelCard({
                     e.stopPropagation();
                     onDelete?.(model.value);
                   }}
-                  aria-label={t("models.deleteLabel", { model: model.label })}
                   size="icon"
                   variant="ghost"
                   className="pointer-events-auto size-6 text-muted-foreground/70 hover:text-destructive opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-[color,opacity,transform] active:scale-95"

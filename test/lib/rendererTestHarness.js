@@ -188,12 +188,6 @@ function installHostDom(t) {
     removeEventListener() {}
     focus() {}
     blur() {}
-    querySelector() {
-      return null;
-    }
-    querySelectorAll() {
-      return [];
-    }
 
     get textContent() {
       if (this.nodeType === 3) return this.nodeValue;

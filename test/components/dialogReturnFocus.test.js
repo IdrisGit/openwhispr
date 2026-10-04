@@ -5,7 +5,6 @@ const { createRendererServer } = require("../lib/rendererTestHarness");
 const { mountAuditDom } = require("../lib/settingsAuditHarness");
 
 const en = require("../../src/locales/en/translation.json");
-const fr = require("../../src/locales/fr/translation.json");
 const translate = (dict, key) => key.split(".").reduce((s, k) => s?.[k], dict) ?? key;
 const settle = () => React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
 
@@ -172,27 +171,6 @@ test("real triggerless nested dialogs restore surviving invokers, fallback and o
   await settle();
   assert.ok(
     [...dom.document.querySelectorAll("button")].some((button) => button.textContent === "OK")
-  );
-  globalThis.__dialogT = (key) => translate(fr, key);
-  await render(
-    React.createElement(ConfirmDialog, {
-      open: true,
-      onOpenChange() {},
-      title: "Locale",
-      onConfirm() {},
-    })
-  );
-  await settle();
-  assert.ok(
-    [...dom.document.querySelectorAll("button")].some(
-      (button) => button.textContent === "Confirmer"
-    )
-  );
-  assert.ok(
-    [...dom.document.querySelectorAll("button")].some((button) => button.textContent === "Annuler")
-  );
-  assert.ok(
-    [...dom.document.querySelectorAll("button")].some((button) => button.textContent === "Fermer")
   );
   await render(
     React.createElement(ConfirmDialog, {

@@ -274,7 +274,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             onClick={handleConfirm}
             disabled={confirmDisabled}
           >
-            {confirmText ?? t("common.confirm")}
+            {confirmText ?? "Confirm"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -315,7 +315,7 @@ const AlertDialog: React.FC<AlertDialogProps> = ({
         </DialogHeader>
         <DialogFooter>
           <Button variant="default" onClick={handleOk}>
-            {okText ?? t("common.ok")}
+            {okText ?? "OK"}
           </Button>
         </DialogFooter>
       </DialogContent>

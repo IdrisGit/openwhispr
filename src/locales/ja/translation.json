@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr - 音声ディクテーション"
   },
   "menu": {
-    "edit": "編集",
-    "view": "表示",
-    "window": "ウィンドウ",
     "appLabel": "OpenWhispr",
     "quit": "OpenWhispr を終了",
     "speech": "スピーチ",
@@ -166,8 +163,6 @@
     "pttUnavailable": "プッシュトゥトークのネイティブリスナーが利用できません"
   },
   "common": {
-    "confirm": "確認",
-    "ok": "OK",
     "continue": "続ける",
     "add": "追加",
     "retry": "再試行",
@@ -1360,8 +1355,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "言語が見つかりません",
-    "searchPlaceholder": "言語を検索",
-    "clearSearch": "検索をクリア"
+    "searchPlaceholder": "言語を検索"
   },
   "microphoneSettings": {
     "builtIn": "（内蔵）",
@@ -1463,7 +1457,6 @@
       "modelLabel": "モデル",
       "noModelSelected": "モデル未選択",
       "none": "なし",
-      "copyOutput": "テスト結果をコピー",
       "outputLabel": "出力",
       "processing": "処理中...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2441,7 +2434,6 @@
       },
       "invites": {
         "title": "保留中の招待",
-        "expiresOn": "有効期限: {{date}}",
         "expiresIn_one": "有効期限まであと{{count}}日",
         "expiresIn_other": "有効期限まであと{{count}}日",
         "expired": "期限切れ",
@@ -2567,7 +2559,6 @@
     }
   },
   "models": {
-    "deleteLabel": "{{model}}を削除",
     "learnMore": "詳細を見る",
     "noneAvailable": "利用可能なモデルがありません",
     "descriptions": {
@@ -4686,8 +4677,6 @@
       "roleLabel": "役割",
       "seatUsage": "{{seats}} シート中 {{used}} シートを使用中",
       "seatCost": "承諾されるとプランに 1 席追加され、日割りの見積額 {{amount}} が請求されます。",
-      "pricingLoading": "招待の料金を確認中…",
-      "pricingUnavailable": "席の料金を確認できませんでした。招待を送信する前に再試行してください。",
       "submit": "招待を送信",
       "submitting": "送信中…",
       "sentTitle": "招待を送信しました",
@@ -4756,7 +4745,6 @@
     "hotkeyHint": "ホットキーは 設定 → ホットキー → 翻訳ホットキー で設定できます",
     "targetsLabel": "翻訳先の言語",
     "addTarget": "言語を追加…",
-    "selectTarget": "{{language}}を翻訳先言語に選択",
     "activeTarget": "使用中の翻訳先言語",
     "removeTarget": "{{language}}を削除",
     "maxTargets": "最大{{max}}言語"

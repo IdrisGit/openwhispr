@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr - 语音听写"
   },
   "menu": {
-    "edit": "编辑",
-    "view": "视图",
-    "window": "窗口",
     "appLabel": "OpenWhispr",
     "quit": "退出 OpenWhispr",
     "speech": "语音",
@@ -166,8 +163,6 @@
     "pttUnavailable": "按住说话原生监听器不可用"
   },
   "common": {
-    "confirm": "确认",
-    "ok": "确定",
     "continue": "继续",
     "add": "添加",
     "retry": "重试",
@@ -1360,8 +1355,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "未找到匹配的语言",
-    "searchPlaceholder": "搜索语言",
-    "clearSearch": "清除搜索"
+    "searchPlaceholder": "搜索语言"
   },
   "microphoneSettings": {
     "builtIn": "（内置）",
@@ -1463,7 +1457,6 @@
       "modelLabel": "模型",
       "noModelSelected": "未选择模型",
       "none": "无",
-      "copyOutput": "复制测试输出",
       "outputLabel": "输出",
       "processing": "处理中...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2441,7 +2434,6 @@
       },
       "invites": {
         "title": "待处理的邀请",
-        "expiresOn": "到期时间：{{date}}",
         "expiresIn_one": "{{count}} 天后过期",
         "expiresIn_other": "{{count}} 天后过期",
         "expired": "已过期",
@@ -2567,7 +2559,6 @@
     }
   },
   "models": {
-    "deleteLabel": "删除 {{model}}",
     "learnMore": "了解更多",
     "noneAvailable": "没有可用的模型",
     "descriptions": {
@@ -4686,8 +4677,6 @@
       "roleLabel": "角色",
       "seatUsage": "已使用 {{used}}/{{seats}} 个席位",
       "seatCost": "接受邀请后将为你的方案增加一个席位 · 预计按比例收取 {{amount}}。",
-      "pricingLoading": "正在确认邀请费用…",
-      "pricingUnavailable": "无法确认席位费用。请重试后再发送邀请。",
       "submit": "发送邀请",
       "submitting": "发送中…",
       "sentTitle": "邀请已发送",
@@ -4756,7 +4745,6 @@
     "hotkeyHint": "在 设置 → 快捷键 → 翻译快捷键 中设置快捷键",
     "targetsLabel": "目标语言",
     "addTarget": "添加语言…",
-    "selectTarget": "选择{{language}}作为目标语言",
     "activeTarget": "当前目标语言",
     "removeTarget": "移除{{language}}",
     "maxTargets": "最多 {{max}} 种语言"

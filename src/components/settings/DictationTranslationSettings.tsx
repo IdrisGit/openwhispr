@@ -113,9 +113,7 @@ export default function DictationTranslationSettings({
                               type="button"
                               onClick={() => setTranslationTargetLanguage(target)}
                               aria-pressed={isActive}
-                              aria-label={t("dictationTranslation.selectTarget", {
-                                language: label,
-                              })}
+                              aria-label={t("dictationTranslation.activeTarget")}
                               className="inline-flex items-center gap-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
                               {flag && <span aria-hidden="true">{flag}</span>}

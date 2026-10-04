@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr — голосовая диктовка"
   },
   "menu": {
-    "edit": "Правка",
-    "view": "Вид",
-    "window": "Окно",
     "appLabel": "OpenWhispr",
     "quit": "Закрыть OpenWhispr",
     "speech": "Речь",
@@ -166,8 +163,6 @@
     "pttUnavailable": "Нативный слушатель Push-to-Talk недоступен"
   },
   "common": {
-    "confirm": "Подтвердить",
-    "ok": "ОК",
     "continue": "Продолжить",
     "add": "Добавить",
     "retry": "Повторить",
@@ -1360,8 +1355,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "Языки не найдены",
-    "searchPlaceholder": "Поиск языков",
-    "clearSearch": "Очистить поиск"
+    "searchPlaceholder": "Поиск языков"
   },
   "microphoneSettings": {
     "builtIn": "(Встроенный)",
@@ -1463,7 +1457,6 @@
       "modelLabel": "Модель",
       "noModelSelected": "Модель не выбрана",
       "none": "Нет",
-      "copyOutput": "Копировать результат теста",
       "outputLabel": "Результат",
       "processing": "Обработка...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2453,7 +2446,6 @@
       },
       "invites": {
         "title": "Ожидающие приглашения",
-        "expiresOn": "Срок действия: {{date}}",
         "expiresIn_one": "Истекает через {{count}} день",
         "expiresIn_few": "Истекает через {{count}} дня",
         "expiresIn_many": "Истекает через {{count}} дней",
@@ -2583,7 +2575,6 @@
     }
   },
   "models": {
-    "deleteLabel": "Удалить {{model}}",
     "learnMore": "Подробнее",
     "noneAvailable": "Нет доступных моделей",
     "descriptions": {
@@ -4730,8 +4721,6 @@
       "roleLabel": "Роль",
       "seatUsage": "Занято {{used}} из {{seats}} мест",
       "seatCost": "После принятия приглашения в тариф добавится место · ориентировочная пропорциональная сумма {{amount}}.",
-      "pricingLoading": "Проверка стоимости приглашения…",
-      "pricingUnavailable": "Не удалось подтвердить стоимость места. Повторите попытку перед отправкой приглашения.",
       "submit": "Отправить приглашение",
       "submitting": "Отправка…",
       "sentTitle": "Приглашение отправлено",
@@ -4802,7 +4791,6 @@
     "hotkeyHint": "Задайте горячую клавишу в Настройки → Горячие клавиши → Горячая клавиша перевода",
     "targetsLabel": "Языки перевода",
     "addTarget": "Добавить язык…",
-    "selectTarget": "Выбрать {{language}} языком перевода",
     "activeTarget": "Активный язык перевода",
     "removeTarget": "Удалить {{language}}",
     "maxTargets": "До {{max}} языков"

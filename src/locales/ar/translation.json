@@ -217,7 +217,6 @@
     }
   },
   "models": {
-    "deleteLabel": "حذف {{model}}",
     "learnMore": "اعرف المزيد",
     "noneAvailable": "لا توجد نماذج متاحة",
     "descriptions": {
@@ -1278,8 +1277,6 @@
       "roleLabel": "الدور",
       "seatUsage": "المقاعد المستخدمة: {{used}} من أصل {{seats}}",
       "seatCost": "إذا تم القبول، سيتم إضافة مقعد إلى خطتك · التكلفة التقديرية التناسبية {{amount}}.",
-      "pricingLoading": "جارٍ التحقق من تكلفة الدعوة…",
-      "pricingUnavailable": "تعذر تأكيد تكلفة المقعد. أعد المحاولة قبل إرسال الدعوة.",
       "submit": "إرسال دعوة",
       "submitting": "جاري الإرسال…",
       "sentTitle": "تم إرسال الدعوة",
@@ -1434,7 +1431,6 @@
       "modelLabel": "النموذج",
       "noModelSelected": "لم يتم تحديد أي نموذج",
       "none": "لا شيء",
-      "copyOutput": "نسخ نتيجة الاختبار",
       "outputLabel": "المخرجات",
       "processing": "جاري المعالجة...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -3055,7 +3051,6 @@
       },
       "invites": {
         "title": "الدعوات المعلقة",
-        "expiresOn": "تنتهي الصلاحية: {{date}}",
         "expiresIn_zero": "تنتهي صلاحيتها خلال {{count}} أيام",
         "expiresIn_one": "تنتهي صلاحيتها خلال {{count}} يوم",
         "expiresIn_two": "تنتهي صلاحيتها خلال {{count}} يومين",
@@ -4090,9 +4085,6 @@
     "tooltip": "OpenWhispr - الإملاء الصوتي"
   },
   "menu": {
-    "edit": "تحرير",
-    "view": "عرض",
-    "window": "نافذة",
     "appLabel": "OpenWhispr",
     "quit": "إنهاء OpenWhispr",
     "speech": "النطق",
@@ -4188,8 +4180,6 @@
     "pttUnavailable": "المستمع الأصلي لميزة «اضغط للتحدث» غير متوفر"
   },
   "common": {
-    "confirm": "تأكيد",
-    "ok": "حسنًا",
     "continue": "متابعة",
     "add": "إضافة",
     "retry": "إعادة المحاولة",
@@ -4391,8 +4381,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "لم يتم العثور على لغات",
-    "searchPlaceholder": "البحث في اللغات",
-    "clearSearch": "مسح البحث"
+    "searchPlaceholder": "البحث في اللغات"
   },
   "microphoneSettings": {
     "builtIn": "(مدمج)",
@@ -4878,7 +4867,6 @@
     "hotkeyHint": "قم بتعيين الاختصار من خلال الإعدادات ← اختصارات لوحة المفاتيح ← اختصار الترجمة",
     "targetsLabel": "اللغات المستهدفة",
     "addTarget": "إضافة لغة...",
-    "selectTarget": "اختيار {{language}} كلغة مستهدفة",
     "activeTarget": "اللغة المستهدفة النشطة",
     "removeTarget": "إزالة {{language}}",
     "maxTargets": "ما يصل إلى {{max}} لغات"

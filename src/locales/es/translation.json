@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr - Dictado por voz"
   },
   "menu": {
-    "edit": "Editar",
-    "view": "Ver",
-    "window": "Ventana",
     "appLabel": "OpenWhispr",
     "quit": "Salir de OpenWhispr",
     "speech": "Voz",
@@ -166,8 +163,6 @@
     "pttUnavailable": "El módulo nativo de Push-to-Talk no está disponible"
   },
   "common": {
-    "confirm": "Confirmar",
-    "ok": "Aceptar",
     "continue": "Continuar",
     "add": "Añadir",
     "retry": "Reintentar",
@@ -1413,8 +1408,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "No se encontraron idiomas",
-    "searchPlaceholder": "Buscar idiomas",
-    "clearSearch": "Borrar búsqueda"
+    "searchPlaceholder": "Buscar idiomas"
   },
   "microphoneSettings": {
     "builtIn": "(Integrado)",
@@ -1516,7 +1510,6 @@
       "modelLabel": "Modelo",
       "noModelSelected": "Ningún modelo seleccionado",
       "none": "Ninguno",
-      "copyOutput": "Copiar resultado de la prueba",
       "outputLabel": "Salida",
       "processing": "Procesando...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -2494,7 +2487,6 @@
       },
       "invites": {
         "title": "Invitaciones pendientes",
-        "expiresOn": "Caduca: {{date}}",
         "expiresIn_one": "Expira en {{count}} día",
         "expiresIn_other": "Expira en {{count}} días",
         "expired": "Expirada",
@@ -2620,7 +2612,6 @@
     }
   },
   "models": {
-    "deleteLabel": "Eliminar {{model}}",
     "learnMore": "Más información",
     "noneAvailable": "No hay modelos disponibles",
     "descriptions": {
@@ -4686,8 +4677,6 @@
       "roleLabel": "Rol",
       "seatUsage": "Usando {{used}} de {{seats}} asientos",
       "seatCost": "Si acepta, se añadirá un puesto a tu plan · cargo prorrateado estimado de {{amount}}.",
-      "pricingLoading": "Comprobando el coste de la invitación…",
-      "pricingUnavailable": "No se pudo confirmar el coste del puesto. Reinténtalo antes de enviar la invitación.",
       "submit": "Enviar invitación",
       "submitting": "Enviando…",
       "sentTitle": "Invitación enviada",
@@ -4756,7 +4745,6 @@
     "hotkeyHint": "Configura el atajo en Ajustes → Atajos → Atajo de Traducción",
     "targetsLabel": "Idiomas de destino",
     "addTarget": "Añadir idioma…",
-    "selectTarget": "Seleccionar {{language}} como idioma de destino",
     "activeTarget": "Idioma de destino activo",
     "removeTarget": "Quitar {{language}}",
     "maxTargets": "Hasta {{max}} idiomas"

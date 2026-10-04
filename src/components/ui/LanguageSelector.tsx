@@ -229,7 +229,6 @@ export default function LanguageSelector({
                     <button
                       type="button"
                       onClick={clearSearch}
-                      aria-label={t("languageSelector.clearSearch")}
                       className="absolute end-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded p-0.5 hover:bg-muted/50"
                     >
                       <X className="w-3 h-3" />

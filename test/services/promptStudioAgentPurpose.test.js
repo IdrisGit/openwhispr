@@ -151,10 +151,6 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
           container.textContent,
           action === "failure" ? /promptStudio.test.failed/ : /result/
         );
-        assert.ok(
-          container.querySelector('button[aria-label="promptStudio.test.copyOutput"]'),
-          "real output-copy leaf has its own accessible name without performing a clipboard action"
-        );
       });
     }
   }

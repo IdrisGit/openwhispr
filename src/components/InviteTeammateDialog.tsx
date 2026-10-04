@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "./icons";
 import {
@@ -20,16 +20,6 @@ import { WorkspacesService, type SeatPreview } from "../services/WorkspacesServi
 import { formatAmount } from "../utils/formatAmount";
 import { useToast } from "./ui/useToast";
 import { useDialogSession } from "../hooks/useDialogSession";
-import { CloudApiError } from "../services/cloudApi";
-import { hasActiveWorkspaceSubscription, workspaceBillingSnapshot } from "../lib/workspaceBilling";
-
-// This reader mounts inside the Portal, after the form's committed lease exists.
-function InvitationPricingReader({ reload }: { reload: () => Promise<void> }) {
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-  return null;
-}
 
 interface Props {
   open: boolean;
@@ -73,86 +63,48 @@ export default function InviteTeammateDialog({
     if (!next) invalidate();
     onOpenChange(next);
   };
-  const [pricing, setPricing] = useState<{
-    owner: string;
-    status: "loading" | "paid" | "free" | "error";
-    preview: SeatPreview | null;
-    used: number | null;
-  } | null>(null);
-  const pricingRequest = useRef(0);
+  const [seatsUsed, setSeatsUsed] = useState<number | null>(null);
+  const [seatPreview, setSeatPreview] = useState<SeatPreview | null>(null);
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId));
-  const billingSnapshot = workspace ? workspaceBillingSnapshot(workspace) : null;
-  const pricingOwner = JSON.stringify([sessionKey, billingSnapshot]);
-  const currentPricing = pricing?.owner === pricingOwner ? pricing : null;
-  const seatPreview = currentPricing?.preview ?? null;
-  const seatsUsed = currentPricing?.used ?? null;
-  const seats = seatPreview?.current_quantity ?? workspace?.seats ?? null;
-  const pricingReady = currentPricing?.status === "paid" || currentPricing?.status === "free";
-  const knownSubscription =
-    Boolean(workspace?.stripe_subscription_id) ||
-    Boolean(workspace && hasActiveWorkspaceSubscription(workspace));
-  const [previousPricingOwner, setPreviousPricingOwner] = useState(pricingOwner);
-  if (previousPricingOwner !== pricingOwner) {
-    setPreviousPricingOwner(pricingOwner);
-    setPricing(null);
-  }
+  const seats = workspace?.seats ?? null;
   // A subscribed workspace already at capacity bills a seat if this invite is
   // accepted. Say so before sending. Both sides of the
   // comparison come from the same preview so a stale store can't misprice it.
   const addsBilledSeat =
     seatPreview !== null && seatPreview.seats_used >= seatPreview.current_quantity;
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    WorkspacesService.previewSeats(workspaceId, 1)
+      .then((preview) => {
+        if (cancelled) return;
+        setSeatPreview(preview);
+        setSeatsUsed(preview.seats_used);
+      })
+      .catch(async () => {
+        // Free workspace — the preview needs a subscription. Fall back to the
+        // member count so the seat line still renders, with nothing to bill.
+        try {
+          const members = await WorkspacesService.listMembers(workspaceId);
+          if (!cancelled) setSeatsUsed(members.length);
+        } catch {
+          if (!cancelled) setSeatsUsed(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workspaceId]);
+
   const bindInvitation = useCallback(
     (node: HTMLElement | null) => {
       const cleanup = bindSession(node);
       if (!cleanup) return;
-      return () => {
-        cleanup();
-        ++pricingRequest.current;
-      };
+      return cleanup;
     },
     [bindSession]
   );
-
-  const reloadPricing = useCallback(async () => {
-    const completion = capture();
-    if (!completion.isCurrent()) return;
-    const request = ++pricingRequest.current;
-    const isCurrent = () => {
-      const current = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId);
-      return (
-        completion.isCurrent() &&
-        request === pricingRequest.current &&
-        (current ? workspaceBillingSnapshot(current) : null) === billingSnapshot
-      );
-    };
-    setPricing({ owner: pricingOwner, status: "loading", preview: null, used: null });
-    try {
-      const preview = await WorkspacesService.previewSeats(workspaceId, 1);
-      if (isCurrent())
-        setPricing({ owner: pricingOwner, status: "paid", preview, used: preview.seats_used });
-    } catch (error) {
-      if (!isCurrent()) return;
-      // Only an explicit subscription refusal confirms there is no seat charge.
-      // A known paid workspace contradicts it and must be refreshed/retried.
-      if (
-        !(error instanceof CloudApiError) ||
-        error.code !== "no_subscription" ||
-        knownSubscription
-      ) {
-        setPricing({ owner: pricingOwner, status: "error", preview: null, used: null });
-        return;
-      }
-      setPricing({ owner: pricingOwner, status: "free", preview: null, used: null });
-      try {
-        const members = await WorkspacesService.listMembers(workspaceId);
-        if (isCurrent())
-          setPricing({ owner: pricingOwner, status: "free", preview: null, used: members.length });
-      } catch {
-        /* Occupancy is optional once no subscription is confirmed. */
-      }
-    }
-  }, [capture, workspaceId, billingSnapshot, pricingOwner, knownSubscription]);
 
   const draftOwner = JSON.stringify([sessionKey, initialEmail]);
   const [previousOwner, setPreviousOwner] = useState("");
@@ -165,16 +117,7 @@ export default function InviteTeammateDialog({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const currentWorkspace = useWorkspaceStore
-      .getState()
-      .workspaces.find((w) => w.id === workspaceId);
-    if (
-      !email.trim() ||
-      submitting ||
-      !pricingReady ||
-      (currentWorkspace ? workspaceBillingSnapshot(currentWorkspace) : null) !== billingSnapshot
-    )
-      return;
+    if (!email.trim() || submitting) return;
     const completion = capture();
     if (!completion.isCurrent()) return;
     setSubmitting(true);
@@ -227,7 +170,6 @@ export default function InviteTeammateDialog({
           )}
         </DialogHeader>
         <form ref={bindInvitation} onSubmit={handleSubmit} className="space-y-4">
-          <InvitationPricingReader reload={reloadPricing} />
           <div className="space-y-1.5">
             <Label htmlFor="invite-email" className="text-xs font-medium">
               {t("workspaces.invite.emailLabel")}
@@ -277,26 +219,6 @@ export default function InviteTeammateDialog({
             </div>
           </div>
 
-          {!pricingReady && (
-            <div className="text-xs text-muted-foreground" role="status">
-              {t(
-                currentPricing?.status === "error"
-                  ? "workspaces.invite.pricingUnavailable"
-                  : "workspaces.invite.pricingLoading"
-              )}
-              {currentPricing?.status === "error" && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void reloadPricing()}
-                >
-                  {t("common.retry")}
-                </Button>
-              )}
-            </div>
-          )}
-
           {addsBilledSeat && (
             <p className="text-[11px] text-muted-foreground">
               {t("workspaces.invite.seatCost", {
@@ -314,7 +236,7 @@ export default function InviteTeammateDialog({
             >
               {cancelLabel ?? t("common.cancel")}
             </Button>
-            <Button type="submit" disabled={!email.trim() || submitting || !pricingReady}>
+            <Button type="submit" disabled={!email.trim() || submitting}>
               {showSpinner && <Loader2 className="me-1.5 h-3.5 w-3.5 animate-spin" />}
               {submitting ? t("workspaces.invite.submitting") : t("workspaces.invite.submit")}
             </Button>

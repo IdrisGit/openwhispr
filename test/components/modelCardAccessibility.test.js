@@ -70,9 +70,16 @@ test("real model cards expose native named selections and isolated sibling actio
   assert.equal(selection("Pending").disabled, true);
   await React.act(async () => selection("Installed").click());
   assert.deepEqual(calls, [["select", "installed"]]);
-  const deleteButton = container.querySelector('button[aria-label="Delete Installed"]');
-  assert.match(deleteButton.className, /group-focus-within:opacity-100/);
-  await React.act(async () => deleteButton.click());
+  const deleteButton = (name) => {
+    const card = [...container.querySelectorAll("div.group")].find((c) =>
+      c.querySelector(`button[aria-label="${name}"]`)
+    );
+    return [...card.querySelectorAll("button")].find((b) =>
+      b.className.includes("group-focus-within:opacity-100")
+    );
+  };
+  assert.match(deleteButton("Installed").className, /group-focus-within:opacity-100/);
+  await React.act(async () => deleteButton("Installed").click());
   await React.act(async () =>
     [...container.querySelectorAll("button")]
       .find((b) => b.textContent.trim() === "Download")
@@ -89,7 +96,7 @@ test("real model cards expose native named selections and isolated sibling actio
   assert.ok(container.querySelector("a[href]"));
   globalThis.__cardT = (key, params) => translate(fr, key, params);
   await draw();
-  assert.ok(container.querySelector('button[aria-label="Supprimer Installed"]'));
+  assert.ok(deleteButton("Installed"), "delete control survives a locale change");
   await React.act(async () => root.unmount());
 });
 
@@ -113,7 +120,7 @@ test("real ASR picker cards keep downloaded-only selection and disabled cancella
   const vite = await createRendererServer(t, {
     noExternal: ["react-i18next"],
     mockModules: {
-      "react-i18next": `export const useTranslation = () => ({t: (key, p) => key === "models.deleteLabel" ? "Delete " + p.model : key});`,
+      "react-i18next": `export const useTranslation = () => ({t: (key) => key});`,
       "/stores/settingsStore": `export const useSettingsStore = fn => fn({});`,
       "/hooks/usePolicy": `export const usePolicySnapshot = () => ({status:"unmanaged"});`,
       "/hooks/useModelDownload": `export const useModelDownload = () => ({ downloads: {}, downloadModel() {}, deleteModel() {}, cancelDownload() {}, isDownloadingModel: id => id === "small", isCancellingModel: id => id === "small" });`,
@@ -145,7 +152,11 @@ test("real ASR picker cards keep downloaded-only selection and disabled cancella
   assert.equal(selections[2].disabled, true);
   await React.act(async () => selections[1].click());
   assert.deepEqual(calls, [["base", "whisper"]]);
-  await React.act(async () => container.querySelector('button[aria-label^="Delete"]').click());
+  await React.act(async () =>
+    [...container.querySelectorAll("button")]
+      .find((b) => b.className.includes("group-focus-within:opacity-100"))
+      .click()
+  );
   assert.equal(calls.at(-1), "confirm", "delete opens consent, not selection or native deletion");
   assert.equal(container.querySelector("button button, button a"), null);
   assert.equal(

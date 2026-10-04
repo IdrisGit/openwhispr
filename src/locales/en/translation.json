@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr - Voice Dictation"
   },
   "menu": {
-    "edit": "Edit",
-    "view": "View",
-    "window": "Window",
     "appLabel": "OpenWhispr",
     "quit": "Quit OpenWhispr",
     "speech": "Speech",
@@ -166,8 +163,6 @@
     "pttUnavailable": "Push-to-Talk native listener not available"
   },
   "common": {
-    "confirm": "Confirm",
-    "ok": "OK",
     "continue": "Continue",
     "add": "Add",
     "retry": "Retry",
@@ -1455,8 +1450,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "No languages found",
-    "searchPlaceholder": "Search languages",
-    "clearSearch": "Clear search"
+    "searchPlaceholder": "Search languages"
   },
   "microphoneSettings": {
     "builtIn": "(Built-in)",
@@ -1558,7 +1552,6 @@
       "modelLabel": "Model",
       "noModelSelected": "No model selected",
       "none": "None",
-      "copyOutput": "Copy test output",
       "outputLabel": "Output",
       "processing": "Processing...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -1733,7 +1726,6 @@
       },
       "invites": {
         "title": "Pending invitations",
-        "expiresOn": "Expires: {{date}}",
         "expiresIn_one": "Expires in {{count}} day",
         "expiresIn_other": "Expires in {{count}} days",
         "expired": "Expired",
@@ -2662,7 +2654,6 @@
     }
   },
   "models": {
-    "deleteLabel": "Delete {{model}}",
     "learnMore": "Learn more",
     "noneAvailable": "No models available",
     "descriptions": {
@@ -2983,8 +2974,6 @@
       "emailPlaceholder": "teammate@example.com",
       "roleLabel": "Role",
       "seatUsage": "Using {{used}} of {{seats}} seats",
-      "pricingLoading": "Checking invitation pricing…",
-      "pricingUnavailable": "Couldn't confirm the seat cost. Retry before sending this invitation.",
       "seatCost": "If accepted, adds a seat to your plan · estimated prorated charge {{amount}}.",
       "submit": "Send invite",
       "submitting": "Sending…",
@@ -4756,7 +4745,6 @@
     "hotkeyHint": "Set the hotkey under Settings → Hotkeys → Translation Hotkey",
     "targetsLabel": "Target languages",
     "addTarget": "Add language…",
-    "selectTarget": "Select {{language}} as the target language",
     "activeTarget": "Active target language",
     "removeTarget": "Remove {{language}}",
     "maxTargets": "Up to {{max}} languages"

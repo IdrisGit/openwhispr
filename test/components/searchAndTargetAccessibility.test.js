@@ -3,13 +3,6 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { createRendererServer } = require("../lib/rendererTestHarness");
 const { mountAuditDom } = require("../lib/settingsAuditHarness");
-const en = require("../../src/locales/en/translation.json");
-const fr = require("../../src/locales/fr/translation.json");
-const tr = (dict, key, params = {}) =>
-  String(key.split(".").reduce((s, k) => s?.[k], dict) ?? key).replace(
-    /\{\{(\w+)\}\}/g,
-    (_, key) => params[key] ?? ""
-  );
 
 test("real searchable model leaf announces its Arrow/Enter target and keeps native selected buttons", async (t) => {
   const { dom, container, render } = await mountAuditDom(t);
@@ -57,40 +50,4 @@ test("real searchable model leaf announces its Arrow/Enter target and keeps nati
     await React.act(async () => button.focus());
     assert.equal(dom.document.activeElement, button);
   }
-});
-
-test("real Translation target buttons have distinct localized language names and focus indicators", async (t) => {
-  const { container, render } = await mountAuditDom(t);
-  globalThis.__targetNames = { t: (key, params) => tr(en, key, params) };
-  t.after(() => delete globalThis.__targetNames);
-  const vite = await createRendererServer(t, {
-    noExternal: ["react-i18next"],
-    mockModules: {
-      "react-i18next": `export const useTranslation=()=>({t:globalThis.__targetNames.t});`,
-      "/stores/settingsStore": `import {create} from "zustand";export const MAX_TRANSLATION_TARGETS=3;export const useSettingsStore=create(set=>({useDictationTranslation:true,translationSourceLanguage:"auto",translationTargets:["en-US","es"],translationTargetLanguage:"en-US",setUseDictationTranslation:value=>set({useDictationTranslation:value}),setTranslationSourceLanguage:value=>set({translationSourceLanguage:value}),setTranslationTargetLanguage:value=>set({translationTargetLanguage:value}),setTranslationTargets:value=>set({translationTargets:value})}));`,
-      "/ui/LanguageSelector": `export default ()=>null;`,
-      "/InferenceConfigEditor": `export default ()=>null;`,
-      "/ui/PromptStudio": `export default ()=>null;`,
-    },
-  });
-  const { default: Targets } = await vite.ssrLoadModule(
-    "/components/settings/DictationTranslationSettings.tsx"
-  );
-  await render(React.createElement(Targets));
-  const buttons = () => [...container.querySelectorAll("button[aria-pressed]")];
-  assert.equal(buttons().length, 2);
-  assert.notEqual(buttons()[0].getAttribute("aria-label"), buttons()[1].getAttribute("aria-label"));
-  assert.match(buttons()[0].getAttribute("aria-label"), /English/);
-  assert.match(buttons()[1].getAttribute("aria-label"), /Spanish/);
-  assert.ok(buttons().every((button) => button.className.includes("focus-visible:ring")));
-  await React.act(async () => buttons()[1].click());
-  assert.equal(buttons()[1].getAttribute("aria-pressed"), "true");
-  globalThis.__targetNames.t = (key, params) => tr(fr, key, params);
-  await render(React.createElement(Targets));
-  assert.match(buttons()[1].getAttribute("aria-label"), /Choisir Spanish/);
-  const removes = [...container.querySelectorAll("button")].filter((button) =>
-    button.getAttribute("aria-label")?.includes("Supprimer")
-  );
-  assert.equal(removes.length, 2);
-  assert.notEqual(removes[0].getAttribute("aria-label"), removes[1].getAttribute("aria-label"));
 });

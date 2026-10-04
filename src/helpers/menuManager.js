@@ -56,7 +56,7 @@ class MenuManager {
           ],
         },
         {
-          label: i18nMain.t("menu.edit"),
+          label: "Edit",
           submenu: [
             { role: "undo" },
             { role: "redo" },
@@ -75,7 +75,7 @@ class MenuManager {
           ],
         },
         {
-          label: i18nMain.t("menu.view"),
+          label: "View",
           submenu: [
             { role: "reload" },
             { role: "forceReload" },
@@ -89,7 +89,7 @@ class MenuManager {
           ],
         },
         {
-          label: i18nMain.t("menu.window"),
+          label: "Window",
           submenu: [
             { role: "minimize" },
             { role: "close" },
@@ -131,7 +131,7 @@ class MenuManager {
           ],
         },
         {
-          label: i18nMain.t("menu.edit"),
+          label: "Edit",
           submenu: [
             { role: "undo" },
             { role: "redo" },
@@ -144,7 +144,7 @@ class MenuManager {
           ],
         },
         {
-          label: i18nMain.t("menu.view"),
+          label: "View",
           submenu: [
             { role: "reload" },
             { role: "forceReload" },

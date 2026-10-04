@@ -68,9 +68,6 @@
     "tooltip": "OpenWhispr – Sprachdiktat"
   },
   "menu": {
-    "edit": "Bearbeiten",
-    "view": "Ansicht",
-    "window": "Fenster",
     "appLabel": "OpenWhispr",
     "quit": "OpenWhispr beenden",
     "speech": "Sprache",
@@ -166,8 +163,6 @@
     "pttUnavailable": "Der native Push-to-Talk-Listener ist nicht verfügbar"
   },
   "common": {
-    "confirm": "Bestätigen",
-    "ok": "OK",
     "continue": "Weiter",
     "add": "Hinzufügen",
     "retry": "Erneut versuchen",
@@ -1455,8 +1450,7 @@
   },
   "languageSelector": {
     "noLanguagesFound": "Keine Sprachen gefunden",
-    "searchPlaceholder": "Sprachen suchen",
-    "clearSearch": "Suche löschen"
+    "searchPlaceholder": "Sprachen suchen"
   },
   "microphoneSettings": {
     "builtIn": "(Integriert)",
@@ -1558,7 +1552,6 @@
       "modelLabel": "Modell",
       "noModelSelected": "Kein Modell ausgewählt",
       "none": "Keine",
-      "copyOutput": "Testergebnis kopieren",
       "outputLabel": "Ausgabe",
       "processing": "Verarbeitung...",
       "openwhisprCloud": "OpenWhispr Cloud",
@@ -1733,7 +1726,6 @@
       },
       "invites": {
         "title": "Ausstehende Einladungen",
-        "expiresOn": "Gültig bis: {{date}}",
         "expiresIn_one": "Läuft in {{count}} Tag ab",
         "expiresIn_other": "Läuft in {{count}} Tagen ab",
         "expired": "Abgelaufen",
@@ -2662,7 +2654,6 @@
     }
   },
   "models": {
-    "deleteLabel": "{{model}} löschen",
     "learnMore": "Mehr erfahren",
     "noneAvailable": "Keine Modelle verfügbar",
     "descriptions": {
@@ -2984,8 +2975,6 @@
       "roleLabel": "Rolle",
       "seatUsage": "{{used}} von {{seats}} Plätzen belegt",
       "seatCost": "Bei Annahme wird deinem Tarif ein Platz hinzugefügt · geschätzte anteilige Kosten: {{amount}}.",
-      "pricingLoading": "Einladungskosten werden geprüft…",
-      "pricingUnavailable": "Die Kosten für den Platz konnten nicht bestätigt werden. Versuche es vor dem Senden erneut.",
       "submit": "Einladung senden",
       "submitting": "Sende…",
       "sentTitle": "Einladung gesendet",
@@ -4756,7 +4745,6 @@
     "hotkeyHint": "Lege den Hotkey unter Einstellungen → Hotkeys → Übersetzungs-Hotkey fest",
     "targetsLabel": "Zielsprachen",
     "addTarget": "Sprache hinzufügen…",
-    "selectTarget": "{{language}} als Zielsprache auswählen",
     "activeTarget": "Aktive Zielsprache",
     "removeTarget": "{{language}} entfernen",
     "maxTargets": "Bis zu {{max}} Sprachen"
