@@ -319,7 +319,7 @@ test("Workspace list refreshes keep the newest roster, teams and key metadata", 
     cachePrefix: "openwhispr-workspace-list-readers-",
     noExternal: ["react-i18next"],
     mockModules: {
-      "react-i18next": `export const useTranslation = () => ({t: globalThis.__controlLabels.t});`,
+      "react-i18next": `export const useTranslation = () => ({t: globalThis.__controlLabels.t, i18n: {language: "en"}});`,
       "/services/WorkspaceApiKeysService": `export const WorkspaceApiKeysService = { list: () => globalThis.__controlLabels.pending("keys") };`,
       "/services/TeamsService": `export const TeamsService = { list: () => globalThis.__controlLabels.pending("teams") };`,
       "/services/InvitationsService": `export const InvitationsService = { list: () => globalThis.__controlLabels.pending("invites") };`,
