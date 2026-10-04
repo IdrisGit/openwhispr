@@ -1733,6 +1733,7 @@
       },
       "invites": {
         "title": "Ausstehende Einladungen",
+        "expiresOn": "Gültig bis: {{date}}",
         "expiresIn_one": "Läuft in {{count}} Tag ab",
         "expiresIn_other": "Läuft in {{count}} Tagen ab",
         "expired": "Abgelaufen",

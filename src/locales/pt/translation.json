@@ -2420,6 +2420,7 @@
       },
       "invites": {
         "title": "Convites pendentes",
+        "expiresOn": "Expira em: {{date}}",
         "expiresIn_one": "Expira em {{count}} dia",
         "expiresIn_other": "Expira em {{count}} dias",
         "expired": "Expirado",

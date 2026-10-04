@@ -17,7 +17,7 @@ test("workspace switch remounts developer-owned secret without remounting create
   const dom = new Window();
   const documentBefore = globalThis.document;
   const actBefore = globalThis.IS_REACT_ACT_ENVIRONMENT;
-  installBrowserGlobals(t);
+  installBrowserGlobals(t, { initialStorage: { "settings.workspaceTab": '"developer"' } });
   globalThis.window = dom;
   globalThis.document = dom.document;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -48,7 +48,6 @@ test("workspace switch remounts developer-owned secret without remounting create
       `,
       "/hooks/useAuth": `export const useAuth = () => ({ isSignedIn: true });`,
       "/hooks/useDialogs": `export const useDialogs = () => ({ confirmDialog: { open: false } });`,
-      "/hooks/useLocalStorage": `import { useState } from "react"; export const useLocalStorage = () => useState("developer");`,
       "/services/WorkspacesService": `export const WorkspacesService = {};`,
       "/ui/button": `import React from "react"; export const Button = ({ children, ...props }) => React.createElement("button", props, children);`,
       "/ui/input": `export const Input = () => null;`,
@@ -157,4 +156,22 @@ test("workspace switch remounts developer-owned secret without remounting create
   await React.act(async () => choice("teams").click());
   assert.equal(choice("teams").getAttribute("aria-pressed"), "true");
   assert.equal(choice("members").getAttribute("aria-pressed"), "false");
+  assert.equal(globalThis.localStorage.getItem("settings.workspaceTab"), '"teams"');
+  const save = globalThis.localStorage.setItem;
+  const consoleError = console.error;
+  globalThis.localStorage.setItem = () => {
+    throw new Error("fake write denied");
+  };
+  console.error = () => {};
+  try {
+    await React.act(async () => choice("general").click());
+    assert.equal(
+      choice("teams").getAttribute("aria-pressed"),
+      "true",
+      "failed preference writes retain the current Workspace tab"
+    );
+  } finally {
+    globalThis.localStorage.setItem = save;
+    console.error = consoleError;
+  }
 });

@@ -1,4 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 
 export function useLocalStorage<T>(
   key: string,
@@ -11,45 +13,65 @@ export function useLocalStorage<T>(
   const serialize = options?.serialize || JSON.stringify;
   const deserialize = options?.deserialize || JSON.parse;
 
-  const [state, setState] = useState<T>(() => {
+  const [owner] = useState(() => {
+    let value = defaultValue;
+    let needsDefault = false;
     try {
       const item = localStorage.getItem(key);
-      if (item === null) {
-        // Persist the default so direct localStorage.getItem() reads
-        // (e.g. in audioManager, PromptStudio) see the intended value.
-        localStorage.setItem(key, serialize(defaultValue));
-        return defaultValue;
-      }
-      return deserialize(item);
+      needsDefault = item === null;
+      if (item !== null) value = deserialize(item);
     } catch {
-      return defaultValue;
+      // An unreadable preference keeps its fallback without overwriting storage.
     }
+    const store = createStore(() => ({ value }));
+    return {
+      store,
+      persistDefault() {
+        if (!needsDefault) return;
+        needsDefault = false;
+        try {
+          // Another committed owner/action may already have supplied the value.
+          if (localStorage.getItem(key) === null) {
+            localStorage.setItem(key, serialize(store.getState().value));
+          }
+        } catch {
+          // Default persistence is best effort, as before.
+        }
+      },
+      cancelDefault() {
+        needsDefault = false;
+      },
+    };
   });
+  const state = useStore(owner.store, (snapshot) => snapshot.value);
+
+  // Direct preference readers need missing defaults, but an abandoned render must not write them.
+  useEffect(() => owner.persistDefault(), [owner]);
 
   const setValue = useCallback(
     (value: T | ((prevState: T) => T)) => {
-      setState((currentState) => {
-        try {
-          const valueToStore = value instanceof Function ? value(currentState) : value;
-          localStorage.setItem(key, serialize(valueToStore));
-          return valueToStore;
-        } catch (error) {
-          console.error(`Error setting localStorage key "${key}":`, error);
-          return currentState;
-        }
-      });
+      try {
+        const valueToStore =
+          value instanceof Function ? value(owner.store.getState().value) : value;
+        localStorage.setItem(key, serialize(valueToStore));
+        owner.cancelDefault();
+        owner.store.setState({ value: valueToStore });
+      } catch (error) {
+        console.error(`Error setting localStorage key "${key}":`, error);
+      }
     },
-    [key, serialize]
+    [key, serialize, owner]
   );
 
   const remove = useCallback(() => {
     try {
       localStorage.removeItem(key);
-      setState(defaultValue);
+      owner.cancelDefault();
+      owner.store.setState({ value: defaultValue });
     } catch (error) {
       console.error(`Error removing localStorage key "${key}":`, error);
     }
-  }, [key, defaultValue]);
+  }, [key, defaultValue, owner]);
 
   return [state, setValue, remove] as const;
 }

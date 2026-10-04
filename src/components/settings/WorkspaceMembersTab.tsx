@@ -24,19 +24,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "../ui/dropdown-menu";
-import { cn } from "../lib/utils";
 import { canManageWorkspace } from "../../lib/spacePermissions";
 
 interface Props {
   workspace: Workspace;
 }
 
-function invitationDaysLeft(inv: WorkspaceInvitation): number {
-  return Math.ceil((new Date(inv.expires_at).getTime() - Date.now()) / 86_400_000);
-}
-
 export default function WorkspaceMembersTab({ workspace }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
   const { members, refreshMembers, refresh } = useWorkspaceStore(
@@ -406,27 +401,26 @@ export default function WorkspaceMembersTab({ workspace }: Props) {
           </h4>
           <div className="rounded-lg border border-border/70 dark:border-border-subtle/70 divide-y divide-border/60 dark:divide-border-subtle/50 bg-card/50 dark:bg-surface-2/50">
             {invitations.map((inv) => {
-              const daysLeft = invitationDaysLeft(inv);
-              const expired = daysLeft <= 0;
+              const expiry = new Date(inv.expires_at);
+              const expiryLabel = Number.isNaN(expiry.getTime())
+                ? t("common.unknownError")
+                : expiry.toLocaleString(i18n.language, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    timeZoneName: "short",
+                  });
               return (
-                <div
-                  key={inv.id}
-                  className={cn("flex items-center gap-3 px-4 h-12", expired && "opacity-60")}
-                >
+                <div key={inv.id} className="flex items-center gap-3 px-4 h-12">
                   <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-foreground truncate">
                       <bdi dir="ltr">{inv.email}</bdi>
                     </p>
-                    <p
-                      className={cn(
-                        "text-[11px]",
-                        expired ? "text-destructive" : "text-muted-foreground"
-                      )}
-                    >
-                      {expired
-                        ? t("settingsPage.workspace.invites.expired")
-                        : t("settingsPage.workspace.invites.expiresIn", { count: daysLeft })}
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("settingsPage.workspace.invites.expiresOn", { date: expiryLabel })}
                     </p>
                   </div>
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">

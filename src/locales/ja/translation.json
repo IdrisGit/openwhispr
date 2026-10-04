@@ -2441,6 +2441,7 @@
       },
       "invites": {
         "title": "保留中の招待",
+        "expiresOn": "有効期限: {{date}}",
         "expiresIn_one": "有効期限まであと{{count}}日",
         "expiresIn_other": "有効期限まであと{{count}}日",
         "expired": "期限切れ",

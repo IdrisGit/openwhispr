@@ -2441,6 +2441,7 @@
       },
       "invites": {
         "title": "Inviti in sospeso",
+        "expiresOn": "Scadenza: {{date}}",
         "expiresIn_one": "Scade tra {{count}} giorno",
         "expiresIn_other": "Scade tra {{count}} giorni",
         "expired": "Scaduto",

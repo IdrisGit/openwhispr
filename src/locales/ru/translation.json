@@ -2453,6 +2453,7 @@
       },
       "invites": {
         "title": "Ожидающие приглашения",
+        "expiresOn": "Срок действия: {{date}}",
         "expiresIn_one": "Истекает через {{count}} день",
         "expiresIn_few": "Истекает через {{count}} дня",
         "expiresIn_many": "Истекает через {{count}} дней",

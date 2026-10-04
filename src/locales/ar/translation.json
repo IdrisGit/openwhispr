@@ -3055,6 +3055,7 @@
       },
       "invites": {
         "title": "الدعوات المعلقة",
+        "expiresOn": "تنتهي الصلاحية: {{date}}",
         "expiresIn_zero": "تنتهي صلاحيتها خلال {{count}} أيام",
         "expiresIn_one": "تنتهي صلاحيتها خلال {{count}} يوم",
         "expiresIn_two": "تنتهي صلاحيتها خلال {{count}} يومين",

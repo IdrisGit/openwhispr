@@ -2494,6 +2494,7 @@
       },
       "invites": {
         "title": "Invitaciones pendientes",
+        "expiresOn": "Caduca: {{date}}",
         "expiresIn_one": "Expira en {{count}} día",
         "expiresIn_other": "Expira en {{count}} días",
         "expired": "Expirada",

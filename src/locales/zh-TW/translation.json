@@ -2441,6 +2441,7 @@
       },
       "invites": {
         "title": "待處理的邀請",
+        "expiresOn": "到期時間：{{date}}",
         "expiresIn_one": "{{count}} 天後到期",
         "expiresIn_other": "{{count}} 天後到期",
         "expired": "已到期",
