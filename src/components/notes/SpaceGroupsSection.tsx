@@ -21,14 +21,12 @@ import type { SpaceItem, SpaceTeamRef, Team } from "../../types/electron";
 
 interface SpaceGroupsSectionProps {
   space: SpaceItem;
-  /** Fires after any assignment change so the people list can refetch. */
-  onChanged: () => void;
 }
 
 // Groups (teams) assigned to a space and the controls to change them:
 // assign, per-assignment access cap, unassign, new group. The people the
 // groups bring in are shown in the flat roster above this section.
-export default function SpaceGroupsSection({ space, onChanged }: SpaceGroupsSectionProps) {
+export default function SpaceGroupsSection({ space }: SpaceGroupsSectionProps) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const { confirmDialog, showConfirmDialog, hideConfirmDialog } = useDialogs();
@@ -102,7 +100,6 @@ export default function SpaceGroupsSection({ space, onChanged }: SpaceGroupsSect
               space: space.name,
             }),
           });
-          onChanged();
         } catch (err) {
           reportError(err);
         }
@@ -117,7 +114,6 @@ export default function SpaceGroupsSection({ space, onChanged }: SpaceGroupsSect
         title: t("notes.spaces.teamsMembers.teamAdded", { team: team.name, space: space.name }),
       });
     }
-    if (!completion || completion.isAccountCurrent()) onChanged();
   };
 
   const handleAssignTeam = async () => {
@@ -145,7 +141,6 @@ export default function SpaceGroupsSection({ space, onChanged }: SpaceGroupsSect
       toast({
         title: t("notes.spaces.teamsMembers.accessChanged", { team: teamRef.name }),
       });
-      onChanged();
     } catch (err) {
       reportError(err);
     } finally {

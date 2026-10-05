@@ -33,7 +33,7 @@ async function mountSettingsPageOwner(t, { section = "system" } = {}) {
           "/TranscriptionModelPicker",
         ].map((suffix) => [suffix, empty])
       ),
-      "react-i18next": `const t = key => key; export const useTranslation = () => ({t, i18n: {language: "en"}});`,
+      "react-i18next": `const t = (key, options) => options?.returnObjects ? [] : key; export const useTranslation = () => ({t, i18n: {language: "en"}});`,
       "/i18n": `export const normalizeUiLanguage = value => value || "en"; export default {language: "en", changeLanguage: async () => {}};`,
       "/hooks/useAuth": `
         import { create } from "zustand";
@@ -55,14 +55,14 @@ async function mountSettingsPageOwner(t, { section = "system" } = {}) {
         export const updateDisplayName = name => globalThis.__settingsPageOwner.updateDisplayName(name);
         export const changePassword = values => globalThis.__settingsPageOwner.changePassword(values);
       `,
-      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => null; export const getBoundSessionGeneration = () => null;`,
+      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => globalThis.__settingsPageOwner.authGeneration ?? null; export const getBoundSessionGeneration = id => id === globalThis.__settingsPageOwner.auth.getState().user?.id ? getValidatedAuthGeneration() : null;`,
       "/hooks/useSettings": `export const useAutoLearnCorrections = () => ({});`,
       "/hooks/usePermissions": `export const usePermissions = () => ({});`,
       "/hooks/useSystemAudioPermission": `export const useSystemAudioPermission = () => ({});`,
       "/hooks/useInsightsSyncOptIn": `export const useInsightsSyncOptIn = () => ({});`,
       "/hooks/useLeaderboardParticipation": `export const useLeaderboardParticipation = () => ({});`,
       "/hooks/useBillingPortal": `export const useBillingPortal = () => ({});`,
-      "/hooks/useUsage": `export const useUsage = () => ({});`,
+      "/hooks/useUsage": `export const useUsage = () => globalThis.__settingsPageOwner.usage ?? {};`,
       "/hooks/useTheme": `export const useTheme = () => ({});`,
       "/ui/useToast": `const toast = value => globalThis.__settingsPageOwner.toasts.push(value); export const useToast = () => ({toast});`,
       "/ui/useSettingsLayout": `export const useSettingsLayout = () => ({isCompact: false});`,

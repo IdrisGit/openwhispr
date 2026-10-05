@@ -83,6 +83,9 @@ export default function InviteTeammateDialog({
         setSeatsUsed(preview.seats_used);
       })
       .catch(async () => {
+        if (cancelled) return;
+        setSeatPreview(null);
+        setSeatsUsed(null);
         // Free workspace — the preview needs a subscription. Fall back to the
         // member count so the seat line still renders, with nothing to bill.
         try {
@@ -95,7 +98,7 @@ export default function InviteTeammateDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, workspaceId]);
+  }, [open, workspaceId, sessionKey]);
 
   const bindInvitation = useCallback(
     (node: HTMLElement | null) => {
@@ -113,6 +116,8 @@ export default function InviteTeammateDialog({
     setEmail(open ? (initialEmail ?? "") : "");
     setRole("member");
     setSubmitting(false);
+    setSeatPreview(null);
+    setSeatsUsed(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {

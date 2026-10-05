@@ -221,7 +221,7 @@ export default function SpaceMembersPanel({ space }: SpaceMembersPanelProps) {
               </span>
             </button>
           </div>
-          {groupsOpen && <SpaceGroupsSection space={space} onChanged={() => void reload()} />}
+          {groupsOpen && <SpaceGroupsSection space={space} />}
         </div>
       </div>
 

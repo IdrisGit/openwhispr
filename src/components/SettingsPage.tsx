@@ -1378,7 +1378,12 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
     pro: true,
     business: true,
   });
-  const [checkoutTier, setCheckoutTier] = useState<string | null>(null);
+  const [checkoutProgress, setCheckoutProgress] = useState<{
+    tier: string;
+    generation: number;
+  } | null>(null);
+  const checkoutTier =
+    checkoutProgress?.generation === currentAuthGeneration ? checkoutProgress.tier : null;
   const [switchPreview, setSwitchPreview] = useState<{
     accountId: string;
     authGeneration: number;
@@ -1453,10 +1458,17 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
   };
 
   const handleCheckout = async (plan: "monthly" | "annual", tier: "pro" | "business") => {
-    setCheckoutTier(tier);
+    const generation = getValidatedAuthGeneration();
+    if (!usage || generation == null) return;
+    setCheckoutProgress({ tier, generation });
     const result = await usage.openCheckout({ plan, tier });
-    setCheckoutTier(null);
-    if (!result.success) {
+    if (generation !== getValidatedAuthGeneration()) return;
+    setCheckoutProgress(null);
+    if (
+      !result.success &&
+      result.code !== "AUTH_CONTEXT_CHANGED" &&
+      result.code !== "AUTH_CONTEXT_UNVALIDATED"
+    ) {
       toast({
         title: t("settingsPage.account.checkout.couldNotOpenTitle"),
         description: t("settingsPage.account.checkout.couldNotOpenDescription"),
@@ -1919,13 +1931,20 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                           ) : isWorkspaceCovered ? null : (
                             <Button
                               onClick={async () => {
-                                setCheckoutTier("plan-upgrade");
+                                const generation = getValidatedAuthGeneration();
+                                if (generation == null) return;
+                                setCheckoutProgress({ tier: "plan-upgrade", generation });
                                 const result = await usage.openCheckout({
                                   plan: billingState.pro ? "annual" : "monthly",
                                   tier: "pro",
                                 });
-                                setCheckoutTier(null);
-                                if (!result.success) {
+                                if (generation !== getValidatedAuthGeneration()) return;
+                                setCheckoutProgress(null);
+                                if (
+                                  !result.success &&
+                                  result.code !== "AUTH_CONTEXT_CHANGED" &&
+                                  result.code !== "AUTH_CONTEXT_UNVALIDATED"
+                                ) {
                                   toast({
                                     title: t("settingsPage.account.checkout.couldNotOpenTitle"),
                                     description: t(

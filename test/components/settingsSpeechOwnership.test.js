@@ -3,6 +3,99 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { deferred } = require("../lib/settingsAuditHarness");
+const { mountSettingsPageOwner } = require("../lib/settingsPageOwnerHarness");
+
+// Caller completion coverage; personalBillingLifetime keeps the real hook's
+// authorization, shared admission and valid-URL opening/return ownership.
+test("both Settings checkout controls retire obsolete feedback and retain current outcomes", async (t) => {
+  const { container, render, SettingsPage, navigation, observed } = await mountSettingsPageOwner(
+    t,
+    { section: "plansBilling" }
+  );
+  const requests = [];
+  observed.authGeneration = 7;
+  observed.usage = {
+    status: "success",
+    plan: "free",
+    wordsUsed: 0,
+    wordsRemaining: 2000,
+    limit: 2000,
+    entitledWorkspaceIds: [],
+    openCheckout: (options) => {
+      const reply = deferred();
+      requests.push({ options, reply });
+      return reply.promise;
+    },
+  };
+  await render(React.createElement(SettingsPage, { navigation }));
+  const button = (label) =>
+    Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label);
+  const upgrade = () => button("settingsPage.account.checkout.upgradeToPro");
+  const card = () => button("settingsPage.account.pricing.pro.cta");
+  const click = (node) => React.act(async () => node.click());
+  const settle = (result) => React.act(async () => requests.at(-1).reply.resolve(result));
+  const replaceGeneration = (generation, accountId = "account-a") =>
+    React.act(async () => {
+      observed.authGeneration = generation;
+      observed.auth.setState({ user: { id: accountId, name: "Same name" } });
+    });
+  const failure = {
+    title: "settingsPage.account.checkout.couldNotOpenTitle",
+    description: "settingsPage.account.checkout.couldNotOpenDescription",
+  };
+
+  await click(upgrade());
+  assert.ok(button("settingsPage.account.checkout.opening").disabled);
+  await replaceGeneration(8, "account-b");
+  assert.equal(upgrade().disabled, false, "replacement account does not inherit pending progress");
+  await settle({ success: false, error: "obsolete checkout" });
+  assert.deepEqual(observed.toasts, [], "generation change alone retires inline feedback");
+  assert.equal(upgrade().disabled, false);
+
+  const cardControl = card();
+  await click(cardControl);
+  assert.equal(cardControl.disabled, true);
+  await replaceGeneration(9, "account-b");
+  assert.equal(card().disabled, false, "same-account generation replacement retires card progress");
+  await settle({ success: false, error: "obsolete checkout" });
+  assert.deepEqual(observed.toasts, [], "generation change alone retires pricing-card feedback");
+  assert.equal(card().disabled, false);
+
+  // Sequential requests respect the real hook's shared in-flight admission.
+  // No fictitious overlapping accepted checkout is used to assert progress.
+  await click(upgrade());
+  await settle({ success: false, code: "AUTH_CONTEXT_CHANGED" });
+  assert.deepEqual(observed.toasts, [], "current inline refusal is not an ordinary error");
+  assert.equal(upgrade().disabled, false);
+  await click(card());
+  await settle({ success: false, code: "AUTH_CONTEXT_UNVALIDATED" });
+  assert.deepEqual(observed.toasts, [], "current card refusal is not an ordinary error");
+  assert.equal(card().disabled, false);
+
+  await click(upgrade());
+  await settle({ success: false, error: "current checkout failure" });
+  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }]);
+  assert.equal(upgrade().disabled, false);
+  await click(card());
+  await settle({ success: false, error: "current checkout failure" });
+  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }, failure]);
+  assert.equal(card().disabled, false);
+
+  await click(upgrade());
+  await settle({ success: true });
+  assert.equal(upgrade().disabled, false);
+  await click(card());
+  await settle({ success: true });
+  assert.equal(card().disabled, false);
+  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }, failure]);
+  assert.ok(requests.every(({ options }) => options.plan === "annual" && options.tier === "pro"));
+
+  await replaceGeneration(null, "account-b");
+  await click(upgrade());
+  await click(card());
+  assert.equal(requests.length, 8, "unvalidated controls do not start checkout");
+});
 
 test("SettingsPage leaves retained Speech owners alone on unrelated updates", async (t) => {
   const { Window } = await import("happy-dom");

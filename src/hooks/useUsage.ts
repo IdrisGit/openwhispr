@@ -50,7 +50,7 @@ export interface UseUsageResult {
   openCheckout: (opts?: {
     plan?: "monthly" | "annual";
     tier?: "pro" | "business";
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<{ success: boolean; error?: string; code?: string }>;
   openBillingPortal: () => Promise<{ success: boolean; error?: string; code?: string }>;
   switchPlan: (opts: {
     plan: "monthly" | "annual";
@@ -158,7 +158,7 @@ export function useUsage(): UseUsageResult | null {
     async (opts?: {
       plan?: "monthly" | "annual";
       tier?: "pro" | "business";
-    }): Promise<{ success: boolean; error?: string }> => {
+    }): Promise<{ success: boolean; error?: string; code?: string }> => {
       if (!billingContextCurrent(accountId, authGeneration)) return obsoleteBillingRequest();
       if (checkoutInFlightRef.current)
         return { success: false, error: "Checkout already in progress" };
@@ -177,7 +177,11 @@ export function useUsage(): UseUsageResult | null {
           pendingBillingRefetch = { accountId: accountId!, generation: authGeneration! };
           return { success: true };
         }
-        return { success: false, error: result.error || "Failed to start checkout" };
+        return {
+          success: false,
+          error: result.error || "Failed to start checkout",
+          code: result.code,
+        };
       } finally {
         checkoutInFlightRef.current = false;
         setCheckoutLoading(false);

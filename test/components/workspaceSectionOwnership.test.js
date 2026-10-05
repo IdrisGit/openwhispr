@@ -4,7 +4,7 @@ const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-test("workspace switch remounts developer-owned secret without remounting create flow", async (t) => {
+test("workspace parent choices preserve fallback focus and tab preferences", async (t) => {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -80,11 +80,12 @@ test("workspace switch remounts developer-owned secret without remounting create
 
   const choices = () => [...container.querySelectorAll("[data-workspace-choice]")];
   const choice = (id) => choices().find((button) => button.dataset.workspaceChoice === id);
+  // Change the selected workspace; child surrogates only exercise parent focus behavior.
   const role = (role) =>
     React.act(async () =>
       globalThis.__workspaceStore.setState((state) => ({
         workspaces: state.workspaces.map((workspace) =>
-          workspace.id === "two" ? { ...workspace, role } : workspace
+          workspace.id === state.activeWorkspaceId ? { ...workspace, role } : workspace
         ),
       }))
     );

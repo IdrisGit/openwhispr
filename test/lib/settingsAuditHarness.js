@@ -8,6 +8,7 @@ async function mountAuditDom(t) {
   const names = [
     "window",
     "document",
+    "DocumentFragment",
     "localStorage",
     "navigator",
     "HTMLElement",
