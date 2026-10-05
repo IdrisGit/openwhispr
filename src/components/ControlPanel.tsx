@@ -2,6 +2,8 @@ import React, { Suspense, useState, useEffect, useRef, useCallback } from "react
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "./ui/button";
+import { PAGE_CONTENT_WIDTH_CLASS } from "./ui/pageWidth";
+import { cn } from "./lib/utils";
 import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Download, RefreshCw, Loader2, AlertTriangle, Zap } from "./icons";
 import UpgradePrompt from "./UpgradePrompt";
@@ -51,6 +53,10 @@ import {
 import ControlPanelSidebar from "./ControlPanelSidebar";
 import ControlPanelTopBar from "./ControlPanelTopBar";
 import { useControlPanelNavItems, type ControlPanelView } from "./controlPanelNav";
+import {
+  DEFAULT_INTEGRATIONS_SECTION,
+  type IntegrationsSection,
+} from "./integrations/integrationsSections";
 import MeetingRecordingMount from "./MeetingRecordingMount";
 import MeetingRecordingPill from "./notes/MeetingRecordingPill";
 import NewNoteMenu from "./notes/NewNoteMenu";
@@ -59,6 +65,7 @@ import { getCachedPlatform } from "../utils/platform";
 import { isAccessibilitySkipped } from "../utils/permissions";
 import { useGpuBannerAvailability } from "../hooks/useGpuBannerAvailability";
 import { useCreateNote } from "../hooks/useCreateNote";
+import { useSignInCloudNudge } from "../hooks/useSignInCloudNudge";
 import {
   setActiveNoteId,
   setActiveFolderId,
@@ -89,10 +96,6 @@ import {
 const platform = getCachedPlatform();
 
 const SIDEBAR_WIDTH_PX = 192;
-
-// Bump to force a one-time full semantic reindex on next launch (see the
-// reindex effect for the per-version history).
-const SEMANTIC_REINDEX_VERSION = 2;
 
 const SettingsModal = React.lazy(() => import("./SettingsModal"));
 const ReferralModal = React.lazy(() => import("./ReferralModal"));
@@ -136,6 +139,9 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
+  const [integrationsSection, setIntegrationsSection] = useState<IntegrationsSection>(
+    DEFAULT_INTEGRATIONS_SECTION
+  );
   const navItems = useControlPanelNavItems();
   const {
     collapsed: sidebarCollapsed,
@@ -195,6 +201,12 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     downloadUpdate,
     installUpdate,
   } = useUpdater();
+
+  const openTranscriptionSettings = useCallback(() => {
+    setSettingsSection("transcription");
+    setShowSettings(true);
+  }, []);
+  useSignInCloudNudge(isSignedIn, openTranscriptionSettings);
 
   const agentAllowedByPolicy = usePolicyStore(isAgentAllowed);
   const { createNote } = useCreateNote();
@@ -272,26 +284,6 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
     window.electronAPI?.noteFilesSetEnabled?.(true, noteFilesPath || undefined, {
       skipRebuild: true,
     });
-  }, []);
-
-  // One-time background reindex, versioned: v1 backfilled space_id payloads
-  // after the spaces migration; v2 backfills cloud-pulled notes, which were
-  // never incrementally indexed before the upsert-from-cloud handler gained a
-  // vector upsert. Delayed so the Qdrant sidecar has time to come up; if it
-  // isn't ready yet the flag stays unset and the next launch retries.
-  useEffect(() => {
-    if (Number(localStorage.getItem("semanticReindexVersion")) >= SEMANTIC_REINDEX_VERSION) return;
-    const timer = setTimeout(() => {
-      window.electronAPI
-        ?.semanticReindexAll?.()
-        .then((result) => {
-          if (result?.success) {
-            localStorage.setItem("semanticReindexVersion", String(SEMANTIC_REINDEX_VERSION));
-          }
-        })
-        .catch(() => {});
-    }, 15_000);
-    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -1063,7 +1055,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
             />
             <div className="scrollbar-hidden flex-1 overflow-y-auto">
               {updateRequiredByOrg && (
-                <div className="max-w-3xl mx-auto w-full mb-3">
+                <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
                   <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-3">
                     <div className="flex items-start gap-3">
                       <div className="shrink-0 w-8 h-8 rounded-md bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
@@ -1088,7 +1080,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               )}
               <RequiredModelsBanner />
               {usage?.isPastDue && activeView === "home" && (
-                <div className="max-w-3xl mx-auto w-full mb-3">
+                <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
                   <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/50 p-3">
                     <div className="flex items-start gap-3">
                       <div className="shrink-0 w-8 h-8 rounded-md bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
@@ -1122,7 +1114,7 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
               {(gpuAccelAvailable.transcription || gpuAccelAvailable.intelligence) &&
                 activeView === "home" &&
                 !gpuBannerDismissed && (
-                  <div className="max-w-3xl mx-auto w-full mb-3">
+                  <div className={cn(PAGE_CONTENT_WIDTH_CLASS, "px-6 mb-3")}>
                     <div className="rounded-lg border border-primary/20 dark:border-primary/15 bg-primary/5 p-3">
                       <div className="flex items-start gap-3">
                         <div className="shrink-0 w-8 h-8 rounded-md bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
@@ -1183,11 +1175,15 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                   onRetryTranscription={retryTranscription}
                   showDiscarded={showDiscarded}
                   onToggleDiscarded={toggleShowDiscarded}
+                  userName={user?.name}
                   onOpenSettings={(section) => {
                     setSettingsSection(section);
                     setShowSettings(true);
                   }}
-                  onOpenIntegrations={() => setActiveView("integrations")}
+                  onOpenIntegrations={() => {
+                    setIntegrationsSection("calendars");
+                    setActiveView("integrations");
+                  }}
                 />
               )}
               {activeView === "insights" && (
@@ -1247,6 +1243,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
                       setSettingsSection("plansBilling");
                       setShowSettings(true);
                     }}
+                    section={integrationsSection}
+                    onSectionChange={setIntegrationsSection}
                   />
                 </Suspense>
               )}
