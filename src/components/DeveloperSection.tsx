@@ -51,7 +51,6 @@ export default function DeveloperSection() {
   useEffect(
     () => () => {
       ++debugAction.current;
-      ++debugRequest.current;
     },
     []
   );

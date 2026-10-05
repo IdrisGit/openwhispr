@@ -1475,7 +1475,7 @@ function invalidateApiKeyCaches(
     | "openrouter"
     | "corti"
 ) {
-  if (provider) {
+  if (provider === "tinfoil") {
     if (_ReasoningService) {
       _ReasoningService.clearApiKeyCache(provider);
     } else {

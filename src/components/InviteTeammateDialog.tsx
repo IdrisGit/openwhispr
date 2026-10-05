@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "./icons";
 import {
@@ -100,15 +100,6 @@ export default function InviteTeammateDialog({
     };
   }, [open, workspaceId, sessionKey]);
 
-  const bindInvitation = useCallback(
-    (node: HTMLElement | null) => {
-      const cleanup = bindSession(node);
-      if (!cleanup) return;
-      return cleanup;
-    },
-    [bindSession]
-  );
-
   const draftOwner = JSON.stringify([sessionKey, initialEmail]);
   const [previousOwner, setPreviousOwner] = useState("");
   if (previousOwner !== draftOwner) {
@@ -174,7 +165,7 @@ export default function InviteTeammateDialog({
             </p>
           )}
         </DialogHeader>
-        <form ref={bindInvitation} onSubmit={handleSubmit} className="space-y-4">
+        <form ref={bindSession} onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="invite-email" className="text-xs font-medium">
               {t("workspaces.invite.emailLabel")}

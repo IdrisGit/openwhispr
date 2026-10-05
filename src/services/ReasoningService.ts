@@ -1319,12 +1319,10 @@ class ReasoningService extends BaseReasoningService {
       | "openrouter"
       | "corti"
   ): void {
-    if (provider) {
-      if (provider === "tinfoil") {
-        clearTinfoilClientCache();
-      }
+    if (provider === "tinfoil") {
+      clearTinfoilClientCache();
       logger.logReasoning("API_KEY_CACHE_CLEARED", { provider });
-    } else {
+    } else if (!provider) {
       clearTinfoilClientCache();
       logger.logReasoning("API_KEY_CACHE_CLEARED", { provider: "all" });
     }

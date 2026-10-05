@@ -35,7 +35,7 @@ export function useDialogSession(open: boolean, owner = "") {
   const bindSession = useCallback(
     (node: HTMLElement | null) => {
       if (!node || !open) return;
-      const current = { key: sessionKey };
+      const current = {};
       session.current = current;
       return () => {
         if (session.current === current) session.current = null;

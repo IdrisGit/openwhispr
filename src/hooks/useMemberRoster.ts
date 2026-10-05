@@ -91,7 +91,6 @@ export function useMemberRoster<M>(
       setBusyIds((prev) => new Set(prev).add(userId));
       try {
         const result = await action();
-        if (!completion.isAccountCurrent()) return;
         if (!isCurrent()) return;
         // The action service invalidates rosters after the write, including
         // reopened owners. Local completion only owns feedback and row state.
