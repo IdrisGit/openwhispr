@@ -39,7 +39,7 @@ interface OutsideEvent {
   detail: { originalEvent: Event };
 }
 
-export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.Ref<T>) {
+export function useDismissGuard<T extends HTMLElement>() {
   const contentRef = React.useRef<T | null>(null);
   const layerWasAboveRef = React.useRef(false);
 
@@ -53,22 +53,14 @@ export function useDismissGuard<T extends HTMLElement>(forwardedRef?: React.Ref<
     };
   }, []);
 
-  /** Ref for the dialog content, composed with the caller's forwarded ref. */
-  const registerContent = React.useCallback(
-    (node: T | null) => {
-      contentRef.current = node;
-      const cleanup = typeof forwardedRef === "function" ? forwardedRef(node) : undefined;
-      if (forwardedRef && typeof forwardedRef !== "function") forwardedRef.current = node;
-      if (!node) return;
-      return () => {
-        contentRef.current = null;
-        if (typeof cleanup === "function") cleanup();
-        else if (typeof forwardedRef === "function") forwardedRef(null);
-        else if (forwardedRef) forwardedRef.current = null;
-      };
-    },
-    [forwardedRef]
-  );
+  /** Ref callback for the dialog content. */
+  const registerContent = React.useCallback((node: T | null) => {
+    contentRef.current = node;
+    if (!node) return;
+    return () => {
+      contentRef.current = null;
+    };
+  }, []);
 
   const shouldBlockDismiss = React.useCallback((event: OutsideEvent) => {
     // Focus-outside dismissals would read a snapshot left over from the last

@@ -52,7 +52,18 @@ export default function SidebarModal<T extends string>({
   const [isCompact, setIsCompact] = React.useState(false);
   const layoutValue = React.useMemo(() => ({ isCompact }), [isCompact]);
   const previousFocusRef = React.useRef<HTMLElement | null>(null);
+  // Never cleared, so the closing handler can tell whether focus is still inside
+  // this dialog's own (already detached) content.
+  const lastContentRef = React.useRef<HTMLElement | null>(null);
   const observerRef = React.useRef<ResizeObserver | null>(null);
+
+  const attachContent = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node) lastContentRef.current = node;
+      return registerContent(node);
+    },
+    [registerContent]
+  );
 
   const containerRef = React.useCallback((el: HTMLDivElement | null) => {
     if (observerRef.current) {
@@ -110,7 +121,7 @@ export default function SidebarModal<T extends string>({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          ref={registerContent}
+          ref={attachContent}
           // Radix focuses the first tabbable on open, which is the close button;
           // focus the dialog itself so the X doesn't open wearing a focus ring.
           onOpenAutoFocus={(e) => {
@@ -119,9 +130,27 @@ export default function SidebarModal<T extends string>({
             (e.currentTarget as HTMLElement).focus();
           }}
           onCloseAutoFocus={(e) => {
-            // This dialog has no Radix Trigger, so Radix cannot restore focus itself.
+            // Radix has no Trigger to restore to, but a dialog opened from inside
+            // this one (or an explicit handoff) already owns focus. Suppressing
+            // restoration is what keeps it there.
+            const active = document.activeElement;
+            if (
+              active &&
+              active !== document.body &&
+              active.isConnected &&
+              !lastContentRef.current?.contains(active)
+            ) {
+              e.preventDefault();
+              return;
+            }
             const previous = previousFocusRef.current;
-            if (previous && previous !== document.body && previous.isConnected) {
+            if (
+              previous &&
+              previous !== document.body &&
+              previous.isConnected &&
+              !previous.closest('[hidden], [inert], [data-state="closed"]') &&
+              !previous.matches(":disabled")
+            ) {
               e.preventDefault();
               previous.focus({ preventScroll: true });
             }

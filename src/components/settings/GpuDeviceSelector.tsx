@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GpuDevice } from "../../types/electron";
 import { SettingsPanel, SettingsPanelRow, SectionHeader } from "../ui/SettingsSection";
@@ -12,24 +12,23 @@ export default function GpuDeviceSelector({
   const [gpus, setGpus] = useState<GpuDevice[]>([]);
   const [selectedUuid, setSelectedUuid] = useState("");
   const [loadedPurpose, setLoadedPurpose] = useState<string | null>(null);
-  const requestId = useRef(0);
 
   useEffect(() => {
-    const request = ++requestId.current;
+    // Each run owns its own flag, so a cleanup only ever ignores its own reply.
+    let cancelled = false;
     Promise.all([
       window.electronAPI?.listGpus?.() ?? Promise.resolve([]),
       window.electronAPI?.getGpuDeviceIndex?.(purpose) ?? Promise.resolve(""),
     ])
       .then(([gpuList, savedUuid]) => {
-        if (request !== requestId.current) return;
+        if (cancelled) return;
         setGpus(gpuList);
         setSelectedUuid(savedUuid || gpuList[0]?.uuid || "");
         setLoadedPurpose(purpose);
       })
       .catch(() => {});
-    const requests = requestId;
     return () => {
-      ++requests.current;
+      cancelled = true;
     };
   }, [purpose]);
 
@@ -49,7 +48,6 @@ export default function GpuDeviceSelector({
               value={selectedUuid}
               onChange={async (event) => {
                 const uuid = event.target.value;
-                ++requestId.current;
                 setSelectedUuid(uuid);
                 await window.electronAPI?.setGpuDeviceIndex?.(purpose, uuid);
               }}

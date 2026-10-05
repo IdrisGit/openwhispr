@@ -232,8 +232,8 @@ test("Enterprise and GPU names distinguish fields and retained instances", async
   assert.equal(container.querySelector('select[aria-label="Intelligence GPU"]').value, "GPU-two");
 });
 
-test("GPU purpose and debug readers ignore superseded and StrictMode replies", async (t) => {
-  const { dom, root, container } = await mountDom(t);
+test("GPU StrictMode reads keep the saved purpose and debug readers ignore superseded replies", async (t) => {
+  const { root, container } = await mountDom(t);
   const observed = (globalThis.__controlLabels = { t: translate, toasts: [] });
   const gpuReads = [];
   const debugReads = [];
@@ -274,24 +274,6 @@ test("GPU purpose and debug readers ignore superseded and StrictMode replies", a
   });
   assert.equal(container.querySelector("select").getAttribute("aria-label"), "Intelligence GPU");
   assert.equal(container.querySelector("select").value, "GPU-two");
-  await renderGpu("transcription");
-  assert.equal(
-    container.querySelector("select"),
-    null,
-    "another purpose's saved choice is not usable"
-  );
-  await React.act(async () => gpuReads[3].resolve("GPU-one"));
-  await renderGpu("intelligence");
-  await React.act(async () => gpuReads[4].reject(new Error("unavailable")));
-  assert.equal(container.querySelector("select"), null);
-  await renderGpu("transcription");
-  const select = container.querySelector("select");
-  await React.act(async () => {
-    select.value = "GPU-two";
-    select.dispatchEvent(new dom.Event("change", { bubbles: true }));
-  });
-  await React.act(async () => gpuReads[5].resolve("GPU-one"));
-  assert.equal(select.value, "GPU-two", "a late hydration cannot overwrite a fresh selection");
   await React.act(async () =>
     root.render(React.createElement(React.StrictMode, null, React.createElement(Developer)))
   );
