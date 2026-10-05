@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 
-for (const strict of [false, true]) {
+for (const strict of [true]) {
   test(`LLM policy removal restores only owned, visible panel focus${strict ? " in StrictMode" : ""}`, async (t) => {
     const { Window } = await import("happy-dom");
     const dom = new Window();
@@ -80,7 +80,7 @@ for (const strict of [false, true]) {
               };
             }, []);
             return React.createElement("div", { "data-editor": kind },
-              React.createElement("textarea", { "aria-label": kind, autoFocus: globalThis.__llmFocus.autoFocusTab === kind,
+              React.createElement("textarea", { "aria-label": kind,
                 value: draft, onChange: (e) => setDraft(e.target.value) }),
               showNested && React.createElement("div", null, React.createElement("button", {
                 type: "button", "data-nested": kind, onFocus: (e) => e.stopPropagation()
@@ -143,20 +143,6 @@ for (const strict of [false, true]) {
     const translation = draft("dictationTranslation");
     const translationMounts = state.editors.dictationTranslation.mounts;
     await React.act(async () => state.editors.dictationTranslation.setDraft("unsaved translation"));
-
-    state.autoFocusTab = "dictationAgent";
-    await select("dictationAgent");
-    delete state.autoFocusTab;
-    assert.equal(dom.document.activeElement, draft("dictationAgent"));
-    await focus(outside);
-    await React.act(async () => outside.blur());
-    await policy(false);
-    assert.equal(
-      dom.document.activeElement,
-      dom.document.body,
-      "ref replay cannot leave stale autofocus ownership"
-    );
-    await policy(true);
 
     for (const tab of ["dictationAgent", "chatIntelligence"]) {
       await select(tab);

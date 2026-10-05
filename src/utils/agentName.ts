@@ -36,12 +36,7 @@ export const ensureAgentNameInDictionary = (): void => {
 /** App-lifetime synchronization, not a saved-state mirror in every consumer. */
 export function subscribeAgentNameChanges(): () => void {
   const refresh = () => {
-    let name: string;
-    try {
-      name = localStorage.getItem(AGENT_NAME_KEY)?.trim() || DEFAULT_AGENT_NAME;
-    } catch {
-      return;
-    }
+    const name = localStorage.getItem(AGENT_NAME_KEY)?.trim() || DEFAULT_AGENT_NAME;
     const previous = getAgentName();
     if (name === previous) return;
     useSettingsStore.setState({ agentName: name });

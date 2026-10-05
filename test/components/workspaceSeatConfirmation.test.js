@@ -263,16 +263,6 @@ test("seat confirmations belong to the current billing snapshot and request", as
     }
   );
 
-  await t.test("portal still arms browser-return workspace and entitlement refresh", async () => {
-    await React.act(async () => button("settingsPage.workspace.billing.manageStripe").onClick());
-    assert.equal(state.openedUrl, "https://stripe.test/portal");
-    assert.equal(state.returnArms, 1);
-    const refreshes = state.refreshes;
-    await React.act(async () => state.onReturn());
-    assert.equal(state.refreshes, refreshes + 1);
-    assert.equal(state.entitlementRefreshes, 1);
-  });
-
   await t.test(
     "unmount/close discards pending quotes and fresh owners hydrate independently",
     async () => {

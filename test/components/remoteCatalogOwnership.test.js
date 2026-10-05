@@ -87,11 +87,15 @@ test("remote catalogs reject ABA/key/refresh races, keep drafts and adopt only c
     "kept search",
     "small replacement catalog does not remount the visited search leaf"
   );
-  await React.act(async () => seen.input.onChange({ target: { value: "https://draft.test/v1" } }));
+  const typed = pending.length;
+  await React.act(async () =>
+    seen.input.onChange({ target: { value: " https://draft.test/v1/ " } })
+  );
+  assert.equal(pending.length, typed, "typing does not fetch");
   await change({ baseUrl: "https://external.test/v1" });
   assert.equal(
     seen.input.value,
-    "https://draft.test/v1",
+    " https://draft.test/v1/ ",
     "external settings preserve a genuine endpoint draft"
   );
   await finish(7, ["external"]);
@@ -139,4 +143,29 @@ test("remote catalogs reject ABA/key/refresh races, keep drafts and adopt only c
     assert.equal(pending.length, count, "no fallback request after unmount");
     assert.equal(writes.length, publications, "no fallback endpoint publication after unmount");
   }
+
+  // Ported from the endpoint-actions test: reset publishes the default
+  // endpoint; apply-and-refresh adopts the applied draft's catalog.
+  await render(React.createElement(Owner));
+  await finish(pending.length - 1, ["initial"]);
+  await React.act(async () =>
+    seen.buttons.findLast((button) => button.children === "common.reset").onClick()
+  );
+  assert.equal(writes.at(-1), "https://reset.test/v1", "reset publishes the default endpoint");
+  await finish(pending.length - 1, ["default-model"]);
+  await React.act(async () =>
+    seen.input.onChange({ target: { value: " https://applied.test/v1/ " } })
+  );
+  await React.act(async () =>
+    seen.buttons
+      .findLast((button) => button.children === "reasoning.custom.applyAndRefresh")
+      .onClick()
+  );
+  assert.equal(writes.at(-1), "https://applied.test/v1");
+  await finish(pending.length - 1, ["applied-model"]);
+  assert.equal(
+    seen.options[0].value,
+    "applied-model",
+    "apply-and-refresh adopts the applied catalog"
+  );
 });

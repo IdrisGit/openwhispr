@@ -114,8 +114,6 @@ const DialogContent = React.forwardRef<
             onCloseAutoFocus?.(event);
             if (event.defaultPrevented) return;
             event.preventDefault();
-            // A new dialog or an explicit handoff wins over delayed restoration.
-            if (contentRef.current?.dataset.state === "open") return;
             const active = document.activeElement;
             if (
               active &&

@@ -156,8 +156,6 @@ const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNa
   const removedFocusedPanel = useRef<HTMLDivElement | null>(null);
   const captureRemovedPanelFocus = useCallback((panel: HTMLDivElement | null) => {
     if (!panel) return;
-    // A StrictMode ref replay reattaches the same connected panel.
-    if (removedFocusedPanel.current === panel) removedFocusedPanel.current = null;
     // Ref cleanup runs at removal, before the panel's DOM disappears. Unlike
     // a last-focus event, this cannot retain a control removed on an earlier edit.
     return () => {

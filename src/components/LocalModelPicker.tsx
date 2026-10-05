@@ -155,7 +155,6 @@ export default function LocalModelPicker({
         );
       } else {
         const result = await window.electronAPI?.modelGetAll?.();
-        if (!Array.isArray(result)) return null;
         downloaded = new Set(
           result
             .filter((m: { isDownloaded?: boolean }) => m.isDownloaded)

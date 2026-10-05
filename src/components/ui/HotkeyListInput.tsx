@@ -78,11 +78,7 @@ export function HotkeyListInput({
   const commit = async (next: string[]) => {
     const previous = items;
     setItems(next);
-    try {
-      if ((await onChange(serializeHotkeyList(next))) !== false) return;
-    } catch {
-      // The native registration failed before it returned a result.
-    }
+    if ((await onChange(serializeHotkeyList(next))) !== false) return;
     setItems((current) => (current === next ? previous : current));
   };
 
@@ -98,11 +94,7 @@ export function HotkeyListInput({
     }
     const previous = items;
     setItems(remaining);
-    try {
-      if ((await onClear?.()) !== false) return;
-    } catch {
-      // Preserve the previous row if the clear IPC rejects.
-    }
+    if ((await onClear?.()) !== false) return;
     setItems((current) => (current === remaining ? previous : current));
   };
 

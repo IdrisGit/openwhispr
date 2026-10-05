@@ -46,10 +46,6 @@ for (const k of BYOK_KEY_BRIDGES) {
  */
 const registerListener = (channel, handlerFactory) => {
   return (callback) => {
-    if (typeof callback !== "function") {
-      return () => {};
-    }
-
     const handler = typeof handlerFactory === "function" ? handlerFactory(callback) : callback;
     // Preserve the legacy two-argument payload ABI, never the native event/sender.
     // Custom adapters discard this inert slot to expose their named payload only.

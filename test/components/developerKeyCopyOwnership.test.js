@@ -215,11 +215,8 @@ test("developer owner replacement and unmount fence copy/create/revoke/list comp
   await React.act(async () => pendingRevoke.resolve());
   assert.equal(seen.reads.length, readCount);
   assert.equal(seen.toasts.length, toastCount);
-  const oldRead = seen.reads.at(-1);
   await renderOwner("E", "owner");
   await React.act(async () => seen.reads.at(-1).resolve([fakeKey("readback-row")]));
-  await React.act(async () => oldRead.resolve([fakeKey("obsolete-row")]));
-  assert.equal(dom.document.body.textContent.includes("obsolete-row"), false);
   await React.act(async () =>
     dom.document
       .querySelector('button[aria-label="settingsPage.workspace.developer.revoke"]')

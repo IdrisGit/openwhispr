@@ -112,8 +112,7 @@ export function createSettingsNavigationStore(
   readAgentAllowed: () => boolean = () => true
 ) {
   const resolve = (request: string): SettingsSectionType =>
-    (Object.hasOwn(ALIASES, request) ? ALIASES[request] : undefined) ??
-    (SECTIONS.has(request) ? (request as SettingsSectionType) : "account");
+    ALIASES[request] ?? (SECTIONS.has(request) ? (request as SettingsSectionType) : "account");
   const initial: Pick<NavigationState, "section" | "speechTab" | "llmTab"> = {
     section: initialSection ? resolve(initialSection) : null,
     speechTab: null,

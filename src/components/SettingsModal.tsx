@@ -29,7 +29,8 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ navigation, onOpenChange }: SettingsModalProps) {
-  const activeSection = useStore(navigation, (state) => state.section);
+  // The only renderer (SettingsHost) mounts this modal iff the section is set.
+  const activeSection = useStore(navigation, (state) => state.section)!;
   const handleSectionChange = useStore(navigation, (state) => state.openSettings);
   const { t } = useTranslation();
   const { isSignedIn, user } = useAuth();
@@ -100,8 +101,6 @@ export default function SettingsModal({ navigation, onOpenChange }: SettingsModa
     },
   ];
   const sidebarItems = isSignedIn ? items : items.filter((item) => item.id !== "workspace");
-
-  if (!activeSection) return null;
 
   return (
     <SidebarModal<SettingsSectionType>

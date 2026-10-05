@@ -163,32 +163,19 @@ test("retained local picker loads disk state once per mount and balances progres
     root = createRoot(container);
     selected.length = 0;
   };
-  for (const [name, read] of [
-    ["missing method", undefined],
-    ["missing result", async () => undefined],
-    ["failed result", async () => ({ success: false })],
-    ["malformed result", async () => ({})],
-    [
-      "rejection",
-      async () => {
-        throw new Error("inventory unavailable");
-      },
-    ],
-  ]) {
-    await t.test(`${name} preserves a selected model, then recovers`, async () => {
-      await remount();
-      api.modelGetAll = read;
-      await renderPicker(select, "local-one");
-      assert.deepEqual(selected, []);
-      api.modelDownload = async () => ({ success: true });
-      await React.act(async () => globalThis.__localPickerActions.onDownload("local-two"));
-      assert.deepEqual(selected, [], "unknown inventory cannot justify replacing the selection");
-      api.modelGetAll = async () => [{ id: "local-one", isDownloaded: true }];
-      await React.act(async () => events.dispatchEvent(new Event("openwhispr-models-cleared")));
-      assert.equal(globalThis.__localPickerCards[0].isDownloaded, true);
-      assert.deepEqual(selected, []);
-    });
-  }
+  await remount();
+  api.modelGetAll = async () => {
+    throw new Error("inventory unavailable");
+  };
+  await renderPicker(select, "local-one");
+  assert.deepEqual(selected, []);
+  api.modelDownload = async () => ({ success: true });
+  await React.act(async () => globalThis.__localPickerActions.onDownload("local-two"));
+  assert.deepEqual(selected, [], "unknown inventory cannot justify replacing the selection");
+  api.modelGetAll = async () => [{ id: "local-one", isDownloaded: true }];
+  await React.act(async () => events.dispatchEvent(new Event("openwhispr-models-cleared")));
+  assert.equal(globalThis.__localPickerCards[0].isDownloaded, true);
+  assert.deepEqual(selected, []);
 
   await remount();
   api.modelGetAll = async () => [];

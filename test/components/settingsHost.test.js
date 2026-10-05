@@ -9,6 +9,7 @@ const {
   installBrowserGlobals,
   installHookDom,
 } = require("../lib/rendererTestHarness");
+const { deferred } = require("../lib/settingsAuditHarness");
 
 test("SettingsHost routes opens and releases its main-process listeners", async (t) => {
   let root = null;
@@ -116,28 +117,7 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
 
   await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, false);
-  await React.act(async () => {
-    openSettings("intelligence");
-    await flush();
-  });
-  assert.equal(globalThis.__settingsModalProps.navigation.getState().section, "llms");
-  const navigation = globalThis.__settingsModalProps.navigation;
-  await React.act(async () => navigation.getState().selectLlmTab("noteFormatting"));
-  await React.act(async () => openSettings("intelligence"));
-  assert.equal(
-    navigation.getState().llmTab,
-    "dictationCleanup",
-    "repeat alias restores its requested tab"
-  );
-  await React.act(async () => navigation.getState().selectLlmTab("dictationTranslation"));
-  await React.act(async () => openSettings());
-  assert.equal(
-    navigation.getState().llmTab,
-    "dictationTranslation",
-    "plain open leaves selection alone"
-  );
 
-  await React.act(async () => globalThis.__settingsModalProps.onOpenChange(false));
   await React.act(async () => {
     let prevented = false;
     keydown({ ctrlKey: true, key: ",", preventDefault: () => (prevented = true) });
@@ -155,13 +135,75 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   });
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, true);
 
-  await React.act(async () => root.unmount());
+  // Ported from the readiness test: a disposed host cannot consume a late
+  // document read or an already-queued callback after its cleanup.
+  const reads = [];
+  const readyLog = [];
+  const showListeners = [];
+  let currentListener = null;
+  const stores = [];
+  const portChild = (navigation) => {
+    stores.push(navigation);
+    return null;
+  };
+  window.electronAPI.getSettingsDocumentId = () => {
+    const request = deferred();
+    reads.push(request);
+    return request.promise;
+  };
+  window.electronAPI.setSettingsHostReady = (id, value) => {
+    readyLog.push({ id, value });
+    if (value) {
+      readyHost = id;
+      currentListener?.({ hostId: id, requestId: 10 });
+    } else if (readyHost === id) readyHost = undefined;
+  };
+  window.electronAPI.onShowSettings = (listener) => {
+    showListeners.push(listener);
+    currentListener = listener;
+    return () => {
+      if (currentListener === listener) currentListener = null;
+    };
+  };
+  await React.act(async () =>
+    root.render(React.createElement(SettingsHost, { key: "old" }, portChild))
+  );
+  await React.act(async () => root.render(null));
+  await React.act(async () =>
+    root.render(React.createElement(SettingsHost, { key: "new" }, portChild))
+  );
+  await React.act(async () => {
+    await reads[0].resolve(1);
+    await flush();
+  });
+  assert.equal(
+    readyLog.filter((entry) => entry.value).length,
+    0,
+    "late document read cannot revive a disposed host"
+  );
+  await React.act(async () => {
+    await reads[1].resolve(1);
+    await flush();
+  });
+  assert.equal(readyLog.filter((entry) => entry.value).length, 1);
+  assert.equal(stores.at(-1).getState().section, "account");
+  assert.deepEqual(
+    acknowledgements.map((item) => item.requestId),
+    [2, 10]
+  );
+  const queuedHostId = readyLog.find((entry) => entry.value).id;
+  await React.act(async () => root.render(null));
+  assert.equal(readyLog.at(-1).value, false);
+  const acked = acknowledgements.length;
+  await React.act(async () => showListeners[1]({ hostId: queuedHostId, requestId: 11 }));
+  assert.equal(acknowledgements.length, acked, "queued callback cannot consume after cleanup");
+  assert.equal(currentListener, null);
   root = null;
   assert.equal(keydown, undefined);
   assert.equal(showSettingsFromMain, undefined);
   assert.equal(readyHost, undefined);
   assert.deepEqual(
     acknowledgements.map((item) => item.requestId),
-    [2]
+    [2, 10]
   );
 });

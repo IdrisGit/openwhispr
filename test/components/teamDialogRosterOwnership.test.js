@@ -104,3 +104,58 @@ test("real team dialog derives controls from current roster and expires leave co
   assert.equal(seen.toasts.length, 1);
   assert.deepEqual(seen.closes, [false]);
 });
+
+test("a rejected roster read settles the real picker to Retry and recovers", async (t) => {
+  const { dom, render } = await mountAuditDom(t);
+  const reads = [];
+  globalThis.__teamRosterRetry = {
+    load: () => {
+      const request = deferred();
+      reads.push(request);
+      return request.promise;
+    },
+  };
+  t.after(() => delete globalThis.__teamRosterRetry);
+  const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next", "@radix-ui/react-dialog"],
+    mockModules: {
+      "react-i18next": `const t=key=>key;export const useTranslation=()=>({t});`,
+      "/ui/useToast": `export const useToast=()=>({toast(){}});`,
+      "/hooks/useAuth": `export const useAuth=()=>({user:{id:"self"}});`,
+      "/InviteTeammateDialog": `export default ()=>null;`,
+      "/services/TeamsService": `export const TeamsService={listMembers:()=>globalThis.__teamRosterRetry.load()};`,
+      "/services/spaceActions": `export const addTeamMembers=async()=>({failures:[]}),removeTeamMember=async()=>{},setTeamMemberRole=async()=>{};`,
+      "/stores/workspaceStore": `export const EMPTY_WORKSPACE_MEMBERS=[];const state={membersByWorkspace:{},refreshMembers:async()=>{}};export const useWorkspaceStore=fn=>fn(state);`,
+    },
+  });
+  const { default: TeamDialog } = await vite.ssrLoadModule(
+    "/components/settings/TeamMembersDialog.tsx"
+  );
+  await render(
+    React.createElement(TeamDialog, {
+      team: { id: "A", name: "A" },
+      workspace: { id: "workspace", role: "owner", name: "workspace" },
+      open: true,
+      onOpenChange() {},
+    })
+  );
+  await React.act(async () => {
+    for (const request of reads) request.reject(new Error("fake roster failure"));
+  });
+  const retry = [...dom.document.querySelectorAll("button")].find((button) =>
+    button.textContent.includes("loadError.retry")
+  );
+  assert.ok(retry, "a rejected roster read settles to Retry rather than an endless skeleton");
+  await React.act(async () => retry.click());
+  await React.act(async () =>
+    reads
+      .at(-1)
+      .resolve([
+        { user_id: "recovered", name: "Recovered", email: "recovered@example.test", role: "member" },
+      ])
+  );
+  assert.ok(
+    dom.document.body.textContent.includes("Recovered"),
+    "the retried roster read repopulates the picker"
+  );
+});

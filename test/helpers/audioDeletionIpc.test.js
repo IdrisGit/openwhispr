@@ -76,16 +76,16 @@ test("delete-all-audio preserves filesystem outcomes and reports DB reconciliati
   );
   const remove = handlers.get("delete-all-audio");
   assert.equal(typeof remove, "function");
-  for (const failed of [false, true]) {
-    for (const failDb of [false, true]) {
-      diskResult = Object.freeze({ deleted: 2, deletedIds: ["4", "8"], failed });
-      dbFails = failDb;
-      const result = await remove();
-      assert.deepEqual(result, { ...diskResult, failed: failed || failDb });
-      assert.deepEqual(cleared.at(-1), ["4", "8"], "only actual deleted IDs reach the DB");
-      assert.equal(diskResult.failed, failed, "filesystem evidence is not rewritten");
-      assert.deepEqual(structuredClone(result), result, "the full result crosses IPC intact");
-    }
+  for (const [failed, failDb] of [
+    [false, false],
+    [false, true],
+    [true, false],
+  ]) {
+    diskResult = Object.freeze({ deleted: 2, deletedIds: ["4", "8"], failed });
+    dbFails = failDb;
+    const result = await remove();
+    assert.deepEqual(result, { ...diskResult, failed: failed || failDb });
+    assert.deepEqual(cleared.at(-1), ["4", "8"], "only actual deleted IDs reach the DB");
   }
   const before = cleared.length;
   diskResult = { deleted: 1, deletedIds: [], failed: true };

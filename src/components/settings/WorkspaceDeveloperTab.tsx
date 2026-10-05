@@ -165,7 +165,6 @@ export default function WorkspaceDeveloperTab({ workspace }: Props) {
     if (!name.trim() || selectedScopes.size === 0 || submitting) return;
     const completion = capture();
     const formCompletion = captureCreateForm();
-    if (!completion.isCurrent() || !formCompletion.isCurrent()) return;
     setSubmitting(true);
     try {
       const created = await WorkspaceApiKeysService.create(workspace.id, {

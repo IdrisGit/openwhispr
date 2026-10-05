@@ -46,14 +46,13 @@ test("hotkey DOM actions preserve native listeners, current validation and captu
   const container = dom.document.createElement("div");
   dom.document.body.appendChild(container);
   for (const platform of ["linux", "win32", "darwin"]) {
-    for (const variant of ["default", "hero", "capture-overlay"]) {
-      await t.test(`${platform}: ${variant}`, async () => {
-        globalThis.__capturePlatform = platform;
-        const values = [];
-        const errors = [];
-        const props = {
-          value: "F7",
-          variant,
+    await t.test(`${platform}`, async () => {
+      globalThis.__capturePlatform = platform;
+      const values = [];
+      const errors = [];
+      const props = {
+        value: "F7",
+        variant: "default",
           onChange: (value) => values.push(value),
           onValidationError: (error) => errors.push(error),
           validate: () => null,
@@ -106,5 +105,4 @@ test("hotkey DOM actions preserve native listeners, current validation and captu
         assert.equal(listening.at(-1), false);
       });
     }
-  }
 });

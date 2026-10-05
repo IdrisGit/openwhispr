@@ -202,7 +202,7 @@ test("real name inputs retain dirty drafts while all mounted and hidden studios 
 });
 
 for (const kind of ["cleanup", "dictationAgent", "translate"]) {
-  test(`${kind} pristine prompt follows locale/saved changes; only genuine hidden edits survive`, async (t) => {
+  test(`${kind} pristine prompt follows locale/saved changes; drafts survive store writes until typed back`, async (t) => {
     const { render, container, Studio, store, prompts, click, edit } = await setup(t);
     await render(React.createElement(Studio, { kind }));
     await click(container, "promptStudio.tabs.customize");
@@ -219,13 +219,11 @@ for (const kind of ["cleanup", "dictationAgent", "translate"]) {
     await React.act(async () => store.getState().setCustomPrompt(kind, "External {{agentName}}"));
     assert.equal(textarea().value, "External {{agentName}}");
     await edit(textarea(), "Dirty {{agentName}}");
-    container.hidden = true;
     await React.act(async () => {
       store.getState().setUiLanguage("fr");
       store.getState().setCustomPrompt(kind, "New saved");
     });
     assert.equal(textarea().value, "Dirty {{agentName}}");
-    container.hidden = false;
     await edit(textarea(), "New saved");
     await React.act(async () => store.getState().setCustomPrompt(kind, "Latest saved"));
     assert.equal(

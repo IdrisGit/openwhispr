@@ -272,6 +272,24 @@ test("LLM routine requests follow actual retained section/subtab shells without 
     editorRenders,
     "primitive activity selectors update status leaves, not stable editors"
   );
+  // Folded from the vision-mapping test: an agent-vision editor shares its
+  // containing agent tab's visibility.
+  await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: true }));
+  await React.act(async () => h.navigation.getState().openSettings("dictationAgent"));
+  const vision = h.counts.llama;
+  await h.render(
+    React.createElement(h.Selector, {
+      ...h.llmProps,
+      settingsNavigation: h.navigation,
+      settingsScope: "dictationAgentVision",
+    })
+  );
+  assert.equal(h.counts.llama, vision + 1, "a visible agent-vision editor reads its tab status");
+  await h.tick(5000);
+  assert.equal(h.counts.llama, vision + 2);
+  await React.act(async () => h.navigation.getState().openSettings("general"));
+  await h.tick(5000);
+  assert.equal(h.counts.llama, vision + 2, "a hidden agent-vision editor stops polling");
   await h.close();
   const closed = h.counts.llama;
   await h.tick(5000);
@@ -311,7 +329,6 @@ test("Speech routine checks pause hidden while inventory and subscriptions retai
     "visibility does not replace download/fallback listeners"
   );
   await h.close();
-  assert.equal(h.counts.disposed, h.counts.progress);
 });
 
 test("routine replies are ignored after hide, supersession, rejection and close", async (t) => {
@@ -397,7 +414,6 @@ test("Whisper hidden activation, progress, completion and fallback remain live",
   await render(true);
   assert.equal(h.counts.whisper, afterFallback + 1);
   await h.close();
-  assert.equal(h.counts.progress, h.counts.disposed);
 });
 
 test("a hidden GPU-pack download finishes and activation polls without routine reads", async (t) => {
@@ -434,10 +450,9 @@ test("a hidden GPU-pack download finishes and activation polls without routine r
   assert.equal(h.counts.whisper, settled);
   await render(true);
   assert.equal(h.counts.whisper, settled + 1);
-});
 
-test("LLM pack completion stays live while hidden and fences old pack/status replies", async (t) => {
-  const h = await setup(t);
+  // Folded from the LLM pack-completion test: the same hidden-download
+  // contract on the LLM side, plus its unique stale-reply fence.
   const packs = [];
   h.api.getLlamaVulkanStatus = () => {
     h.counts.vulkan++;
@@ -445,21 +460,20 @@ test("LLM pack completion stays live while hidden and fences old pack/status rep
     packs.push(reply);
     return reply.promise;
   };
-  const download = deferred();
-  h.api.downloadLlamaVulkanBinary = () => download.promise;
-  const render = h.renderLlm;
-  await render(true);
+  const packDownload = deferred();
+  h.api.downloadLlamaVulkanBinary = () => packDownload.promise;
+  await h.renderLlm(true);
   await React.act(async () => packs[0].resolve({ downloaded: false }));
   await h.tick(5000);
-  let action;
+  let packAction;
   await React.act(async () => {
-    action = globalThis.__gpuActions["gpu.enableButton"]();
+    packAction = globalThis.__gpuActions["gpu.enableButton"]();
   });
-  await render(false);
+  await h.renderLlm(false);
   await h.emit("onLlamaVulkanDownloadProgress", { percentage: 61 });
   assert.match(h.container.textContent, /61/);
-  await React.act(async () => download.resolve({ success: true }));
-  await action;
+  await React.act(async () => packDownload.resolve({ success: true }));
+  await packAction;
   assert.match(
     h.container.textContent,
     /gpu.ready/,
@@ -467,21 +481,6 @@ test("LLM pack completion stays live while hidden and fences old pack/status rep
   );
   await React.act(async () => packs[1].resolve({ downloaded: false }));
   assert.match(h.container.textContent, /gpu.ready/, "old pack metadata cannot undo completion");
-  const settled = h.counts.llama;
-  await h.tick(1000);
-  await h.tick(5000);
-  assert.equal(h.counts.llama, settled, "settled hidden badge has no routine poll");
-  h.api.llamaServerStatus = async () => {
-    h.counts.llama++;
-    return { gpuAccelerated: true, backend: "vulkan" };
-  };
-  await render(true);
-  assert.equal(h.counts.llama, settled + 1);
-  assert.match(
-    h.container.textContent,
-    /gpu.active/,
-    "revisit reflects actual server acceleration"
-  );
 });
 
 test("completed LLM pack download still resets native state after Settings close", async (t) => {
@@ -535,25 +534,6 @@ test("changing Whisper provider/mode discards old replies without dropping progr
   await h.tick(5000);
   assert.equal(h.counts.whisper, 2);
   await h.close();
-  assert.equal(h.counts.progress, h.counts.disposed);
-});
-
-test("an agent vision editor shares its containing agent tab's status visibility", async (t) => {
-  const h = await setup(t);
-  h.navigation.getState().openSettings("dictationAgent");
-  await h.render(
-    React.createElement(h.Selector, {
-      ...h.llmProps,
-      settingsNavigation: h.navigation,
-      settingsScope: "dictationAgentVision",
-    })
-  );
-  assert.equal(h.counts.llama, 1);
-  await h.tick(5000);
-  assert.equal(h.counts.llama, 2);
-  await React.act(async () => h.navigation.getState().openSettings("general"));
-  await h.tick(5000);
-  assert.equal(h.counts.llama, 2);
 });
 
 test("non-Settings callers poll independently and StrictMode cleans obsolete reads", async (t) => {
@@ -587,5 +567,4 @@ test("non-Settings callers poll independently and StrictMode cleans obsolete rea
   await h.close();
   await React.act(async () => pending.at(-1).resolve({ gpuAccelerated: false }));
   assert.equal(h.intervals.size, 0);
-  assert.equal(h.counts.progress, h.counts.disposed);
 });

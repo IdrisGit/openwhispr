@@ -247,7 +247,6 @@ class EnvironmentManager {
   }
 
   _saveKey(envVarName, key) {
-    if (typeof key !== "string") return { success: false, code: "INVALID_SECRET" };
     // Publish in-memory truth synchronously; queued disk writes must never restore old values.
     if (key) process.env[envVarName] = key;
     else delete process.env[envVarName];

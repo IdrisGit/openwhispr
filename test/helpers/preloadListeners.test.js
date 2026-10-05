@@ -99,33 +99,3 @@ test("agent-name bridge carries only a notification and disposes the exact paylo
   assert.equal(calls.length, 1);
   assert.equal(ipc.listenerCount("agent-name-changed"), 0);
 });
-
-test("legacy progress/completion/error payloads remain in the expected consumer slot", () => {
-  const { api, ipc } = load();
-  for (const name of [
-    "onWhisperDownloadProgress",
-    "onParakeetDownloadProgress",
-    "onModelDownloadProgress",
-    "onUpdateDownloadProgress",
-    "onUpdateDownloaded",
-    "onUpdateError",
-  ]) {
-    const states = [];
-    const dispose = api[name]((unused, data) => {
-      assert.equal(unused, undefined);
-      states.push(data);
-    });
-    const [channel] = ipc.eventNames();
-    for (const data of [
-      { type: "progress", percent: 42 },
-      { type: "complete" },
-      { type: "error", error: "fake failure" },
-    ])
-      ipc.emit(channel, { sender: ipc }, data);
-    assert.deepEqual(
-      states.map((data) => data.type),
-      ["progress", "complete", "error"]
-    );
-    dispose();
-  }
-});

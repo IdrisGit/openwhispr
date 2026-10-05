@@ -90,5 +90,4 @@ test("publication/disk failures are truthful and do not block newer saves", asyn
   h.pending[1].resolve();
   assert.equal((await recovered).success, true);
   assert.equal(h.manager.getOpenAIKey(), "fake-recovery");
-  assert.equal(h.manager.saveOpenAIKey({ invalid: true }).success, false);
 });

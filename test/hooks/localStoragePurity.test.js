@@ -46,10 +46,6 @@ test("real preference initialization is write-free; committed actions preserve b
   renderToString(React.createElement(Owner));
   assert.deepEqual(writes, []);
   assert.deepEqual(renderWork, []);
-  const savedStorage = globalThis.localStorage;
-  delete globalThis.localStorage;
-  assert.doesNotThrow(() => renderToString(React.createElement(Owner)));
-  globalThis.localStorage = savedStorage;
   root = createRoot(container);
   await React.act(async () =>
     root.render(React.createElement(React.StrictMode, null, React.createElement(Owner)))

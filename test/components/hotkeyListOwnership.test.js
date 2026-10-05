@@ -8,7 +8,7 @@ const {
   installHostDom,
 } = require("../lib/rendererTestHarness");
 
-test("hotkey registration rejection rolls back the optimistic row without losing external changes", async (t) => {
+test("failed registration rolls back the optimistic row without losing external changes", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
@@ -30,9 +30,9 @@ test("hotkey registration rejection rolls back the optimistic row without losing
   });
   const { HotkeyListInput } = await vite.ssrLoadModule("/components/ui/HotkeyListInput.tsx");
   globalThis.__hotkeyRows = [];
-  let reject;
+  let settle;
+  const onChange = () => new Promise((resolve) => (settle = resolve));
   let value = "F8";
-  const onChange = () => new Promise((_, fail) => (reject = fail));
   const render = async () => {
     globalThis.__hotkeyRows.length = 0;
     await React.act(async () =>
@@ -45,17 +45,17 @@ test("hotkey registration rejection rolls back the optimistic row without losing
   assert.equal(row().value, "F8");
   await React.act(async () => row().onChange("F9"));
   assert.equal(row().value, "F9");
-  await React.act(async () => reject(Error("IPC rejected")));
+  await React.act(async () => settle(false));
   assert.equal(row().value, "F8");
 
   await React.act(async () => row().onClear());
   assert.equal(row().value, "");
-  await React.act(async () => reject(Error("IPC rejected")));
+  await React.act(async () => settle(false));
   assert.equal(row().value, "F8");
 
   await React.act(async () => row().onChange("F9"));
   value = "F10";
   await render();
-  await React.act(async () => reject(Error("late rejection")));
+  await React.act(async () => settle(false));
   assert.equal(row().value, "F10");
 });

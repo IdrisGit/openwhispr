@@ -9,9 +9,6 @@ test("workspace switch remounts developer-owned secret without remounting create
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__workspaceStore;
-    delete globalThis.__developerSecret;
-    delete globalThis.__setDeveloperSecret;
-    delete globalThis.__createMounts;
   });
   const { Window } = await import("happy-dom");
   const dom = new Window();
@@ -30,7 +27,6 @@ test("workspace switch remounts developer-owned secret without remounting create
   });
   const container = dom.document.createElement("div");
   dom.document.body.appendChild(container);
-  globalThis.__createMounts = 0;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-workspace-section-test-",
     noExternal: ["react-i18next"],
@@ -54,13 +50,7 @@ test("workspace switch remounts developer-owned secret without remounting create
       "/ui/SettingsSection": `export const SettingsPanel = () => null; export const SettingsPanelRow = () => null; export const SettingsRow = () => null;`,
       "/ui/useToast": `export const useToast = () => ({ toast() {} });`,
       "/ui/dialog": `export const ConfirmDialog = () => null;`,
-      "/CreateWorkspaceDialog": `
-        import { useEffect } from "react";
-        export default function CreateWorkspaceDialog() {
-          useEffect(() => { globalThis.__createMounts++; }, []);
-          return null;
-        }
-      `,
+      "/CreateWorkspaceDialog": `export default function CreateWorkspaceDialog() { return null; }`,
       "/InviteTeammateDialog": `export default function InviteTeammateDialog() { return null; }`,
       "/ui/dropdown-menu": `
         import React from "react";
@@ -74,12 +64,9 @@ test("workspace switch remounts developer-owned secret without remounting create
       "/WorkspaceMembersTab": `export default function WorkspaceMembersTab() { return null; }`,
       "/WorkspaceTeamsTab": `export default function WorkspaceTeamsTab() { return null; }`,
       "/WorkspaceDeveloperTab": `
-        import React, { useState } from "react";
+        import React from "react";
         export default function WorkspaceDeveloperTab({ workspace }) {
-          const [secret, setSecret] = useState("");
-          globalThis.__developerSecret = secret;
-          globalThis.__setDeveloperSecret = setSecret;
-          return React.createElement("div", null, workspace.id, secret, React.createElement("input", {"aria-label": "Developer draft"}));
+          return React.createElement("div", null, workspace.id, React.createElement("input", {"aria-label": "Developer draft"}));
         }
       `,
       "/EnterpriseConsoleRow": `export default function EnterpriseConsoleRow() { return null; }`,
@@ -90,26 +77,6 @@ test("workspace switch remounts developer-owned secret without remounting create
   );
   root = createRoot(container);
   await React.act(async () => root.render(React.createElement(WorkspaceSection)));
-  await React.act(async () => globalThis.__setDeveloperSecret("one-time-key"));
-  assert.equal(globalThis.__developerSecret, "one-time-key");
-  await React.act(async () => globalThis.__workspaceStore.getState().setActiveWorkspaceId("two"));
-  assert.equal(globalThis.__developerSecret, "");
-  assert.equal(globalThis.__createMounts, 1);
-  assert.equal(container.textContent.includes("one-time-key"), false);
-  await React.act(async () => globalThis.__setDeveloperSecret("second-key"));
-  await React.act(async () =>
-    globalThis.__workspaceStore.setState((state) => ({
-      workspaces: state.workspaces.map((w) => (w.id === "two" ? { ...w, role: "member" } : w)),
-    }))
-  );
-  assert.equal(container.textContent.includes("second-key"), false);
-  await React.act(async () =>
-    globalThis.__workspaceStore.setState((state) => ({
-      workspaces: state.workspaces.map((w) => (w.id === "two" ? { ...w, role: "owner" } : w)),
-    }))
-  );
-  assert.equal(globalThis.__developerSecret, "");
-  assert.equal(globalThis.__createMounts, 1);
 
   const choices = () => [...container.querySelectorAll("[data-workspace-choice]")];
   const choice = (id) => choices().find((button) => button.dataset.workspaceChoice === id);

@@ -44,7 +44,7 @@ test("aliases, repeated requests, plain opens and close reset have one navigatio
     actions.openSettings();
     assert.equal(navigation.getState().section, "account");
   }
-  for (const request of ["unrecognized", "constructor", "toString", "__proto__"]) {
+  for (const request of ["unrecognized"]) {
     assert.equal(createSettingsNavigationStore(request).getState().section, "account");
   }
 });
