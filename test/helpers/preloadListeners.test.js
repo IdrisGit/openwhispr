@@ -9,6 +9,11 @@ function load() {
   const ipc = new EventEmitter();
   ipc.sent = [];
   ipc.send = (...args) => ipc.sent.push(args);
+  ipc.invoked = [];
+  ipc.invoke = (channel, ...args) => {
+    ipc.invoked.push({ channel, args });
+    return Promise.resolve({ success: true });
+  };
   vm.runInNewContext(fs.readFileSync(require.resolve("../../preload.js"), "utf8"), {
     require: () => ({
       contextBridge: { exposeInMainWorld: (_name, value) => (api = value) },
@@ -62,6 +67,23 @@ test("every named preload listener discards native event/sender and removes only
   assert.equal(ipc.eventNames().length, 0);
   api.onUpdateAvailable(null)();
   assert.equal(ipc.eventNames().length, 0);
+});
+
+test("every BYOK manifest key ships a working get/save bridge on its own channel", () => {
+  const { api, ipc } = load();
+  const { BYOK_API_KEYS } = require("../../src/config/secretKeys");
+  for (const k of BYOK_API_KEYS) {
+    assert.equal(typeof api[k.get], "function", `${k.get} missing from the preload API`);
+    assert.equal(typeof api[k.save], "function", `${k.save} missing from the preload API`);
+    api[k.get]();
+    const getter = ipc.invoked.at(-1);
+    assert.equal(getter.channel, `get-${k.base}-key`, k.get);
+    assert.deepEqual(getter.args, [], k.get);
+    api[k.save]("fake-key");
+    const saver = ipc.invoked.at(-1);
+    assert.equal(saver.channel, `save-${k.base}-key`, k.save);
+    assert.deepEqual(saver.args, ["fake-key"], k.save);
+  }
 });
 
 test("agent-name bridge carries only a notification and disposes the exact payload-free listener", () => {
