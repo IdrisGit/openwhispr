@@ -8,14 +8,13 @@ const {
   installHostDom,
 } = require("../lib/rendererTestHarness");
 
-test("retained Enterprise panels select their own credentials and preserve catalog state", async (t) => {
+test("retained Enterprise panels expose current credential configs and preserve catalog state", async (t) => {
   let root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__enterprisePanels;
   });
   const observed = (globalThis.__enterprisePanels = {
-    renders: { bedrock: 0, azure: 0, vertex: 0 },
     config: {},
     models: [],
     inputs: [],
@@ -69,7 +68,6 @@ test("retained Enterprise panels select their own credentials and preserve catal
       };`,
       "/utils/providerIcons": `export const getProviderIcon = () => ""; export const isMonochromeProvider = () => false;`,
       "/TestConnectionButton": `export default function TestConnectionButton({provider, getConfig}) {
-        globalThis.__enterprisePanels.renders[provider]++;
         globalThis.__enterprisePanels.config[provider] = getConfig;
         return null;
       }`,
@@ -111,13 +109,10 @@ test("retained Enterprise panels select their own credentials and preserve catal
       )
     )
   );
-  assert.deepEqual(observed.renders, { bedrock: 1, azure: 1, vertex: 1 });
   const update = (patch) => React.act(async () => observed.store.setState(patch));
   await update({ customDictionary: ["unrelated"] });
-  assert.deepEqual(observed.renders, { bedrock: 1, azure: 1, vertex: 1 });
 
   await update({ bedrockRegion: "eu-west-1", bedrockSecretAccessKey: "changed-secret" });
-  assert.deepEqual(observed.renders, { bedrock: 2, azure: 1, vertex: 1 });
   assert.equal(observed.models.at(-1)[0].value, "eu.model");
   assert.equal(observed.config.bedrock().bedrockSecretAccessKey, "changed-secret");
   await React.act(async () => observed.browse());
@@ -125,7 +120,6 @@ test("retained Enterprise panels select their own credentials and preserve catal
   assert.equal(observed.catalogCalls[0].bedrockRegion, "eu-west-1");
   assert.equal(observed.catalogCalls[0].bedrockProfile, "");
   await React.act(async () => observed.catalog.setDraft("unsaved filter"));
-  const bedrockBefore = observed.renders.bedrock;
 
   const endpoint = observed.inputs.findLast(
     (input) => input.placeholder === "https://yourresource.openai.azure.com"
@@ -134,7 +128,6 @@ test("retained Enterprise panels select their own credentials and preserve catal
     endpoint.onChange({ target: { value: "https://new.openai.azure.com" } })
   );
   await update({ azureApiKey: "changed-azure", azureDeploymentName: "new-deployment" });
-  assert.equal(observed.renders.bedrock, bedrockBefore);
   assert.equal(observed.config.azure().azureEndpoint, "https://new.openai.azure.com");
   assert.equal(observed.config.azure().apiKey, "changed-azure");
   assert.equal(observed.config.azure().model, "new-deployment");

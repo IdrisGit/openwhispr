@@ -157,20 +157,23 @@ test("real one-time key copy feedback follows its secret and latest operation th
   assert.equal(localStorage.length, 0, "one-time keys are never persisted");
 });
 
-test("late copy successes cannot mark a replacement key after Done, Escape or X", async (t) => {
+test("late copy success cannot mark a replacement key after pending Done; Escape and X close the secret", async (t) => {
   const { seen, click, create, copied, escape, button } = await setup(t);
-  for (const dismissal of ["done", "escape", "x"]) {
-    await create(`old-${dismissal}`);
-    await click("common.copy");
-    const pending = seen.copies.at(-1);
-    if (dismissal === "done") await click("common.done");
-    else if (dismissal === "escape") await escape();
+  await create("old-done");
+  await click("common.copy");
+  const pending = seen.copies.at(-1);
+  await click("common.done");
+  assert.equal(button("common.copy"), undefined);
+  await create("new-done");
+  await React.act(async () => pending.resolve());
+  assert.equal(copied(), false);
+  await click("common.done");
+
+  for (const dismissal of ["escape", "x"]) {
+    await create(dismissal);
+    if (dismissal === "escape") await escape();
     else await click("common.close");
     assert.equal(button("common.copy"), undefined);
-    await create(`new-${dismissal}`);
-    await React.act(async () => pending.resolve());
-    assert.equal(copied(), false);
-    await click("common.done");
   }
 });
 

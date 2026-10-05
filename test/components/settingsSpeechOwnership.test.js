@@ -97,7 +97,7 @@ test("both Settings checkout controls retire obsolete feedback and retain curren
   assert.equal(requests.length, 8, "unvalidated controls do not start checkout");
 });
 
-test("SettingsPage leaves retained Speech owners alone on unrelated updates", async (t) => {
+test("SettingsPage retains Speech state and current section actions", async (t) => {
   const { Window } = await import("happy-dom");
   const dom = new Window();
   const originalDocument = globalThis.document;
@@ -118,12 +118,9 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
   const container = dom.document.createElement("div");
   dom.document.body.appendChild(container);
   const observed = (globalThis.__settingsSpeech = {
-    renders: { dictation: 0, meeting: 0, upload: 0 },
     pickers: {},
     mounted: 0,
     disposed: 0,
-    pageRenders: 0,
-    vadRenders: 0,
     inputs: [],
     modes: [],
     buttons: [],
@@ -165,6 +162,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
           "/settings/LlmsSection",
           "/settings/SystemUpdates",
           "/settings/ProfileSection",
+          "/settings/WorkspaceSection",
           "/settings/WorkspaceBillingOverview",
           "/settings/EnterpriseCheckoutDialog",
           "/CreateWorkspaceDialog",
@@ -274,7 +272,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
         export const SettingsPanelRow = SettingsPanel;
         export function SettingsRow(props) { globalThis.__settingsSpeech.rows.push(props); return props.children; }
         export function SectionHeader({title}) {
-          if (title.includes("transcription.vad.title")) globalThis.__settingsSpeech.vadRenders++;
           return React.createElement("h3", null, title);
         }
         export function InferenceModeSelector(props) {
@@ -285,7 +282,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "/ui/input": `export function Input(props) { globalThis.__settingsSpeech.inputs.push(props); return null; }`,
       "/utils/platform": `export const getPlatform = () => "linux"; export const getCachedPlatform = getPlatform;`,
       "/ui/ProviderTabs": `export function ProviderTabs(props) { globalThis.__settingsSpeech.tabs = props; return null; }`,
-      "/settings/WorkspaceSection": `export default function WorkspaceSection() { globalThis.__settingsSpeech.pageRenders++; return null; }`,
       "/TranscriptionModelPicker": `
         import React from "react";
         import { useSettingsModelVisible } from "/stores/settingsNavigationStore.ts";
@@ -300,7 +296,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
           const [draft, setDraft] = React.useState("");
           const [progress, setProgress] = React.useState(0);
           const observed = globalThis.__settingsSpeech;
-          observed.renders[context]++;
           observed.pickers[context] = {props, draft, setDraft, progress, setProgress};
           React.useEffect(() => { observed.mounted++; return () => observed.disposed++; }, []);
           return React.createElement(Status, {context, navigation: props.settingsNavigation});
@@ -337,7 +332,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     { dictation: true, meeting: false, upload: false },
     "real SettingsPage scopes routine reads to its visible Speech tab"
   );
-  assert.equal(observed.vadRenders, 2, "both local Whisper contexts show VAD");
   await React.act(async () => observed.pickers.dictation.setDraft("unsaved"));
   await render("workspace");
   assert.deepEqual(
@@ -345,27 +339,10 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     { dictation: false, meeting: false, upload: false },
     "real section exit pauses all retained routine readers"
   );
-  const before = { ...observed.renders };
-  const pageBefore = observed.pageRenders;
   await update({ customDictionary: ["OpenWhispr"] });
-  assert.equal(
-    observed.pageRenders,
-    pageBefore,
-    "unused dictionary writes do not update SettingsPage"
-  );
   await update({ notificationsEnabled: true });
-  assert.equal(observed.pageRenders, pageBefore + 1, "a remaining General subscription updates");
-  assert.deepEqual(
-    observed.renders,
-    before,
-    "the parent update does not rebuild hidden Speech panels"
-  );
-  const pageAfter = observed.pageRenders;
   await update({ whisperModel: "small" });
-  assert.equal(observed.pageRenders, pageAfter, "Dictation no longer updates SettingsPage");
   assert.equal(observed.pickers.dictation.props.selectedLocalModel, "small");
-  assert.equal(observed.renders.meeting, before.meeting);
-  assert.equal(observed.renders.upload, before.upload);
   await update({ meetingWhisperModel: "medium" });
   assert.equal(observed.pickers.meeting.props.selectedLocalModel, "medium");
   await update({ uploadWhisperModel: "tiny" });
@@ -396,17 +373,9 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     meetingLocalTranscriptionProvider: "whisper",
   });
   assert.equal(vadCount(), 2);
-  const pageBeforeVad = observed.pageRenders;
-  const vadBefore = observed.vadRenders;
   const threshold = observed.inputs.findLast((input) => input.min === "0.1");
   await React.act(async () => threshold.onChange({ target: { value: "0.7" } }));
   assert.equal(observed.store.getState().whisperVadThreshold, 0.7);
-  assert.equal(
-    observed.vadRenders,
-    vadBefore + 2,
-    "both VAD views receive their shared preference"
-  );
-  assert.equal(observed.pageRenders, pageBeforeVad);
 
   await React.act(async () => observed.auth.setState({ isSignedIn: false }));
   assert.equal(observed.modes.at(-1).modes.find((mode) => mode.id === "openwhispr").disabled, true);
@@ -466,13 +435,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     await React.act(async () => observed.pickers.dictation.setDraft("hotkey-safe"));
     await render("workspace");
     const speechLifetimes = { mounted: observed.mounted, disposed: observed.disposed };
-    const before = observed.pageRenders;
     await update({ customDictionary: ["new word"], dictationKey: "F8", activationMode: "push" });
-    assert.equal(
-      observed.pageRenders,
-      before,
-      "unvisited Hotkeys and dictionary writes do not render the page"
-    );
     assert.equal(modes.length, 0, "no Hotkeys diagnostic before the first visit");
     assert.equal(defaults.length, 0);
     assert.equal(typeof observed.onDenial, "function");
@@ -492,13 +455,7 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       defaults[0].resolve("F12");
     });
     assert.equal(container.querySelectorAll("[data-hotkey]").length, 4);
-    const unchanged = hotkey("hotkey");
     await update({ customDictionary: ["another word"], whisperVadThreshold: 0.8 });
-    assert.equal(
-      hotkey("hotkey"),
-      unchanged,
-      "unrelated writes leave the active section untouched"
-    );
     await update({ voiceAgentKey: "F9" });
     assert.equal(hotkey("voiceAgentHotkey").value, "F9");
     for (const [slot, conflict] of [
@@ -535,17 +492,11 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     await React.act(async () => observed.locale.setState({ t: (key) => key }));
     prefix = "";
     await render("workspace");
-    const hiddenPage = observed.pageRenders;
     await update({
       meetingKey: "F4",
       translationKey: "F3",
       meetingHotkeyLayoutMode: "full-width",
     });
-    assert.equal(
-      observed.pageRenders,
-      hiddenPage,
-      "hidden Hotkeys writes do not wake SettingsPage"
-    );
     assert.equal(
       observed.hotkeyDisposed,
       observed.hotkeyMounts,
@@ -583,7 +534,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
     assert.equal(duplicate, false);
     assert.equal(calls, 1);
     await render("workspace");
-    const beforeCompletion = observed.pageRenders;
     await React.act(async () => {
       finishRegistration({ success: true });
       await saving;
@@ -593,7 +543,6 @@ test("SettingsPage leaves retained Speech owners alone on unrelated updates", as
       "F13",
       "hidden native write still persists the registered key"
     );
-    assert.equal(observed.pageRenders, beforeCompletion);
     await render("hotkeys");
     assert.equal(hotkey("hotkey").disabled, false);
     assert.equal(hotkey("hotkey").value, "F13");

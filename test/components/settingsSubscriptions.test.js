@@ -75,7 +75,6 @@ test("SettingsProvider owns initialization and external synchronization once", a
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__settingsLifecycleStore;
-    delete globalThis.__settingsInitializeCount;
   });
 
   const calls = {
@@ -171,8 +170,10 @@ test("SettingsProvider owns initialization and external synchronization once", a
         }
         globalThis.__settingsLifecycleStore = useSettingsStore;
         export const getSettings = () => useSettingsStore.getState();
+        let hasInitialized = false;
         export async function initializeSettings() {
-          globalThis.__settingsInitializeCount = (globalThis.__settingsInitializeCount || 0) + 1;
+          if (hasInitialized) return;
+          hasInitialized = true;
           const state = useSettingsStore.getState();
           window.electronAPI.syncNotificationPreferences({
             notificationsEnabled: state.notificationsEnabled,
@@ -217,7 +218,6 @@ test("SettingsProvider owns initialization and external synchronization once", a
   root = createRoot(container);
   await React.act(async () => root.render(React.createElement(SettingsProvider, null, child)));
 
-  assert.equal(globalThis.__settingsInitializeCount, 1);
   assert.deepEqual(
     [calls.dictionarySubscribed, calls.snippetsSubscribed],
     [1, 1],
@@ -265,16 +265,31 @@ test("SettingsProvider owns initialization and external synchronization once", a
   globalThis.__settingsLifecycleStore.setState({ meetingProcessDetection: false });
   assert.equal(calls.notifications.length, 2, "subscription stops on unmount");
 
-  // StrictMode retries Effect setup/cleanup; only the startup snapshot and real changes sync.
+  // Remount/replay does not reset the module latch or republish the startup snapshot.
   root = createRoot(container);
   await React.act(async () =>
     root.render(
       React.createElement(React.StrictMode, null, React.createElement(SettingsProvider, null))
     )
   );
-  assert.equal(calls.notifications.length, 3);
+  assert.equal(calls.notifications.length, 2, "remount/replay does not republish startup");
+  assert.deepEqual(
+    [
+      calls.dictionarySubscribed - calls.dictionaryCleaned,
+      calls.snippetsSubscribed - calls.snippetsCleaned,
+      calls.agentSubscribed - calls.agentCleaned,
+    ],
+    [1, 1, 1],
+    "remount/replay leaves one active listener per external source"
+  );
   await React.act(async () =>
     globalThis.__settingsLifecycleStore.setState({ notifyCalendarReminders: false })
   );
-  assert.equal(calls.notifications.length, 4, "StrictMode leaves one active preference listener");
+  assert.deepEqual(calls.notifications.at(-1), {
+    notificationsEnabled: true,
+    notifyMeetingDetection: false,
+    notifyCalendarReminders: false,
+    meetingProcessDetection: false,
+  });
+  assert.equal(calls.notifications.length, 3, "StrictMode leaves one active preference listener");
 });

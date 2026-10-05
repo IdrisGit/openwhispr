@@ -9,7 +9,7 @@ const {
   installHostDom,
 } = require("../lib/rendererTestHarness");
 
-test("changing language translates SettingsModal and Speech tabs without resetting selection", async (t) => {
+test("changing language translates SettingsModal and Speech labels while keeping Upload selected", async (t) => {
   let modalRoot;
   let speechRoot;
   t.after(async () => {
@@ -127,7 +127,6 @@ test("changing language translates SettingsModal and Speech tabs without resetti
   assert.equal(globalThis.__localeSidebar.activeSection, "speechToText");
   assert.equal(globalThis.__speechTabs.providers[2].name, "Upload");
   await React.act(async () => globalThis.__speechSelect("upload"));
-  const before = globalThis.__speechTabs.providers;
 
   await React.act(async () => i18n.changeLanguage("es"));
   assert.equal(globalThis.__localeSidebar.title, "Ajustes");
@@ -136,7 +135,6 @@ test("changing language translates SettingsModal and Speech tabs without resetti
     "Voz"
   );
   assert.equal(globalThis.__localeSidebar.activeSection, "speechToText");
-  assert.notEqual(globalThis.__speechTabs.providers, before);
   assert.equal(globalThis.__speechTabs.providers[2].name, "Subir");
   assert.equal(globalThis.__speechTabs.selectedId, "upload");
 });

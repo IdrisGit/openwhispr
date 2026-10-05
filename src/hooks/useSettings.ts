@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   useSettingsStore,
@@ -145,10 +145,7 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
     (settings) => settings.applySnippetsFromExternal
   );
 
-  const hasInitialized = useRef(false);
   useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
     initializeSettings().catch((err) => {
       logger.warn(
         "Failed to initialize settings store",

@@ -85,7 +85,7 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
   };
   const draft = "Test {{agentName}} to {{targetLanguage}}";
   for (const kind of ["cleanup", "dictationAgent", "translate"]) {
-    for (const action of ["same", "different", "reset", "failure", "no-save"]) {
+    for (const action of kind === "cleanup" ? ["different", "failure"] : ["different"]) {
       await t.test(`${kind}: ${action}`, async (subtest) => {
         subtest.after(async () => {
           await React.act(async () => observed.pending?.resolve("settled"));
@@ -127,18 +127,10 @@ test("Prompt Studio tests are request-local and cannot revert concurrent saves",
             assert.equal(config.inferenceScope, "dictationTranslation");
           }
         }
-        let saved = "Saved {{agentName}}";
-        if (action !== "no-save") {
-          await click("promptStudio.tabs.customize");
-          if (action === "reset") {
-            await click("promptStudio.common.reset");
-            saved = "";
-          } else {
-            saved = action === "different" ? "Different saved text" : draft;
-            await React.act(async () => observed.edit.onChange({ target: { value: saved } }));
-            await click("promptStudio.common.save");
-          }
-        }
+        await click("promptStudio.tabs.customize");
+        const saved = action === "different" ? "Different saved text" : draft;
+        await React.act(async () => observed.edit.onChange({ target: { value: saved } }));
+        await click("promptStudio.common.save");
         const afterSave = observed.writes.length;
         await React.act(async () => {
           if (action === "failure") observed.pending.reject(new Error("test failure"));

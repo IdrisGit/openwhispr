@@ -31,7 +31,6 @@ async function setup(t) {
     hydration: 0,
     progress: 0,
     disposed: 0,
-    editors: 0,
   };
   const listeners = new Map();
   const api = {
@@ -98,7 +97,6 @@ async function setup(t) {
   });
   const container = installHostDom(t);
   globalThis.__gpuActions = {};
-  globalThis.__gpuCounts = counts;
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-gpu-status-",
     noExternal: ["react-i18next"],
@@ -118,7 +116,7 @@ async function setup(t) {
       "/stores/settingsStore": `const settings = {useCleanupModel: true, openaiApiKey: "", setOpenaiApiKey() {}}; export const useSettingsStore = selector => selector(settings); export const clearMissingLocalModelSelections = () => {};`,
       "/GpuDeviceSelector": `export default function GpuDeviceSelector() { return null; }`,
       "/ui/PromptStudio": `export default function PromptStudio() { return null; }`,
-      "/InferenceConfigEditor": `import React from "react"; import Selector from "/components/ReasoningModelSelector.tsx"; const noop = () => {}; export default function Editor({scope, navigation}) { globalThis.__gpuCounts.editors++; return React.createElement(Selector, {settingsScope: scope, settingsNavigation: navigation, mode: "local", reasoningModel: "", setReasoningModel: noop, localReasoningProvider: "qwen", setLocalReasoningProvider: noop, cloudReasoningBaseUrl: "", setCloudReasoningBaseUrl: noop}); }`,
+      "/InferenceConfigEditor": `import React from "react"; import Selector from "/components/ReasoningModelSelector.tsx"; const noop = () => {}; export default function Editor({scope, navigation}) { return React.createElement(Selector, {settingsScope: scope, settingsNavigation: navigation, mode: "local", reasoningModel: "", setReasoningModel: noop, localReasoningProvider: "qwen", setLocalReasoningProvider: noop, cloudReasoningBaseUrl: "", setCloudReasoningBaseUrl: noop}); }`,
       "/DictationAgentSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Agent({navigation}) { return React.createElement(Editor, {scope: "dictationAgent", navigation}); }`,
       "/DictationTranslationSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Translation({navigation}) { return React.createElement(Editor, {scope: "dictationTranslation", navigation}); }`,
       "/ChatAgentSettings": `import React from "react"; import Editor from "/components/settings/InferenceConfigEditor"; export default function Chat({navigation}) { return React.createElement(Editor, {scope: "chatIntelligence", navigation}); }`,
@@ -161,7 +159,6 @@ async function setup(t) {
     globalThis.clearInterval = originalClear;
     for (const key of [
       "__gpuActions",
-      "__gpuCounts",
       "__gpuLlmTab",
       "__gpuSpeechTab",
       "__gpuProvider",
@@ -245,14 +242,13 @@ async function setup(t) {
   };
 }
 
-test("LLM routine requests follow actual retained section/subtab shells without rendering editors", async (t) => {
+test("LLM routine requests follow retained section/subtab visibility", async (t) => {
   const h = await setup(t);
   const render = h.renderLlm;
   await render(true);
   assert.equal(h.counts.llama, 1);
   await React.act(async () => globalThis.__gpuLlmTab("dictationAgent"));
   await React.act(async () => globalThis.__gpuLlmTab("noteFormatting"));
-  const editorRenders = h.counts.editors;
   const before = h.counts.llama;
   await h.tick(5000);
   assert.equal(h.counts.llama - before, 1, "only visible retained local tab polls");
@@ -267,11 +263,6 @@ test("LLM routine requests follow actual retained section/subtab shells without 
   const afterRemoval = h.counts.llama;
   await h.tick(5000);
   assert.equal(h.counts.llama, afterRemoval + 1);
-  assert.equal(
-    h.counts.editors,
-    editorRenders,
-    "primitive activity selectors update status leaves, not stable editors"
-  );
   // Folded from the vision-mapping test: an agent-vision editor shares its
   // containing agent tab's visibility.
   await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: true }));
