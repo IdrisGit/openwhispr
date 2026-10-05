@@ -47,6 +47,10 @@ test("main publishes only metadata, serializes same-key persistence and never re
   const second = h.manager.saveOpenAIKey("fake-second");
   const other = h.manager.saveAnthropicKey("fake-independent");
   assert.equal(h.manager.getOpenAIKey(), "fake-second", "accepted memory is immediate");
+  const publications = h.metadata.length;
+  assert.equal((await h.manager.saveOpenAIKey({ invalid: true })).code, "INVALID_SECRET");
+  assert.equal(h.manager.getOpenAIKey(), "fake-second", "invalid IPC input cannot change memory");
+  assert.equal(h.metadata.length, publications, "invalid IPC input cannot publish metadata");
   assert.equal(JSON.stringify(h.metadata).includes("fake-first"), false);
   assert.equal(JSON.stringify(h.metadata).includes("fake-second"), false);
   assert.equal(h.metadata[0].data.key, "openaiApiKey");
@@ -73,6 +77,7 @@ test("main publishes only metadata, serializes same-key persistence and never re
   h.pending.at(-1).resolve();
   await clear;
   assert.equal(h.process.env.OPENAI_API_KEY, undefined);
+  assert.equal(h.pending.length, 4, "invalid IPC input never queued a secret write");
 });
 
 test("publication/disk failures are truthful and do not block newer saves", async () => {

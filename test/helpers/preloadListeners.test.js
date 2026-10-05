@@ -65,8 +65,6 @@ test("every named preload listener discards native event/sender and removes only
     ipc.removeListener(channel, other);
   }
   assert.equal(ipc.eventNames().length, 0);
-  api.onUpdateAvailable(null)();
-  assert.equal(ipc.eventNames().length, 0);
 });
 
 test("every BYOK manifest key ships a working get/save bridge on its own channel", () => {

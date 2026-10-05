@@ -82,6 +82,11 @@ const status = (modelType, sequence, modelId = "A") => ({
 test("download transitions replay identically without mutating inputs; terminal watermarks and model ordering stay in state", async (t) => {
   const { modelDownloadTransition: transition } = await boot(t, "llm", async () => {});
   const empty = Object.freeze({ downloads: Object.freeze({}), terminals: Object.freeze({}) });
+  assert.equal(
+    transition(empty, { type: "remove", modelId: "A" }),
+    empty,
+    "terminal settlement before hydration has no row to remove"
+  );
   const action = Object.freeze({ type: "progress", status: Object.freeze(status("llm", 3)) });
   assert.deepEqual(transition(empty, action), transition(empty, action));
   let state = transition(empty, action);

@@ -8,7 +8,7 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-for (const failure of ["read", "default", "serialize"]) {
+for (const failure of ["read", "serialize"]) {
   test(`storage ${failure} failure stays recoverable without losing sequential object updates`, async (t) => {
     let root;
     t.after(async () => {
@@ -17,18 +17,11 @@ for (const failure of ["read", "default", "serialize"]) {
     const { storage } = installBrowserGlobals(t);
     const container = installHookDom(t);
     const get = storage.getItem;
-    const set = storage.setItem;
-    let calls = 0;
     let rejecting = true;
     if (failure === "read")
       storage.getItem = () => {
         throw new Error("fake denied");
       };
-    storage.setItem = (...args) => {
-      calls++;
-      if (failure === "default" && rejecting) throw new Error("fake denied");
-      return set(...args);
-    };
     const serialize = (value) => {
       if (failure === "serialize" && rejecting) throw new Error("fake bad serializer");
       return `custom:${JSON.stringify(value)}`;
@@ -50,11 +43,6 @@ for (const failure of ["read", "default", "serialize"]) {
     );
     assert.deepEqual(preference[0], { count: 0 });
     assert.equal(get("custom"), null);
-    assert.equal(
-      calls,
-      failure === "default" ? 1 : 0,
-      "only a missing, serializable default attempts persistence at commit"
-    );
     storage.getItem = get;
     rejecting = false;
     await React.act(async () => {

@@ -29,8 +29,9 @@ test("real triggerless nested dialogs restore surviving invokers, fallback and o
     const [child, setChild] = React.useState(false);
     const [input, setInput] = React.useState(false);
     const [removed, setRemoved] = React.useState(false);
+    const [disabled, setDisabled] = React.useState(false);
     const [override, setOverride] = React.useState(false);
-    globalThis.__dialogControls = { setChild, setParent, setRemoved, setOverride };
+    globalThis.__dialogControls = { setChild, setParent, setRemoved, setDisabled, setOverride };
     return React.createElement(
       React.Fragment,
       null,
@@ -47,6 +48,7 @@ test("real triggerless nested dialogs restore surviving invokers, fallback and o
               "button",
               {
                 id: "invoker",
+                disabled,
                 onClick: () => {
                   setInput(false);
                   setChild(true);
@@ -129,6 +131,18 @@ test("real triggerless nested dialogs restore surviving invokers, fallback and o
     assert.equal(dom.document.querySelectorAll('[role="dialog"][data-state="open"]').length, 1);
   }
   assert.equal(confirms, 1);
+  await open();
+  await React.act(async () => {
+    globalThis.__dialogControls.setDisabled(true);
+    globalThis.__dialogControls.setChild(false);
+  });
+  await settle();
+  assert.equal(
+    dom.document.activeElement,
+    invoker().closest('[role="dialog"]'),
+    "a pending action's disabled invoker falls back to its parent dialog"
+  );
+  await React.act(async () => globalThis.__dialogControls.setDisabled(false));
   const password = dom.document.querySelector("#password");
   await React.act(async () => {
     password.focus();

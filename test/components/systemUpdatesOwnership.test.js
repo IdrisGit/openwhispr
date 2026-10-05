@@ -171,6 +171,7 @@ test("System update owner mounts on first visit and retains live state and insta
     [null, ""],
     ["", ""],
     ["  ", ""],
+    [{ bad: true }, ""],
   ]) {
     await React.act(async () => onAvailable(null, { version: "2", releaseNotes: notes }));
     const rendered = collectRendered(container);

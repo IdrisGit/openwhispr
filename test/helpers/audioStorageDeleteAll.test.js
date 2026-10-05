@@ -15,7 +15,9 @@ test("bulk audio deletion reports partial failures and only deleted database IDs
   manager.audioDir = dir;
   const good = path.join(dir, "OpenWhispr-10.webm");
   const blocked = path.join(dir, "OpenWhispr-11.webm");
+  const legacy = path.join(dir, "11.webm");
   fs.writeFileSync(good, "ok");
+  fs.writeFileSync(legacy, "old copy");
   fs.writeFileSync(blocked, "keep");
   const unlink = fs.unlinkSync;
   fs.unlinkSync = (file) => {
@@ -28,7 +30,12 @@ test("bulk audio deletion reports partial failures and only deleted database IDs
   } finally {
     fs.unlinkSync = unlink;
   }
-  assert.deepEqual(result, { deleted: 1, deletedIds: ["10"], failed: true });
+  assert.deepEqual(result, { deleted: 2, deletedIds: ["10"], failed: true });
+  assert.equal(
+    fs.existsSync(legacy),
+    false,
+    "one deleted file cannot clear an ID with another remaining file"
+  );
   assert.equal(fs.existsSync(good), false);
   assert.equal(fs.existsSync(blocked), true);
 });
