@@ -137,6 +137,48 @@ test("System update owner mounts on first visit and retains live state and insta
   await render(true);
   assert.deepEqual([calls.status, calls.info, calls.listen], [1, 1, 3]);
 
+  // Update metadata is untrusted: every releaseNotes shape renders as inert text.
+  const collectRendered = (root) => {
+    const notes = [];
+    let hostile = false;
+    const walk = (node) => {
+      if (["SCRIPT", "IMG", "IFRAME", "A"].includes(node.nodeName)) hostile = true;
+      if (String(node.attributes?.class ?? "").includes("whitespace-pre-wrap"))
+        notes.push(node.textContent);
+      for (const child of node.childNodes) walk(child);
+    };
+    walk(root);
+    return { notes: notes.join(""), hostile };
+  };
+  const malicious =
+    '<script>window.bad=true</script><img src="bad" onerror="bad()"><a href="javascript:bad()">run</a><iframe srcdoc="bad"></iframe>';
+  for (const [notes, expected] of [
+    [malicious, malicious],
+    [
+      "<ul><li>Ordinary <strong>notes</strong></li></ul>\nnext line",
+      "<ul><li>Ordinary <strong>notes</strong></li></ul>\nnext line",
+    ],
+    [
+      [
+        { version: "2", note: "First" },
+        { version: "1", note: "Second" },
+        { note: null },
+        { note: { bad: true } },
+        null,
+      ],
+      "First\n\nSecond",
+    ],
+    [null, ""],
+    ["", ""],
+    ["  ", ""],
+    [{ bad: true }, ""],
+  ]) {
+    await React.act(async () => onAvailable(null, { version: "2", releaseNotes: notes }));
+    const rendered = collectRendered(container);
+    assert.equal(rendered.notes, expected);
+    assert.equal(rendered.hostile, false);
+  }
+
   await React.act(async () => onDownloaded(null, { version: "2.0" }));
   installButton = globalThis.__systemInstallButton;
   assert.equal(typeof installButton, "function");
