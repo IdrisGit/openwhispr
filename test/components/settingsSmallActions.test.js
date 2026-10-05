@@ -52,7 +52,7 @@ test("small Settings controls use current commands, platform and keyboard select
   t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
     if (delay !== 2000) return originalTimeout(callback, delay, ...args);
     feedbackTimers.push(callback);
-    return 0;
+    return 1;
   });
   const callbacks = [];
   await render(

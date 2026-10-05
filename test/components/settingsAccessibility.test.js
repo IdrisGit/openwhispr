@@ -107,8 +107,15 @@ test("microphone controls have names without starting a device scan", async (t) 
       onMicWarmHoldSecondsChange() {},
     })
   );
-  const labelId = html.match(/<span id="([^"]+)" class="text-sm font-medium text-foreground">/)[1];
+  const { Window } = await import("happy-dom");
+  const dom = new Window();
+  t.after(() => dom.happyDOM.close());
+  dom.document.body.innerHTML = html;
+  const labelId = dom.document
+    .querySelector("select[aria-labelledby]")
+    .getAttribute("aria-labelledby");
+  assert.ok(labelId);
+  assert.equal(dom.document.getElementById(labelId)?.textContent, "microphoneSettings.inputDevice");
   assert.match(html, /aria-label="common.refresh"/);
-  assert.ok(html.includes(`<select aria-labelledby="${labelId}"`));
   assert.match(html, /aria-label="microphoneSettings.warmHold.label"/);
 });
