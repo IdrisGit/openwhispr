@@ -580,6 +580,7 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
         ...normalMode,
         isUsingNativeShortcut: true,
         supportsPushToTalk: false,
+        pushToTalkUnavailableReason: "Input access denied",
         linuxInputAccessDenied: true,
       })
     );
@@ -590,6 +591,11 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
       "obsolete mode replies cannot replace a newer key's diagnostics"
     );
     assert.equal(observed.ptt.isAvailable, false);
+    const deniedHold = container.querySelector('button[title="Input access denied"]');
+    assert.ok(deniedHold);
+    assert.equal(deniedHold.disabled, true);
+    assert.equal(deniedHold.getAttribute("aria-label"), "common.hold: Input access denied");
+    assert.equal(container.textContent.includes("Input access denied"), false);
     await update({ dictationKey: "F13" });
     const closedMode = modes.at(-1);
     await React.act(async () => observed.pickers.dictation.setProgress(73));
@@ -610,9 +616,22 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
       "a fresh owner has not adopted old mode replies"
     );
     await React.act(async () => {
-      modes.at(-1).resolve(normalMode);
+      modes.at(-1).resolve({
+        ...normalMode,
+        isUsingNativeShortcut: true,
+        supportsPushToTalk: false,
+        pushToTalkUnavailableReason: "Hold needs a regular key",
+      });
       defaults.at(-1).resolve("F10");
     });
+    const regularKeyHold = container.querySelector('button[title="Hold needs a regular key"]');
+    assert.ok(regularKeyHold);
+    assert.equal(regularKeyHold.disabled, true);
+    assert.equal(
+      regularKeyHold.getAttribute("aria-label"),
+      "common.hold: Hold needs a regular key"
+    );
+    assert.ok(container.textContent.includes("Hold needs a regular key"));
     assert.equal(hotkey("hotkey").footerEnd.props.children.props.value, "F10");
     await React.act(async () => root.unmount());
     root = null;

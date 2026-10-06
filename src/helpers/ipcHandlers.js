@@ -2748,13 +2748,8 @@ class IPCHandlers {
 
         let exportContent;
         if (format === "txt") {
-          exportContent = (note.content || "")
-            .replace(/#{1,6}\s+/g, "")
-            .replace(/[*_~`]+/g, "")
-            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-            .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-            .replace(/^>\s+/gm, "")
-            .trim();
+          const { markdownToPlainText } = await import("./markdownToPlainText.ts");
+          exportContent = markdownToPlainText(note.content || "");
         } else {
           exportContent = note.enhanced_content || note.content;
         }
@@ -3449,10 +3444,11 @@ class IPCHandlers {
       const { detectNvidiaGpu } = require("../utils/gpuDetection");
       const gpuInfo = await detectNvidiaGpu();
       if (!this.whisperCudaManager) {
-        return { downloaded: false, downloading: false, path: null, gpuInfo };
+        return { downloaded: false, needsUpdate: false, downloading: false, path: null, gpuInfo };
       }
       return {
         downloaded: this.whisperCudaManager.isDownloaded(),
+        needsUpdate: this.whisperCudaManager.needsUpdate(),
         downloading: this.whisperCudaManager.isDownloading(),
         path: this.whisperCudaManager.getCudaBinaryPath(),
         gpuInfo,
@@ -3515,6 +3511,7 @@ class IPCHandlers {
       const [vulkan, gpuInfo] = await Promise.all([detectVulkanGpu(), detectNvidiaGpu()]);
       return {
         downloaded: this.whisperVulkanManager?.isDownloaded() ?? false,
+        needsUpdate: this.whisperVulkanManager?.needsUpdate() ?? false,
         downloading: this.whisperVulkanManager?.isDownloading() ?? false,
         vulkan,
         hasNvidiaGpu: gpuInfo.hasNvidiaGpu,

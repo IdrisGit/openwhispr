@@ -411,17 +411,30 @@ test("a hidden GPU-pack download finishes and activation polls without routine r
   const h = await setup(t);
   h.api.getCudaWhisperStatus = async () => ({
     downloaded: false,
-    gpuInfo: { hasNvidiaGpu: true, cudaSupported: true },
+    needsUpdate: true,
+    gpuInfo: { hasNvidiaGpu: false, cudaSupported: false },
   });
   const download = deferred();
-  h.api.downloadCudaWhisperBinary = () => download.promise;
-  const picker = React.createElement(h.Picker, { ...h.props, settingsNavigation: h.navigation });
+  let picker = React.createElement(h.Picker, { ...h.props, settingsNavigation: h.navigation });
   const render = (active) => h.renderSpeech(active, { dictation: picker });
   await render(true);
+  assert.match(h.container.textContent, /gpu.redownloadNeeded/);
+  h.api.downloadCudaWhisperBinary = async () => ({ success: false, error: "pack unavailable" });
+  await React.act(async () => globalThis.__gpuActions["gpu.redownloadButton"]());
+  assert.match(h.container.textContent, /gpu.downloadFailed.*pack unavailable/);
+  assert.match(h.container.textContent, /gpu.redownloadNeeded/, "failed update stays retryable");
+  h.api.getCudaWhisperStatus = async () => ({
+    downloaded: false,
+    gpuInfo: { hasNvidiaGpu: true, cudaSupported: true },
+  });
+  await React.act(async () => globalThis.__gpuProvider("nvidia"));
+  await React.act(async () => globalThis.__gpuProvider("whisper"));
+  h.api.downloadCudaWhisperBinary = () => download.promise;
   let action;
   await React.act(async () => {
     action = globalThis.__gpuActions["gpu.enableButton"]();
   });
+  assert.doesNotMatch(h.container.textContent, /gpu.downloadFailed/);
   await render(false);
   await h.emit("onCudaDownloadProgress", { percentage: 57, downloadedBytes: 57, totalBytes: 100 });
   assert.match(h.container.textContent, /57/);
@@ -441,6 +454,55 @@ test("a hidden GPU-pack download finishes and activation polls without routine r
   assert.equal(h.counts.whisper, settled);
   await render(true);
   assert.equal(h.counts.whisper, settled + 1);
+
+  // Reopened Settings discovers a native download with no pending renderer action.
+  h.api.getCudaWhisperStatus = async () => ({
+    downloaded: false,
+    downloading: true,
+    needsUpdate: true,
+    gpuInfo: { hasNvidiaGpu: false, cudaSupported: false },
+  });
+  picker = React.createElement(h.Picker, {
+    ...h.props,
+    key: "resumed",
+    settingsNavigation: h.navigation,
+  });
+  await render(true);
+  await render(false);
+  await h.emit("onCudaDownloadProgress", { percentage: 73, downloadedBytes: 73, totalBytes: 100 });
+  assert.match(h.container.textContent, /73/);
+  const resumed = [];
+  h.api.getCudaWhisperStatus = () => {
+    const reply = deferred();
+    resumed.push(reply);
+    return reply.promise;
+  };
+  const resumePoll = [...h.intervals.values()].find((timer) => timer.delay === 1000).callback;
+  let firstPoll, latestPoll;
+  await React.act(async () => {
+    firstPoll = resumePoll();
+    latestPoll = resumePoll();
+  });
+  await React.act(async () => resumed[1].resolve(undefined));
+  await latestPoll;
+  assert.match(h.container.textContent, /73/, "unavailable status cannot finish the download");
+  await React.act(async () => resumed[0].resolve({ downloaded: true, downloading: false }));
+  await firstPoll;
+  assert.match(h.container.textContent, /73/, "obsolete pack reply cannot finish the download");
+  h.api.getCudaWhisperStatus = async () => ({
+    downloaded: true,
+    downloading: false,
+    needsUpdate: false,
+    gpuFailed: true,
+  });
+  await h.tick(1000);
+  assert.match(
+    h.container.textContent,
+    /gpu.activationFailed/,
+    "current hidden completion settles"
+  );
+  assert.doesNotMatch(h.container.textContent, /gpu.redownloadNeeded/);
+  assert.equal(h.intervals.size, 0, "resumed completion stops polling once hidden and settled");
 
   // Folded from the LLM pack-completion test: the same hidden-download
   // contract on the LLM side, plus its unique stale-reply fence.
