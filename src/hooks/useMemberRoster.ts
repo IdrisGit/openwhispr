@@ -28,7 +28,7 @@ export function useMemberRoster<M>(
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const committedOwner = useRef<typeof owner | null>(null);
   const request = useRef(0);
-  const mutations = useRef(new Map<string, object>());
+  const mutations = useRef(new Set<string>());
 
   if (owner.load !== load || owner.resourceKey !== resourceKey) {
     setOwner({ load, resourceKey });
@@ -86,8 +86,7 @@ export function useMemberRoster<M>(
       const completion = capture();
       const isCurrent = () => completion.isCurrent() && committedOwner.current === owner;
       if (!isCurrent() || mutations.current.has(userId)) return;
-      const mutation = {};
-      mutations.current.set(userId, mutation);
+      mutations.current.add(userId);
       setBusyIds((prev) => new Set(prev).add(userId));
       try {
         const result = await action();
@@ -104,7 +103,7 @@ export function useMemberRoster<M>(
           });
         }
       } finally {
-        if (isCurrent() && mutations.current.get(userId) === mutation) {
+        if (isCurrent()) {
           mutations.current.delete(userId);
           setBusyIds((prev) => {
             const next = new Set(prev);

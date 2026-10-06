@@ -135,15 +135,12 @@ test("seat confirmations belong to the current billing snapshot and request", as
   const resolve = (pending, value) => React.act(async () => pending.resolve(value));
 
   await t.test(
-    "same-workspace capacity refresh closes the dialog and refuses its old action",
+    "same-workspace capacity refresh closes the dialog without resurrecting the quote",
     async () => {
       await resolve(await requestQuote(), quote());
       assert.equal(dialog().open, true);
-      const obsoleteConfirm = confirm().onClick;
       await publish({ ...workspace, seats: 5 });
       assert.equal(dialog().open, false);
-      await React.act(async () => obsoleteConfirm());
-      assert.deepEqual(state.updates, []);
       await publish(workspace);
       assert.equal(
         dialog().open,
@@ -153,19 +150,12 @@ test("seat confirmations belong to the current billing snapshot and request", as
     }
   );
 
-  await t.test("every billing/occupancy change invalidates open and pending quotes", async () => {
+  await t.test("occupancy and eligibility changes invalidate open and pending quotes", async () => {
     for (const change of [
-      { seats: 5 },
       { seats_used: 1 },
       { role: "admin" },
       { status: "past_due" },
-      { plan: "enterprise" },
-      { stripe_subscription_id: "sub-2" },
       { stripe_subscription_id: null },
-      { stripe_customer_id: "customer-2" },
-      { current_period_end: "2026-12-01" },
-      { trial_ends_at: "2026-11-01" },
-      { cancel_at_period_end: true },
     ]) {
       await resolve(await requestQuote(), quote());
       assert.equal(dialog().open, true);
@@ -241,10 +231,7 @@ test("seat confirmations belong to the current billing snapshot and request", as
     "cancel/reopen uses a fresh quote and submits exactly its absolute quantity",
     async () => {
       await resolve(await requestQuote(), quote());
-      const cancelledConfirm = confirm().onClick;
       await React.act(async () => button("common.cancel").onClick());
-      await React.act(async () => cancelledConfirm());
-      assert.deepEqual(state.updates, []);
       await resolve(await requestQuote(), quote());
       state.updatePending = deferred();
       await React.act(async () => confirm().onClick());

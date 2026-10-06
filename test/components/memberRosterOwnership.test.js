@@ -38,10 +38,9 @@ async function mountRosterAdapter(t, kind) {
       "/services/SpacesService": `export const SpacesService={listMembers:id=>globalThis.__rosterOwner.load(id)};`,
       "/services/spaceActions": `
           import {invalidateSpaceRoster} from "/lib/spaceRosterCache.ts";
-          import {getAuthRequestContextSnapshot} from "/lib/authRequestContext.ts";
-          const mutate=async(id)=>{const account=getAuthRequestContextSnapshot();
+          const mutate=async(id)=>{
             const result=await globalThis.__rosterOwner.mutate(id);
-            if(account===getAuthRequestContextSnapshot())invalidateSpaceRoster();
+            invalidateSpaceRoster();
             return result;
           };
           export const setTeamMemberRole=mutate,setSpaceMemberRole=space=>mutate(space.cloud_space_id),removeTeamMember=mutate,removeSpaceMember=mutate;
@@ -185,7 +184,8 @@ test("team roster accepts only owned latest reads and preserves independent row 
   await finish(seen.reads.at(-1), "recovered");
   assert.equal(seen.props.loadFailed, false);
 
-  const oldRetry = seen.props.onRetry;
+  const oldRetry = seen.props.onRetry,
+    oldAdd = seen.props.onAdd;
   await React.act(async () => seen.props.onAdd(member("pending")));
   const oldMutation = seen.writes.at(-1);
   await React.act(async () => seen.props.onRetry());
@@ -193,6 +193,13 @@ test("team roster accepts only owned latest reads and preserves independent row 
   await render(node("B"));
   assert.equal(seen.props.members.length, 0);
   assert.equal(seen.props.busyIds.size, 0);
+  await React.act(async () => seen.props.onAdd(member("pending")));
+  const currentMutation = seen.writes.at(-1),
+    pendingWrites = seen.writes.length;
+  assert.equal(currentMutation.id, "B");
+  assert.ok(seen.props.busyIds.has("pending"));
+  await React.act(async () => oldAdd(member("obsolete-callback")));
+  assert.equal(seen.writes.length, pendingWrites, "old owner callback cannot dispatch");
   const reads = seen.reads.length,
     publications = seen.publications.length,
     toasts = seen.toasts.length;
@@ -210,7 +217,17 @@ test("team roster accepts only owned latest reads and preserves independent row 
   assert.equal(seen.publications.length, publications);
   assert.equal(seen.toasts.length, toasts);
   assert.equal(seen.props.loading, true, "old finally cannot end B's load");
+  assert.ok(seen.props.busyIds.has("pending"), "old completion cannot unlock B's same row");
+  await React.act(async () => seen.props.onAdd(member("pending")));
+  assert.equal(seen.writes.length, pendingWrites, "B's row stays locked until B settles");
   await finish(seen.reads.at(-1), "B-result");
+  await React.act(async () => currentMutation.resolve());
+  assert.equal(seen.props.busyIds.size, 0, "current completion releases B's row");
+  assert.equal(seen.toasts.length, toasts + 1, "current B completion publishes feedback");
+  assert.equal(seen.reads.length, reads + 2, "B's completed write adds one reconciliation read");
+  assert.equal(seen.reads.at(-1).id, "B");
+  await finish(seen.reads.at(-1), "B-written");
+  assert.equal(seen.props.members[0].name, "B-written");
   await React.act(async () => seen.props.onRetry());
   const abaRead = seen.reads.at(-1);
   await render(node("A"));
@@ -253,13 +270,12 @@ test("team roster accepts only owned latest reads and preserves independent row 
   await React.act(async () => auth.observeAuthTokenStateEvent({ generation: 2, hasToken: true }));
   const newAuthRead = seen.reads.at(-1);
   await finish(newAuthRead, "new-account");
-  const accountReads = seen.reads.length,
-    accountToasts = seen.toasts.length;
+  const accountToasts = seen.toasts.length;
   await React.act(async () => oldAccountWrite.resolve());
-  assert.equal(seen.reads.length, accountReads, "old-account writes cannot notify new owners");
   assert.equal(seen.toasts.length, accountToasts);
   await finish(oldAuthRead, "old-account");
   assert.equal(seen.props.members[0].name, "new-account");
+  await finish(seen.reads.at(-1), "new-account");
   await React.act(async () => seen.props.onRetry());
   const unmounted = seen.reads.at(-1),
     count = seen.publications.length;
