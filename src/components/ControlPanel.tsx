@@ -132,6 +132,10 @@ export default function ControlPanel({
   const [integrationsSection, setIntegrationsSection] = useState<IntegrationsSection>(
     DEFAULT_INTEGRATIONS_SECTION
   );
+  const openCalendarIntegrations = useCallback(() => {
+    setIntegrationsSection("calendars");
+    setActiveView("integrations");
+  }, []);
   const navItems = useControlPanelNavItems();
   const {
     collapsed: sidebarCollapsed,
@@ -1059,10 +1063,7 @@ export default function ControlPanel({
                   onToggleDiscarded={toggleShowDiscarded}
                   userName={user?.name}
                   onOpenSettings={openSettings}
-                  onOpenIntegrations={() => {
-                    setIntegrationsSection("calendars");
-                    setActiveView("integrations");
-                  }}
+                  onOpenIntegrations={openCalendarIntegrations}
                 />
               )}
               {activeView === "insights" && (
