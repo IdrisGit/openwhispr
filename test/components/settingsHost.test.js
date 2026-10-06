@@ -22,7 +22,7 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   let showSettingsFromMain;
   let readyHost;
   const acknowledgements = [];
-  installBrowserGlobals(t, {
+  const { window } = installBrowserGlobals(t, {
     window: {
       addEventListener(type, listener) {
         if (type === "keydown") keydown = listener;
@@ -135,6 +135,25 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   });
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, true);
 
+  const modal = globalThis.__settingsModalProps;
+  await React.act(async () => {
+    showSettingsFromMain({ hostId: readyHost, requestId: 3, section: "llms" });
+    await flush();
+  });
+  assert.equal(modal.navigation.getState().section, "llms");
+  assert.strictEqual(globalThis.__settingsModalProps.navigation, modal.navigation);
+  await React.act(async () => {
+    openSettings("general");
+    showSettingsFromMain({ hostId: readyHost, requestId: 4, section: "llms" });
+    await flush();
+  });
+  assert.equal(modal.navigation.getState().section, "llms", "a repeated named open navigates again");
+  await React.act(async () => {
+    showSettingsFromMain({ hostId: readyHost, requestId: 5 });
+    await flush();
+  });
+  assert.equal(modal.navigation.getState().section, "llms", "a plain open keeps the current section");
+
   // Ported from the readiness test: a disposed host cannot consume a late
   // document read or an already-queued callback after its cleanup.
   const reads = [];
@@ -189,7 +208,7 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   assert.equal(stores.at(-1).getState().section, "account");
   assert.deepEqual(
     acknowledgements.map((item) => item.requestId),
-    [2, 10]
+    [2, 3, 4, 5, 10]
   );
   const queuedHostId = readyLog.find((entry) => entry.value).id;
   await React.act(async () => root.render(null));
@@ -204,6 +223,6 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   assert.equal(readyHost, undefined);
   assert.deepEqual(
     acknowledgements.map((item) => item.requestId),
-    [2, 10]
+    [2, 3, 4, 5, 10]
   );
 });

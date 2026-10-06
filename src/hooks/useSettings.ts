@@ -238,6 +238,7 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
   const parakeetModel = useSettingsStore((settings) => settings.parakeetModel);
   const cohereModel = useSettingsStore((settings) => settings.cohereModel);
   const preferredLanguage = useSettingsStore((settings) => settings.preferredLanguage);
+  const keepLocalModelLoaded = useSettingsStore((settings) => settings.keepLocalModelLoaded);
   const policySnapshot = usePolicySnapshot();
   const localServerPrefs = useSettingsStore(
     useShallow((state) => selectLocalServerPrefs(state, policySnapshot))
@@ -269,6 +270,7 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
         model: model || undefined,
         language: preferredLanguage || undefined,
         ...localServerPrefs,
+        keepLocalModelLoaded,
         policySettled,
       })
       .catch((err) =>
@@ -286,6 +288,7 @@ function useSettingsLifecycle(): AutoLearnCorrectionsValue {
     cohereModel,
     preferredLanguage,
     localServerPrefs,
+    keepLocalModelLoaded,
     policySettled,
     signOuts,
   ]);

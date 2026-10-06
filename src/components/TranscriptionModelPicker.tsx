@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -396,6 +396,7 @@ interface GpuWarningRowProps {
   actionLabel: string;
   onAction: () => void;
   onRemove: () => void;
+  children?: ReactNode;
 }
 
 function GpuWarningRow({
@@ -404,6 +405,7 @@ function GpuWarningRow({
   actionLabel,
   onAction,
   onRemove,
+  children,
 }: GpuWarningRowProps) {
   const { t } = useTranslation();
   return (
@@ -413,6 +415,7 @@ function GpuWarningRow({
         <div className="min-w-0">
           <p className="text-xs font-medium text-foreground">{title}</p>
           <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{description}</p>
+          {children}
           <Button onClick={onAction} size="sm" className="mt-2 h-7 px-3 text-xs">
             {actionLabel}
           </Button>
@@ -502,6 +505,8 @@ export default function TranscriptionModelPicker({
   const [gpuDismissed, setGpuDismissed] = useState(false);
   // The pack fell back to CPU on this machine (persisted by main until retried)
   const [gpuFailed, setGpuFailed] = useState(false);
+  // The whisper-server error line main saved with that failure (#1736)
+  const [gpuFailReason, setGpuFailReason] = useState<string | null>(null);
   // An older release installed the pack and this version can't use it (#2424)
   const [gpuNeedsUpdate, setGpuNeedsUpdate] = useState(false);
   // Why the last pack download failed (cleared by the next attempt)
@@ -816,36 +821,47 @@ export default function TranscriptionModelPicker({
     return () => window.removeEventListener("openwhispr-models-cleared", handleModelsCleared);
   }, [loadLocalModels, loadParakeetModels]);
 
+  const readGpuStatus = useCallback(async () => {
+    const request = ++gpuRequests.current.pack;
+    try {
+      const [cuda, vulkan] = await Promise.all([
+        window.electronAPI?.getCudaWhisperStatus?.(),
+        window.electronAPI?.getVulkanWhisperStatus?.(),
+      ]);
+      if (request !== gpuRequests.current.pack) return;
+      // No pack to show or offer hides the card. A re-read can land here after
+      // another card removed the pack this one shows, so reset, never keep it.
+      const backend = pickWhisperGpuBackend(cuda, vulkan);
+      const status = backend === "cuda" ? cuda : backend === "vulkan" ? vulkan : null;
+      setGpuBackend(backend);
+      setGpuDownloaded(!!status?.downloaded);
+      setGpuFailed(!!status?.gpuFailed);
+      setGpuFailReason(status?.gpuFailReason ?? null);
+      setGpuNeedsUpdate(!!status?.needsUpdate);
+      // A failed attempt's error must not outlive the state it was about
+      setGpuDownloadError(null);
+      // A download is still running that no pending call here may report the
+      // end of: one started before Settings was opened, or on another card
+      if (status?.downloading) {
+        setGpuDownloading(true);
+        setGpuResumedDownload(true);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (!effectiveLocal || internalLocalProvider !== "whisper") return;
     if (getCachedPlatform() === "darwin") return;
-    let cancelled = false;
-    const request = ++gpuRequests.current.pack;
-    const detect = async () => {
-      try {
-        const [cuda, vulkan] = await Promise.all([
-          window.electronAPI?.getCudaWhisperStatus?.(),
-          window.electronAPI?.getVulkanWhisperStatus?.(),
-        ]);
-        if (cancelled || request !== gpuRequests.current.pack) return;
-        const backend = pickWhisperGpuBackend(cuda, vulkan);
-        const status = backend === "cuda" ? cuda : backend === "vulkan" ? vulkan : null;
-        setGpuBackend(backend);
-        setGpuDownloaded(!!status?.downloaded);
-        setGpuFailed(!!status?.gpuFailed);
-        setGpuNeedsUpdate(!!status?.needsUpdate);
-        // A download this card started before Settings was closed is still running
-        if (status?.downloading) {
-          setGpuDownloading(true);
-          setGpuResumedDownload(true);
-        }
-      } catch {}
-    };
-    detect();
+    const owner = gpuRequests.current;
+    readGpuStatus();
+    // Retry on the fallback pop-up, or Remove on another card, changes the
+    // packs or the saved failure while this card stays mounted (#1736)
+    const dispose = window.electronAPI?.onWhisperGpuStatusChanged?.(readGpuStatus);
     return () => {
-      cancelled = true;
+      owner.pack++;
+      dispose?.();
     };
-  }, [effectiveLocal, internalLocalProvider]);
+  }, [effectiveLocal, internalLocalProvider, readGpuStatus]);
 
   useEffect(() => {
     if (!gpuDownloading || !gpuBackend) return;
@@ -872,6 +888,7 @@ export default function TranscriptionModelPicker({
         setGpuDownloading(false);
         setGpuDownloaded(status.downloaded);
         setGpuFailed(!!status.gpuFailed);
+        setGpuFailReason(status.gpuFailReason ?? null);
         setGpuNeedsUpdate(!!status.needsUpdate);
       } catch {}
     }, 1000);
@@ -884,6 +901,7 @@ export default function TranscriptionModelPicker({
   // Live server state: "GPU acceleration active" reflects what the server is
   // actually running on, not just that a pack is on disk (a crashed GPU server
   // silently falls back to CPU). Faster poll while an activation is in flight.
+  // Polls again at once when a re-read switches the card to another pack.
   useEffect(() => {
     if (
       !effectiveLocal ||
@@ -918,6 +936,7 @@ export default function TranscriptionModelPicker({
     gpuActivating,
     visible,
     gpuDownloading,
+    gpuBackend,
   ]);
 
   // Safety valve: a Vulkan cold start can take up to ~2 minutes (see #698);
@@ -928,7 +947,9 @@ export default function TranscriptionModelPicker({
     return () => clearTimeout(timeout);
   }, [gpuActivating]);
 
-  // Main falls back to CPU (and remembers it) when a GPU server crashes
+  // Main falls back to CPU (and remembers it) when a GPU server crashes. It
+  // saves the failure before it notifies, so the re-read shows the pack main
+  // now reports in use, exactly as reopening Settings would (#1736).
   useEffect(() => {
     const owner = gpuRequests.current;
     const onFallback = () => {
@@ -936,17 +957,21 @@ export default function TranscriptionModelPicker({
       gpuRequests.current.pack++;
       gpuRequests.current.fallback++;
       setGpuFailed(true);
+      // Never show the previous failure's reason while the new one loads
+      setGpuFailReason(null);
       setGpuActivating(false);
       setGpuActive(false);
+      readGpuStatus();
     };
     const disposeCuda = window.electronAPI?.onCudaFallbackNotification?.(onFallback);
     const disposeVulkan = window.electronAPI?.onGpuFallbackNotification?.(onFallback);
     return () => {
       owner.action++;
+      owner.pack++;
       disposeCuda?.();
       disposeVulkan?.();
     };
-  }, []);
+  }, [readGpuStatus]);
 
   const handleGpuDownload = async () => {
     const action = ++gpuRequests.current.action;
@@ -1556,7 +1581,16 @@ export default function TranscriptionModelPicker({
                       actionLabel={t("gpu.retryActivation")}
                       onAction={handleGpuRetry}
                       onRemove={handleGpuDelete}
-                    />
+                    >
+                      {gpuFailReason && (
+                        <p
+                          dir="ltr"
+                          className="mt-1 wrap-break-word font-mono text-[11px] leading-snug text-muted-foreground"
+                        >
+                          {gpuFailReason}
+                        </p>
+                      )}
+                    </GpuWarningRow>
                   ) : (
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">

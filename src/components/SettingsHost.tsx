@@ -38,7 +38,8 @@ export function SettingsHost({
     const dispose = window.electronAPI?.onShowSettings?.((request) => {
       if (disposed || request?.hostId !== hostId || !Number.isSafeInteger(request.requestId))
         return;
-      openSettings();
+      if (request.section !== undefined && typeof request.section !== "string") return;
+      openSettings(request.section);
       window.electronAPI?.acknowledgeSettingsOpen?.(hostId, request.requestId);
     });
     // This host exists only after AppRouter's auth/policy/onboarding gates and

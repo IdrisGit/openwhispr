@@ -108,6 +108,7 @@ class WindowManager {
     this._assistantPanelBusy = false;
     this._pendingMeetingNoteNavigation = null;
     this._pendingNoteNavigation = null;
+    this._pendingSettingsSection = null;
 
     app.on("before-quit", () => {
       this.isQuitting = true;
@@ -2313,6 +2314,7 @@ class WindowManager {
     )
       return;
     this._pendingSettingsOpen = null;
+    this._pendingSettingsSection = null;
   }
 
   _deliverPendingSettingsOpen() {
@@ -2328,12 +2330,14 @@ class WindowManager {
     win.webContents.send("show-settings", {
       hostId: this._settingsHost.id,
       requestId: this._pendingSettingsOpen,
+      section: this._pendingSettingsSection ?? undefined,
     });
   }
 
-  async openSettings() {
-    // A document load is not React/auth/policy readiness. Keep one plain-open
-    // intent until the eligible host acknowledges it; reload/cleanup retains it.
+  async openSettings(section) {
+    // A document load is not React/auth/policy readiness. Keep the open intent
+    // and any named section until the eligible host acknowledges them.
+    if (section) this._pendingSettingsSection = section;
     this._pendingSettingsOpen = ++this._settingsRequestId;
     await this.createControlPanelWindow();
     this._deliverPendingSettingsOpen();

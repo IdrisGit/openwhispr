@@ -371,9 +371,17 @@ test("Whisper hidden activation, progress, completion and fallback remain live",
   const picker = React.createElement(h.Picker, { ...h.props, settingsNavigation: h.navigation });
   const render = (active) => h.renderSpeech(active, { dictation: picker });
   await render(true);
+  // Main saves the failure before broadcasting, and the card now re-reads it.
+  h.api.getCudaWhisperStatus = async () => ({
+    downloaded: true,
+    gpuFailed: true,
+    gpuFailReason: "synthetic GPU failure",
+    gpuInfo: { hasNvidiaGpu: true, cudaSupported: true },
+  });
   await h.emit("onCudaFallbackNotification", {});
   await React.act(async () => polls[0].resolve({ gpuAccelerated: true }));
   assert.match(h.container.textContent, /gpu.activationFailed/, "fallback beats pre-event poll");
+  assert.match(h.container.textContent, /synthetic GPU failure/);
   let action;
   await React.act(async () => {
     action = globalThis.__gpuActions["gpu.retryActivation"]();

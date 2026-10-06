@@ -79,7 +79,7 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
   const manager = new WindowManager();
   const loading = deferred();
   manager.loadWindowContent = () => loading.promise;
-  const opening = manager.openSettings();
+  const opening = manager.openSettings("speechToText");
   const contents = manager.controlPanelWindow.webContents;
   const event = () => ({ sender: contents, senderFrame: contents.mainFrame });
   assert.equal(sends.length, 0, "document loading is not host readiness");
@@ -98,15 +98,18 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
   manager.setSettingsHostReady(event(), "host-one", true, documentId);
   const first = sends.at(-1)[1];
   assert.equal(first.hostId, "host-one");
+  assert.equal(first.section, "speechToText");
   manager.setSettingsHostReady(event(), "host-one", false, documentId);
   manager.acknowledgeSettingsOpen(event(), "host-one", first.requestId);
   assert.equal(manager._pendingSettingsOpen, first.requestId, "disposed host cannot consume");
   manager.setSettingsHostReady(event(), "host-two", true, documentId);
+  assert.equal(sends.at(-1)[1].section, "speechToText", "replacement host retains named intent");
   manager.acknowledgeSettingsOpen(event(), "host-one", first.requestId);
   assert.notEqual(manager._pendingSettingsOpen, null);
   manager.acknowledgeSettingsOpen(event(), "host-two", first.requestId);
   assert.equal(manager._pendingSettingsOpen, null);
-  await manager.openSettings();
+  assert.equal(manager._pendingSettingsSection, null);
+  await manager.openSettings("llms");
   await manager.openSettings();
   const latest = sends.at(-1)[1];
   manager.acknowledgeSettingsOpen(event(), "host-two", latest.requestId - 1);
@@ -119,6 +122,7 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
   assert.equal(manager._settingsHost, null);
   manager.setSettingsHostReady(event(), "reloaded", true, manager.getSettingsDocumentId(event()));
   assert.equal(sends.at(-1)[1].requestId, latest.requestId);
+  assert.equal(sends.at(-1)[1].section, "llms", "reload retains the unacknowledged section");
   manager.acknowledgeSettingsOpen(event(), "reloaded", latest.requestId);
   assert.equal(manager._pendingSettingsOpen, null);
   let restored = false;
@@ -127,5 +131,6 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
     restored = true;
   };
   await manager.openSettings();
+  assert.equal(sends.at(-1)[1].section, undefined, "a consumed section does not leak into later opens");
   assert.equal(restored, true, "native request also surfaces a minimized panel");
 });
