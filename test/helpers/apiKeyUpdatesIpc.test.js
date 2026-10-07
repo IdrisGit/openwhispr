@@ -315,6 +315,28 @@ for (const [provider, property, saveChannel] of STREAMING.filter(([name]) =>
     assert.equal(rodeWarm(provider, property, result), false);
     assert.equal(target[property].token, "token-B");
   });
+
+  test(`${provider}: a start overlapping an old-key warmup does not ride its socket`, async (t) => {
+    t.after(() => (fetchToken = mintToken));
+    target[property] = null;
+    invoke(saveChannel, "A");
+    const minted = { A: deferred(), B: deferred() };
+    fetchToken = async (key) => {
+      await minted[key].promise;
+      return mintToken(key);
+    };
+    const warming = invoke(`${provider}-streaming-warmup`, { mode: "byok" });
+    invoke(saveChannel, "B");
+    const starting = invoke(`${provider}-streaming-start`, { mode: "byok" });
+    minted.A.resolve();
+    // The old-key socket opens while the start is still minting with the new key.
+    await warming;
+    minted.B.resolve();
+    const result = await starting;
+    assert.equal(result.success, true);
+    assert.equal(rodeWarm(provider, property, result), false);
+    assert.equal(target[property].token, "token-B");
+  });
 }
 
 test("assemblyai: a socket opened on the old key loses to the save, even when it wins the race", async (t) => {

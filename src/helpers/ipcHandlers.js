@@ -8650,7 +8650,8 @@ class IPCHandlers {
     };
 
     // What a dictation connection was opened for; a start or warmup reuses one
-    // only when nothing about the route changed and no key it read was saved since.
+    // only when nothing about the route changed and, for a connection that reads
+    // a saved key, no key was saved since.
     const dictationConnectionKey = (options) => {
       const provider = options.provider || "openai-realtime";
       const readsSavedKey = options.mode === "byok" || provider === "tinfoil-realtime";
@@ -10867,7 +10868,9 @@ class IPCHandlers {
         : fetchStreamingToken(event);
 
     // A warm socket opened before the latest key save still carries the old key;
-    // dropping it sends the start out on a fresh connect with the new one.
+    // dropping it sends the start out on a fresh connect with the new one. Starts
+    // check right before connecting, because a warmup that was still minting can
+    // open its socket during the start's own token fetch.
     const dropStaleWarmConnection = (streaming) => {
       if (streaming.warmConnectionOptions?.credentialGeneration !== credentialGeneration) {
         streaming.cleanupWarmConnection();
@@ -10934,7 +10937,6 @@ class IPCHandlers {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
         this.assemblyAiStreaming.adoptMode(options);
-        if (byok) dropStaleWarmConnection(this.assemblyAiStreaming);
 
         // Clean up any stale active connection (shouldn't happen normally)
         if (this.assemblyAiStreaming.isConnected) {
@@ -10987,6 +10989,7 @@ class IPCHandlers {
           }
         };
 
+        if (byok) dropStaleWarmConnection(this.assemblyAiStreaming);
         await this.assemblyAiStreaming.connect({ ...options, token });
         debugLogger.debug("AssemblyAI streaming started", {}, "streaming");
 
@@ -11371,7 +11374,7 @@ class IPCHandlers {
     };
 
     // What a Gemini connection authenticated with: a managed one never serves a
-    // BYOK start or the reverse, and a BYOK one never outlives a key save.
+    // BYOK start or the reverse, and a BYOK one is not reused after a key save.
     const geminiConnectionKey = (options) =>
       options.mode === "byok" ? `byok:${credentialGeneration}` : "managed";
 
@@ -11531,7 +11534,6 @@ class IPCHandlers {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
-        dropStaleWarmConnection(this.cortiStreaming);
         if (this.cortiStreaming.isConnected) {
           await this.cortiStreaming.disconnect(false);
         }
@@ -11552,6 +11554,7 @@ class IPCHandlers {
           if (win && !win.isDestroyed()) win.webContents.send("corti-session-end", data);
         };
 
+        dropStaleWarmConnection(this.cortiStreaming);
         await this.cortiStreaming.connect({
           token,
           environment,

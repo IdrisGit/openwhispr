@@ -82,6 +82,19 @@ class CortiStreaming {
     this.audioBytesSent = 0;
     this.sampleRate = options.sampleRate || SAMPLE_RATE;
 
+    // A warm socket is bound to the region and tenant it opened against.
+    if (
+      this.hasWarmConnection() &&
+      (this.warmConnectionOptions.environment !== environment ||
+        this.warmConnectionOptions.tenant !== tenant)
+    ) {
+      debugLogger.debug("Corti warm connection differs, cold-starting", {
+        warm: [this.warmConnectionOptions.environment, this.warmConnectionOptions.tenant],
+        requested: [environment, tenant],
+      });
+      this.cleanupWarmConnection();
+    }
+
     // Reuse the pre-warmed socket for an instant start; cold-connect otherwise.
     if (this.useWarmConnection()) {
       debugLogger.debug("Corti using warm connection - instant start");

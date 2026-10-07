@@ -54,7 +54,7 @@ async function withWarmServer(run) {
     });
   });
   try {
-    await run(`ws://127.0.0.1:${server.address().port}`);
+    await run(`ws://127.0.0.1:${server.address().port}`, server);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -81,6 +81,32 @@ for (const [name, StreamingClient] of [
         assert.equal(streaming.warmConnectionOptions, null);
       } finally {
         streaming.cleanupWarmConnection();
+      }
+    });
+  });
+}
+
+// A Corti socket is opened against one region and tenant, so a start for
+// another must not ride it.
+for (const [label, requested, connections] of [
+  ["rides a warm socket for the same region and tenant", {}, 1],
+  ["cold-starts when the region changed", { environment: "eu" }, 2],
+  ["cold-starts when the tenant changed", { tenant: "other" }, 2],
+]) {
+  test(`Corti ${label}`, async () => {
+    await withWarmServer(async (url, server) => {
+      let opened = 0;
+      server.on("connection", () => (opened += 1));
+      const streaming = new CortiStreaming();
+      streaming.buildWebSocketUrl = () => url;
+      const warm = { token: "t", environment: "us", tenant: "base" };
+      try {
+        await streaming.warmup(warm);
+        await streaming.connect({ ...warm, ...requested });
+        assert.equal(opened, connections);
+      } finally {
+        streaming.cleanupWarmConnection();
+        streaming.cleanup();
       }
     });
   });
