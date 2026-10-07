@@ -94,6 +94,9 @@ class WindowManager {
     this.macCompoundPushState = null;
     this.winPushState = null;
     this._cachedActivationMode = "tap";
+    this._nativeKeyHandlersReady = false;
+    this._startupHotkeySlotsReady = false;
+    this._nativeListenerStartupDelayElapsed = false;
     this._floatingIconAutoHide = false;
     this._panelStartPosition = "bottom-right";
     this._activeHorizontalDirection = null;
@@ -113,6 +116,7 @@ class WindowManager {
   }
 
   async createMainWindow() {
+    this._startupHotkeySlotsReady = false;
     const cursorPos = screen.getCursorScreenPoint();
     const display = screen.getDisplayNearestPoint(cursorPos);
     const position = WindowPositionUtil.getMainWindowPosition(
@@ -165,8 +169,15 @@ class WindowManager {
       this._notifyMainWindowHorizontalDirection();
     });
 
-    await this.loadMainWindow();
-    await this.initializeHotkey();
+    const documentReady = this.loadMainWindow();
+    // Queue startup before a loading renderer can send Settings mutations. Own
+    // registration without holding window/menu presentation on desktop consent.
+    this.hotkeyStartupTask = this.initializeHotkey(documentReady).catch((err) => {
+      debugLogger.warn("Hotkey startup failed", { error: err.message });
+      return { status: "failed" };
+    });
+    this.onHotkeyStartupSettled?.(this.hotkeyStartupTask);
+    await documentReady;
     this.dragManager.setTargetWindow(this.mainWindow);
     MenuManager.setupMainMenu(() => this.openSettings());
   }
@@ -589,6 +600,12 @@ class WindowManager {
     // globalShortcut registrations pass the hotkey that fired; native shortcuts
     // use down/up phases and resolve their primary hotkey from the active slot.
     return async (triggeredHotkey, phase) => {
+      // A transition/capture must not swallow the release of an active Hold.
+      if (phase === "up" && this.winPushState?.active) {
+        this.handleWindowsPushKeyUp(triggeredHotkey || this.winPushState.key);
+        return;
+      }
+      if (this.hotkeyManager.operationActive || !this.hotkeyManager.hasEffectiveBinding()) return;
       if (this.hotkeyManager.isInListeningMode()) {
         return;
       }
@@ -1113,6 +1130,7 @@ class WindowManager {
   async setActivationModeCache(mode) {
     const nextMode = mode === "push" ? "push" : "tap";
     const success = await this.hotkeyManager.setActivationMode(nextMode);
+    this.hotkeyManager.assertStartupActive();
     if (!success) return false;
     this._cachedActivationMode = nextMode;
     return true;
@@ -1124,6 +1142,10 @@ class WindowManager {
    * activation mode. No-op during hotkey capture (listeners are stopped then).
    */
   reconcileNativeKeyListeners() {
+    if (this.isQuitting || !this._nativeKeyHandlersReady || !this._startupHotkeySlotsReady) return;
+    // Phase 1 retains the existing listener timer; it is not document readiness.
+    if (!this._nativeListenerStartupDelayElapsed) return;
+    if (!this.hotkeyManager.hasEffectiveBinding()) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this.hotkeyManager.isInListeningMode()) return;
     const activationMode = this.getActivationMode();
@@ -1187,12 +1209,28 @@ class WindowManager {
     this.hotkeyManager.setListeningMode(enabled);
   }
 
-  async initializeHotkey() {
-    await this.hotkeyManager.initializeHotkey(this.mainWindow, this.createHotkeyCallback());
+  initializeHotkey(documentReady) {
+    return this.hotkeyManager.initializeHotkey(
+      this.mainWindow,
+      this.createHotkeyCallback(),
+      documentReady
+    );
   }
 
-  async updateHotkey(hotkey) {
-    return await this.hotkeyManager.updateHotkey(hotkey, this.createHotkeyCallback());
+  updateHotkey(hotkey) {
+    return this.hotkeyManager.runHotkeyOperation(async () => {
+      this.resetWindowsPushState();
+      const result = await this.hotkeyManager.updateHotkey(hotkey, this.createHotkeyCallback());
+      this.hotkeyManager.assertStartupActive();
+      if (result.success) {
+        this.hotkeyManager.registrationOutcome = {
+          status: "ready",
+          hotkey: this.hotkeyManager.currentHotkey,
+        };
+        this.hotkeyManager.effectiveRegistrationMode = this.getActivationMode();
+      }
+      return result;
+    });
   }
 
   isUsingGnomeHotkeys() {

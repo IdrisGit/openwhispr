@@ -5,6 +5,7 @@ const GnomeGlobalShortcutsPortal = require("./gnomeGlobalShortcutsPortal");
 const DBUS_SERVICE_NAME = "com.openwhispr.App";
 const DBUS_OBJECT_PATH = "/com/openwhispr/App";
 const DBUS_INTERFACE = "com.openwhispr.App";
+const DBUS_NAME_REQUEST_TIMEOUT_MS = 5000;
 
 // Per-slot gsettings paths and display names
 const SLOT_CONFIG = {
@@ -134,6 +135,7 @@ function getSlotConfig(slotName) {
 class GnomeShortcutManager {
   constructor() {
     this.bus = null;
+    this.closed = false;
     this.dictationCallback = null;
     this.meetingCallback = null;
     this.voiceAgentCallback = null;
@@ -200,6 +202,7 @@ class GnomeShortcutManager {
   }
 
   async initDBusService(dictationCallback) {
+    if (this.closed) return false;
     this.dictationCallback = dictationCallback;
 
     const dbusModule = getDBus();
@@ -212,10 +215,35 @@ class GnomeShortcutManager {
       // Without a listener, async socket errors (e.g. a stale
       // DBUS_SESSION_BUS_ADDRESS) crash the process as an unhandled
       // "error" event — sessionBus() returns before connecting.
+      let rejectNameRequest;
       this.bus.connection.on("error", (err) => {
         debugLogger.log("[GnomeShortcut] D-Bus connection error:", err.message);
+        rejectNameRequest?.(err);
       });
-      this.bus.requestName(DBUS_SERVICE_NAME, 0);
+      const bus = this.bus;
+      const nameReply = await new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (err, reply) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          rejectNameRequest = null;
+          this.cancelNameRequest = null;
+          if (err) reject(err);
+          else resolve(reply);
+        };
+        rejectNameRequest = (err) => finish(err);
+        this.cancelNameRequest = () => finish(new Error("D-Bus name request cancelled"));
+        const timeoutId = setTimeout(
+          () => finish(new Error("D-Bus name request timed out")),
+          DBUS_NAME_REQUEST_TIMEOUT_MS
+        );
+        // DO_NOT_QUEUE: another app instance must not leave us waiting for its name.
+        bus.requestName(DBUS_SERVICE_NAME, 4, finish);
+      });
+      if (this.closed || this.bus !== bus || (nameReply !== 1 && nameReply !== 4)) {
+        throw new Error(`D-Bus name request returned ${nameReply}`);
+      }
       this.bus.exportInterface(
         {
           Toggle: () => {
@@ -265,23 +293,29 @@ class GnomeShortcutManager {
   }
 
   async initGlobalShortcutsPortal() {
+    if (this.closed) return false;
     return this.globalShortcutsPortal.init();
   }
 
   supportsPushToTalk() {
-    return this.globalShortcutsPortal.isAvailable();
+    // Unknown transport readiness is not evidence that Hold is unsupported.
+    return (
+      !this.globalShortcutsPortal.availabilityKnown || this.globalShortcutsPortal.isAvailable()
+    );
   }
 
   async registerPushToTalk(hotkey, callback) {
+    if (this.closed) return false;
     const preferredTrigger = GnomeShortcutManager.convertToPortalFormat(hotkey);
     if (!preferredTrigger) return false;
 
     await this.unregisterKeybinding("dictation");
+    if (this.closed) return false;
     const registered = await this.globalShortcutsPortal.registerKeybinding(
       preferredTrigger,
       callback
     );
-    if (!registered) {
+    if (!registered && !this.closed) {
       const tapShortcut = GnomeShortcutManager.convertToGnomeFormat(hotkey);
       await this.registerKeybinding(tapShortcut, "dictation");
     }
@@ -300,6 +334,7 @@ class GnomeShortcutManager {
   }
 
   async registerKeybinding(shortcut = "<Alt>r", slotName = "dictation") {
+    if (this.closed) return false;
     if (!GnomeShortcutManager.isGnome()) {
       debugLogger.log("[GnomeShortcut] Not running on GNOME, skipping registration");
       return false;
@@ -588,6 +623,8 @@ class GnomeShortcutManager {
   }
 
   async close() {
+    this.closed = true;
+    this.cancelNameRequest?.();
     await this.globalShortcutsPortal.close();
     if (this.bus) {
       this.bus.connection.end();

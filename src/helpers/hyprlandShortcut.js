@@ -196,6 +196,7 @@ function getDBus() {
 class HyprlandShortcutManager {
   constructor({ dbusNameRequestTimeoutMs = DBUS_NAME_REQUEST_TIMEOUT_MS } = {}) {
     this.bus = null;
+    this.closed = false;
     this.callbacks = {};
     this.isRegistered = false;
     this.bindings = {};
@@ -240,6 +241,7 @@ class HyprlandShortcutManager {
    * Reuses the same D-Bus service name/path as the GNOME integration.
    */
   async initDBusService(callback) {
+    if (this.closed) return false;
     this.callbacks.dictation = callback;
 
     const dbusModule = getDBus();
@@ -264,9 +266,12 @@ class HyprlandShortcutManager {
           settled = true;
           clearTimeout(timeoutId);
           rejectNameRequest = null;
+          this.cancelNameRequest = null;
           handler(value);
         };
         rejectNameRequest = (err) => finish(reject, err);
+        this.cancelNameRequest = () =>
+          rejectNameRequest?.(new Error("D-Bus name request cancelled"));
         const timeoutId = setTimeout(
           () => rejectNameRequest?.(new Error("D-Bus name request timed out")),
           this.dbusNameRequestTimeoutMs
@@ -276,7 +281,7 @@ class HyprlandShortcutManager {
           else finish(resolve, reply);
         });
       });
-      if (nameReply !== 1 && nameReply !== 4) {
+      if (this.closed || (nameReply !== 1 && nameReply !== 4)) {
         throw new Error(`D-Bus name request returned ${nameReply}`);
       }
 
@@ -640,6 +645,7 @@ class HyprlandShortcutManager {
   }
 
   async _registerForSlot(hotkey, slotName, callback, isPtt) {
+    if (this.closed) return false;
     if (!HyprlandShortcutManager.isHyprland()) {
       debugLogger.log("[HyprlandShortcut] Not running on Hyprland, skipping registration");
       return false;
@@ -834,6 +840,8 @@ class HyprlandShortcutManager {
    * Clean up D-Bus connection.
    */
   close() {
+    this.closed = true;
+    this.cancelNameRequest?.();
     if (this.bus) {
       this.bus.connection.end();
       this.bus = null;
