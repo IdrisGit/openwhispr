@@ -268,7 +268,13 @@ class HotkeyManager extends EventEmitter {
         };
       }
 
-      await this.unregisterSlot(slotName);
+      if ((await this.unregisterSlot(slotName)) === false) {
+        return {
+          success: false,
+          error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey }),
+        };
+      }
+      this.assertStartupActive();
 
       if (slotName === "meeting") {
         this.gnomeManager.setMeetingCallback(callback);
@@ -306,7 +312,13 @@ class HotkeyManager extends EventEmitter {
     // Temporary slots like "cancel" stay on globalShortcut to avoid stale
     // KGlobalAccel registrations after crash (Escape would stop working system-wide).
     if (this.useKDE && this.kdeManager && slotName !== "cancel") {
-      await this.unregisterSlot(slotName);
+      if ((await this.unregisterSlot(slotName)) === false) {
+        return {
+          success: false,
+          error: i18nMain.t("hotkey.errors.registrationFailed", { hotkey }),
+        };
+      }
+      this.assertStartupActive();
 
       const result = await this.kdeManager.registerKeybinding(
         hotkey,
@@ -382,7 +394,8 @@ class HotkeyManager extends EventEmitter {
     if (this.useKDE && this.kdeManager && slotName !== "cancel") {
       return this.kdeManager
         .unregisterKeybinding(slotName)
-        .then(() => {
+        .then((success) => {
+          if (!success) return false;
           slot.hotkeys = [];
           slot.accelerators = [];
           return true;
@@ -1034,6 +1047,10 @@ class HotkeyManager extends EventEmitter {
       if (ok) {
         await this.kdeManager.removeRetiredAgentKeybinding();
         this.assertStartupActive();
+        if (this.kdeManager.closed) {
+          await this.kdeManager.close();
+          return false;
+        }
         this.useKDE = true;
         this.hotkeyCallback = callback;
         debugLogger.log("[HotkeyManager] KDE shortcuts initialized via KGlobalAccel D-Bus");
@@ -1068,7 +1085,7 @@ class HotkeyManager extends EventEmitter {
 
     if (isHyprland) {
       this.hyprlandInitializationAttempted = true;
-      if (!HyprlandShortcutManager.isHyprctlAvailable()) {
+      if (!(await HyprlandShortcutManager.isHyprctlAvailable(this.startupController?.signal))) {
         debugLogger.log("[HotkeyManager] Hyprland detected but hyprctl not available");
         return false;
       }
@@ -1276,6 +1293,10 @@ class HotkeyManager extends EventEmitter {
         return result;
       };
       const result = await register(hotkey);
+      if (backend === "KDE" && this.kdeManager.closed && !(await this.kdeManager.close())) {
+        this.notifyHotkeyFailure(hotkey);
+        return false;
+      }
       if (result === true) {
         this.currentHotkey = hotkey;
         this.notifyActiveHotkey(hotkey);
@@ -1311,14 +1332,22 @@ class HotkeyManager extends EventEmitter {
       this.activationCapabilityResolved = false;
       // Complete cleanup before changing backend or restoring any optional slot.
       if (backend === "GNOME") {
-        await this.gnomeManager.close();
+        if (!(await this.gnomeManager.close())) {
+          this.notifyHotkeyFailure(hotkey);
+          return false;
+        }
         this.useGnome = false;
       } else if (backend === "Hyprland") {
-        await this.hyprlandManager.unregisterKeybinding();
-        this.hyprlandManager.close();
+        if (!(await this.hyprlandManager.close())) {
+          this.notifyHotkeyFailure(hotkey);
+          return false;
+        }
         this.useHyprland = false;
       } else {
-        this.kdeManager.close();
+        if (!(await this.kdeManager.close())) {
+          this.notifyHotkeyFailure(hotkey);
+          return false;
+        }
         this.useKDE = false;
       }
       this.assertStartupActive();
@@ -1759,7 +1788,12 @@ class HotkeyManager extends EventEmitter {
       if (this.useKDE && this.kdeManager) {
         debugLogger.log(`[HotkeyManager] Updating KDE hotkey to "${primary}"`);
         const previousHotkey = this.currentHotkey;
-        await this.kdeManager.unregisterKeybinding("dictation");
+        if (!(await this.kdeManager.unregisterKeybinding("dictation"))) {
+          return {
+            success: false,
+            message: i18nMain.t("hotkey.errors.registrationFailed", { hotkey: primary }),
+          };
+        }
         this.assertStartupActive();
         const result = await this.kdeManager.registerKeybinding(
           primary,
@@ -1830,47 +1864,24 @@ class HotkeyManager extends EventEmitter {
   }
 
   unregisterAll() {
+    const cleanupTasks = [];
     this.activeController?.abort(new Error("Hotkey lifecycle ended"));
     this.startupController?.abort(new Error("Hotkey lifecycle ended"));
     this.removeStartupLifecycleListeners?.();
     this.registrationOutcome = { status: "cancelled" };
     this.isInitialized = false;
     if (this.gnomeManager) {
-      // Unregister every slot that was registered via GNOME
-      const gnomeSlots = [...this.gnomeManager.registeredSlots];
-      for (const slotName of gnomeSlots) {
-        this.gnomeManager.unregisterKeybinding(slotName).catch((err) => {
-          debugLogger.warn(
-            `[HotkeyManager] Error unregistering GNOME keybinding for slot "${slotName}":`,
-            err.message
-          );
-        });
-      }
-      void this.gnomeManager.close().catch((err) => {
-        debugLogger.warn("[HotkeyManager] Error closing GNOME shortcut manager:", err.message);
-      });
+      cleanupTasks.push(this.gnomeManager.close());
       this.gnomeManager = null;
       this.useGnome = false;
     }
     if (this.kdeManager) {
-      const kdeSlots = [...this.kdeManager.registeredSlots];
-      for (const slotName of kdeSlots) {
-        this.kdeManager.unregisterKeybinding(slotName).catch((err) => {
-          debugLogger.warn(
-            `[HotkeyManager] Error unregistering KDE keybinding for slot "${slotName}":`,
-            err.message
-          );
-        });
-      }
-      this.kdeManager.close();
+      cleanupTasks.push(this.kdeManager.close());
       this.kdeManager = null;
       this.useKDE = false;
     }
     if (this.hyprlandManager) {
-      this.hyprlandManager.unregisterKeybinding().catch((err) => {
-        debugLogger.warn("[HotkeyManager] Error unregistering Hyprland keybinding:", err.message);
-      });
-      this.hyprlandManager.close();
+      cleanupTasks.push(this.hyprlandManager.close());
       this.hyprlandManager = null;
       this.useHyprland = false;
     }
@@ -1882,6 +1893,19 @@ class HotkeyManager extends EventEmitter {
       }
     }
     globalShortcut.unregisterAll();
+    // before-quit can arrive through WindowManager and main. Retain the first
+    // cleanup task even after manager references have been cleared.
+    this.teardownReady = Promise.allSettled([this.teardownReady, ...cleanupTasks]).then(
+      (results) => {
+        for (const result of results) {
+          if (result.status === "rejected")
+            debugLogger.warn("Hotkey backend cleanup failed", { error: result.reason?.message });
+          else if (result.value === false)
+            debugLogger.warn("Hotkey backend cleanup was not confirmed");
+        }
+      }
+    );
+    return this.teardownReady;
   }
 
   isUsingGnome() {

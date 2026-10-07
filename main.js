@@ -2070,12 +2070,13 @@ if (gotSingleInstanceLock) {
       return;
     }
     event.preventDefault();
-    performSyncTeardown();
-    sidecarRegistry.shutdownAll().finally(() => app.exit(0));
+    const hotkeyTeardown = performSyncTeardown();
+    Promise.allSettled([hotkeyTeardown, sidecarRegistry.shutdownAll()]).finally(() => app.exit(0));
   });
 }
 
 function performSyncTeardown() {
+  let hotkeyTeardown;
   if (wakeRewarmTimer) {
     clearTimeout(wakeRewarmTimer);
     wakeRewarmTimer = null;
@@ -2090,7 +2091,7 @@ function performSyncTeardown() {
     cliBridge = null;
   }
   if (hotkeyManager) {
-    hotkeyManager.unregisterAll();
+    hotkeyTeardown = hotkeyManager.unregisterAll();
   } else {
     globalShortcut.unregisterAll();
   }
@@ -2109,4 +2110,5 @@ function performSyncTeardown() {
   if (ipcHandlers) ipcHandlers._cleanupTextEditMonitor();
   if (textEditMonitor) textEditMonitor.stopMonitoring();
   if (updateManager) updateManager.cleanup();
+  return hotkeyTeardown;
 }
