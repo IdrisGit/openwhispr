@@ -1133,6 +1133,7 @@ class HotkeyManager extends EventEmitter {
         } finally {
           this.activeController = null;
           this.operationActive = false;
+          this.emit("operation-settled");
         }
       });
     this.operationQueue = task;

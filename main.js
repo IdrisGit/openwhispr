@@ -1788,9 +1788,9 @@ async function startApp() {
     });
 
     nativeKeyManager.on("unavailable", () => {
-      debugLogger.debug(
-        "[Push-to-Talk] Native key listener unavailable - falling back to toggle mode"
-      );
+      debugLogger.debug("[Push-to-Talk] Native key listener unavailable", {
+        role: hotkeyManager.isUsingNativeShortcut() ? "optional-release" : "required",
+      });
       if (isWindows && isLiveWindow(windowManager.mainWindow)) {
         windowManager.mainWindow.webContents.send("windows-ptt-unavailable", {
           reason: "binary_not_found",
@@ -1799,8 +1799,16 @@ async function startApp() {
       }
     });
 
-    nativeKeyManager.on("ready", () => {
-      debugLogger.debug("[Push-to-Talk] Native key listener ready and listening");
+    nativeKeyManager.on("ready", (key, readiness) => {
+      debugLogger.debug("[Push-to-Talk] Native key listener ready", {
+        key,
+        ...readiness,
+        role: hotkeyManager.isUsingNativeShortcut() ? "optional-release" : "required",
+        startupElapsedMs:
+          windowManager._nativeListenerStartupStartedAt == null
+            ? null
+            : Math.round(performance.now() - windowManager._nativeListenerStartupStartedAt),
+      });
     });
 
     if (!isWindows) {
@@ -1821,12 +1829,12 @@ async function startApp() {
       });
     }
 
-    const STARTUP_DELAY_MS = 3000;
+    // Availability probes used during registration do not start a listener.
+    // Only enable reconciliation after every dispatch/diagnostic handler exists;
+    // slot restoration and the mutation lane supply the remaining prerequisites.
+    hotkeyManager.on("operation-settled", () => windowManager.reconcileNativeKeyListeners());
     windowManager._nativeKeyHandlersReady = true;
-    setTimeout(() => {
-      windowManager._nativeListenerStartupDelayElapsed = true;
-      windowManager.reconcileNativeKeyListeners();
-    }, STARTUP_DELAY_MS);
+    windowManager.reconcileNativeKeyListeners();
 
     ipcMain.on("hotkey-changed", () => {
       windowManager.resetWindowsPushState();

@@ -95,8 +95,9 @@ class WindowManager {
     this.winPushState = null;
     this._cachedActivationMode = "tap";
     this._nativeKeyHandlersReady = false;
+    this._nativeKeyCapturePending = false;
     this._startupHotkeySlotsReady = false;
-    this._nativeListenerStartupDelayElapsed = false;
+    this._nativeListenerStartupStartedAt = null;
     this._floatingIconAutoHide = false;
     this._panelStartPosition = "bottom-right";
     this._activeHorizontalDirection = null;
@@ -1143,9 +1144,21 @@ class WindowManager {
    */
   reconcileNativeKeyListeners() {
     if (this.isQuitting || !this._nativeKeyHandlersReady || !this._startupHotkeySlotsReady) return;
-    // Phase 1 retains the existing listener timer; it is not document readiness.
-    if (!this._nativeListenerStartupDelayElapsed) return;
+    // Callers can request a sync mid-mutation; operation-settled retries after
+    // backend/mode changes and capture's ordered slot restoration are complete.
+    if (
+      this._nativeKeyCapturePending ||
+      this.hotkeyManager.operationActive ||
+      this.hotkeyManager.startupController?.signal.aborted
+    )
+      return;
     if (!this.hotkeyManager.hasEffectiveBinding()) return;
+    // Desktop registration chooses a press/release mode. On non-native paths
+    // globalShortcut is mode-independent; the accepted mode selects listeners.
+    const effectiveMode = this.hotkeyManager.isUsingNativeShortcut()
+      ? this.hotkeyManager.effectiveRegistrationMode
+      : this.hotkeyManager.activationMode;
+    if (effectiveMode !== this.getActivationMode()) return;
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
     if (this.hotkeyManager.isInListeningMode()) return;
     const activationMode = this.getActivationMode();
@@ -1158,11 +1171,30 @@ class WindowManager {
         ? nativeListenerKeys.filter((key) => this.hotkeyManager.slotHasHotkey("dictation", key))
         : []
       : nativeListenerKeys;
-    if (process.platform === "win32" && this.windowsKeyManager) {
-      this.windowsKeyManager.setKeys(keys);
-    } else if (process.platform === "linux" && this.linuxKeyManager) {
-      this.linuxKeyManager.setKeys(keys);
+    const manager =
+      process.platform === "win32"
+        ? this.windowsKeyManager
+        : process.platform === "linux"
+          ? this.linuxKeyManager
+          : null;
+    if (!manager) return;
+    const changed =
+      keys.some((key) => !manager.listeners.has(key)) ||
+      [...manager.listeners.keys()].some((key) => !keys.includes(key));
+    if (changed) {
+      debugLogger.debug("Native key listener prerequisites satisfied", {
+        keys,
+        activationMode,
+        role: this.hotkeyManager.isUsingNativeShortcut() ? "optional-release" : "required",
+        startupElapsedMs:
+          this._nativeListenerStartupStartedAt == null
+            ? null
+            : Math.round(performance.now() - this._nativeListenerStartupStartedAt),
+      });
     }
+    // setKeys owns per-key idempotence and permits retry after an unexpected
+    // child exit or missing binary; a configuration cache must not suppress it.
+    manager.setKeys(keys);
   }
 
   setFloatingIconAutoHide(enabled) {
@@ -1210,11 +1242,24 @@ class WindowManager {
   }
 
   initializeHotkey(documentReady) {
-    return this.hotkeyManager.initializeHotkey(
+    this._nativeListenerStartupStartedAt = performance.now();
+    const task = this.hotkeyManager.initializeHotkey(
       this.mainWindow,
       this.createHotkeyCallback(),
       documentReady
     );
+    // The same owner cancels registration and listeners on pending navigation,
+    // renderer loss/destruction and quit. Completed idle reloads retain bindings.
+    this.hotkeyManager.startupController.signal.addEventListener(
+      "abort",
+      () => {
+        this._startupHotkeySlotsReady = false;
+        this.windowsKeyManager?.stop();
+        this.linuxKeyManager?.stop();
+      },
+      { once: true }
+    );
+    return task;
   }
 
   updateHotkey(hotkey) {

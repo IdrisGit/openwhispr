@@ -4213,7 +4213,11 @@ class IPCHandlers {
           focusWindowsHotkeyCaptureWindow(captureWindow);
         }
       }
-      if (this._hotkeyCaptureMode === enabled) return { success: true, skipped: true };
+      if (
+        this._hotkeyCaptureMode === enabled &&
+        (enabled || !this.windowManager._nativeKeyCapturePending)
+      )
+        return { success: true, skipped: true };
       this._hotkeyCaptureMode = enabled;
       this.windowManager.setHotkeyListeningMode(enabled);
       ipcMain.emit("hotkey-listening-mode-changed", null, enabled);
@@ -4408,17 +4412,35 @@ class IPCHandlers {
       manager.assertStartupActive();
       return { success: true };
     };
+    let nativeCaptureRevision = 0;
     ipcMain.handle("set-hotkey-listening-mode", (event, enabled) => {
       // Gate dispatch immediately; backend/config mutations wait in the same lane
       // as startup and key/mode edits, including portal-request cancellation.
       const manager = this.windowManager.hotkeyManager;
       const changed = manager.isInListeningMode() !== enabled;
+      if (changed) {
+        nativeCaptureRevision++;
+        this.windowManager._nativeKeyCapturePending = true;
+      }
+      const revision = nativeCaptureRevision;
       this.windowManager.setHotkeyListeningMode(enabled);
       // HotkeyInput cleanup sends repeated "disabled" notifications. Those are
       // not a newer user choice and must not cancel consent or supersede startup.
-      return manager.runHotkeyOperation(() => applyHotkeyListeningMode(event, enabled), {
-        userChange: changed,
-      });
+      return manager.runHotkeyOperation(
+        async () => {
+          const result = await applyHotkeyListeningMode(event, enabled);
+          manager.assertStartupActive();
+          // A key update can settle between capture exit being requested and
+          // this restoration. Do not spawn listeners until all slots are back,
+          // or let an older exit release a newer capture's gate. Failed exits
+          // keep the gate and can retry rather than being skipped as a no-op.
+          if (result.success && !enabled && revision === nativeCaptureRevision) {
+            this.windowManager._nativeKeyCapturePending = false;
+          }
+          return result;
+        },
+        { userChange: changed }
+      );
     });
 
     ipcMain.handle("get-hotkey-mode-info", async (_event, requestedHotkey) => {
