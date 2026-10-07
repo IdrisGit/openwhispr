@@ -212,6 +212,9 @@ test("every secret saver notifies peers by name only, including removal", () => 
       assert.deepEqual(invoke(channel, value), { success: true });
       assert.equal(environmentManager[get](), value);
       assert.deepEqual(notifications, [[2, "api-key-updated", storeKey]]);
+      notifications.length = 0;
+      assert.deepEqual(invoke(channel, value), { success: true });
+      assert.deepEqual(notifications, [], `${storeKey} re-saved unchanged`);
     }
   }
   assert.throws(
@@ -258,13 +261,27 @@ for (const [provider, property, saveChannel, tokenFor] of STREAMING) {
     invoke(saveChannel, "A");
     await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
     invoke(saveChannel, "B");
-    assert.equal(
-      (await invoke(`${provider}-streaming-warmup`, { mode: "byok" })).alreadyWarm,
-      true
-    );
+    const warmup = await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
     const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
-    assert.equal(rodeWarm(provider, property, result), false);
     assert.equal(target[property].token, tokenFor("B"));
+    // Gemini's warm connection is also its live one, so only a start replaces it.
+    if (provider === "gemini") {
+      assert.equal(warmup.alreadyWarm, true);
+      assert.equal(rodeWarm(provider, property, result), false);
+    } else {
+      assert.deepEqual(warmup, { success: true });
+      assert.equal(rodeWarm(provider, property, result), true);
+    }
+  });
+
+  test(`${provider}: re-saving the unchanged key keeps the warm socket`, async () => {
+    target[property] = null;
+    invoke(saveChannel, "A");
+    await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
+    invoke(saveChannel, "A");
+    const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    assert.equal(rodeWarm(provider, property, result), true);
+    assert.equal(target[property].token, tokenFor("A"));
   });
 
   test(`${provider}: a key saved mid-session leaves the live session alone`, async () => {

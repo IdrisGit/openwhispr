@@ -1610,12 +1610,15 @@ class IPCHandlers {
       return this.windowManager.resizeDictationErrorWindowToContent(surfaceHeight);
     });
 
-    // Counts saves of any key in Settings. A streaming socket keeps the count it
-    // was opened under, so a start never reuses one authenticated before a save.
+    // Counts changes to any key in Settings. A streaming socket keeps the count it
+    // was opened under, so a start never reuses one authenticated before a change.
     let credentialGeneration = 0;
-    const saveSecretKey = (method, storeKey) => (event, key) => {
+    const saveSecretKey = (getter, saver, storeKey) => (event, key) => {
       if (typeof key !== "string") throw new TypeError("API key must be a string");
-      const result = this.environmentManager[method](key);
+      // Committing an unedited key field saves the same value again.
+      const changed = this.environmentManager[getter]() !== key;
+      const result = this.environmentManager[saver](key);
+      if (!changed) return result;
       credentialGeneration += 1;
       // Notify peers by setting name only; leave the editor's pending input alone.
       for (const win of BrowserWindow.getAllWindows()) {
@@ -1628,7 +1631,7 @@ class IPCHandlers {
 
     for (const k of BYOK_API_KEYS) {
       ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager[k.get]());
-      ipcMain.handle(`save-${k.base}-key`, saveSecretKey(k.save, k.storeKey));
+      ipcMain.handle(`save-${k.base}-key`, saveSecretKey(k.get, k.save, k.storeKey));
     }
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
@@ -4751,7 +4754,10 @@ class IPCHandlers {
       return this.environmentManager.getCortiClientId();
     });
 
-    ipcMain.handle("save-corti-client-id", saveSecretKey("saveCortiClientId", "cortiClientId"));
+    ipcMain.handle(
+      "save-corti-client-id",
+      saveSecretKey("getCortiClientId", "saveCortiClientId", "cortiClientId")
+    );
 
     ipcMain.handle("get-corti-client-secret", async () => {
       return this.environmentManager.getCortiClientSecret();
@@ -4759,7 +4765,7 @@ class IPCHandlers {
 
     ipcMain.handle(
       "save-corti-client-secret",
-      saveSecretKey("saveCortiClientSecret", "cortiClientSecret")
+      saveSecretKey("getCortiClientSecret", "saveCortiClientSecret", "cortiClientSecret")
     );
 
     ipcMain.handle(
@@ -4827,7 +4833,11 @@ class IPCHandlers {
 
     ipcMain.handle(
       "save-custom-transcription-key",
-      saveSecretKey("saveCustomTranscriptionKey", "customTranscriptionApiKey")
+      saveSecretKey(
+        "getCustomTranscriptionKey",
+        "saveCustomTranscriptionKey",
+        "customTranscriptionApiKey"
+      )
     );
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
@@ -4836,7 +4846,7 @@ class IPCHandlers {
 
     ipcMain.handle(
       "save-cleanup-custom-key",
-      saveSecretKey("saveCleanupCustomKey", "cleanupCustomApiKey")
+      saveSecretKey("getCleanupCustomKey", "saveCleanupCustomKey", "cleanupCustomApiKey")
     );
 
     // Enterprise provider key handlers
@@ -4857,21 +4867,25 @@ class IPCHandlers {
     });
     ipcMain.handle(
       "save-bedrock-access-key-id",
-      saveSecretKey("saveBedrockAccessKeyId", "bedrockAccessKeyId")
+      saveSecretKey("getBedrockAccessKeyId", "saveBedrockAccessKeyId", "bedrockAccessKeyId")
     );
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
       return this.environmentManager.getBedrockSecretAccessKey();
     });
     ipcMain.handle(
       "save-bedrock-secret-access-key",
-      saveSecretKey("saveBedrockSecretAccessKey", "bedrockSecretAccessKey")
+      saveSecretKey(
+        "getBedrockSecretAccessKey",
+        "saveBedrockSecretAccessKey",
+        "bedrockSecretAccessKey"
+      )
     );
     ipcMain.handle("get-bedrock-session-token", async () => {
       return this.environmentManager.getBedrockSessionToken();
     });
     ipcMain.handle(
       "save-bedrock-session-token",
-      saveSecretKey("saveBedrockSessionToken", "bedrockSessionToken")
+      saveSecretKey("getBedrockSessionToken", "saveBedrockSessionToken", "bedrockSessionToken")
     );
     ipcMain.handle("get-azure-endpoint", async () => {
       return this.environmentManager.getAzureEndpoint();
@@ -4882,7 +4896,10 @@ class IPCHandlers {
     ipcMain.handle("get-azure-api-key", async () => {
       return this.environmentManager.getAzureApiKey();
     });
-    ipcMain.handle("save-azure-api-key", saveSecretKey("saveAzureApiKey", "azureApiKey"));
+    ipcMain.handle(
+      "save-azure-api-key",
+      saveSecretKey("getAzureApiKey", "saveAzureApiKey", "azureApiKey")
+    );
     ipcMain.handle("get-azure-deployment", async () => {
       return this.environmentManager.getAzureDeployment();
     });
@@ -4910,7 +4927,10 @@ class IPCHandlers {
     ipcMain.handle("get-vertex-api-key", async () => {
       return this.environmentManager.getVertexApiKey();
     });
-    ipcMain.handle("save-vertex-api-key", saveSecretKey("saveVertexApiKey", "vertexApiKey"));
+    ipcMain.handle(
+      "save-vertex-api-key",
+      saveSecretKey("getVertexApiKey", "saveVertexApiKey", "vertexApiKey")
+    );
 
     // Enterprise provider test connection
     ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
@@ -10877,6 +10897,13 @@ class IPCHandlers {
       }
     };
 
+    // A warmup replaces a stale ready socket instead of reporting it warm, so the
+    // next start finds one with the new key. A socket still opening is left to the
+    // start: closing it mid-handshake would fail the warmup that opened it.
+    const dropStaleReadyWarmConnection = (streaming) => {
+      if (streaming.hasWarmConnection()) dropStaleWarmConnection(streaming);
+    };
+
     ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
       try {
         const byok = options.mode === "byok";
@@ -10888,6 +10915,7 @@ class IPCHandlers {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
         this.assemblyAiStreaming.adoptMode(options);
+        if (byok) dropStaleReadyWarmConnection(this.assemblyAiStreaming);
 
         if (this.assemblyAiStreaming.hasWarmConnection()) {
           debugLogger.debug("AssemblyAI connection already warm", {}, "streaming");
@@ -11151,6 +11179,7 @@ class IPCHandlers {
         this.deepgramStreaming.adoptMode(options);
 
         setDeepgramTokenRefreshFn(event, byok);
+        if (byok) dropStaleReadyWarmConnection(this.deepgramStreaming);
 
         if (this.deepgramStreaming.hasWarmConnection()) {
           debugLogger.debug("Deepgram connection already warm", {}, "streaming");
@@ -11510,6 +11539,7 @@ class IPCHandlers {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
+        dropStaleReadyWarmConnection(this.cortiStreaming);
         if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
           return { success: true, alreadyWarm: true };
         }

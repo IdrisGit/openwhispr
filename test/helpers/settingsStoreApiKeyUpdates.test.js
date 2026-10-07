@@ -126,6 +126,54 @@ test("the next batch dictation reads the changed key, not its populated cache", 
   }
 });
 
+test("a changed key re-warms streaming dictation without opening the mic", async (t) => {
+  const warmups = [];
+  const context = await loadSettings(t, {
+    deepgramStreamingWarmup: async (options) => {
+      warmups.push(options);
+      return { success: true };
+    },
+  });
+  await context.initializeSettings();
+  const { default: AudioManager } = await context.vite.ssrLoadModule("/helpers/audioManager.js");
+  const manager = new AudioManager();
+  const runs = [];
+  const warmup = manager.warmupStreamingConnection.bind(manager);
+  manager.warmupStreamingConnection = (options) => {
+    runs.push(warmup(options));
+    return runs.at(-1);
+  };
+  let micOpens = 0;
+  const { getUserMedia } = navigator.mediaDevices;
+  navigator.mediaDevices.getUserMedia = (...args) => {
+    micOpens += 1;
+    return getUserMedia(...args);
+  };
+  try {
+    context.useSettingsStore.setState({
+      useLocalWhisper: false,
+      transcriptionMode: "providers",
+      cloudTranscriptionMode: "byok",
+      cloudTranscriptionProvider: "deepgram",
+    });
+    context.keys.set("deepgramApiKey", "new-deepgramApiKey");
+    await context.update("deepgramApiKey");
+    assert.equal(runs.length, 1);
+    assert.equal(await runs[0], true);
+    assert.equal(warmups[0].mode, "byok");
+    assert.equal(micOpens, 0);
+
+    // A dictation in progress keeps its connection; the post-dictation re-warm
+    // picks the new key up.
+    manager.isRecording = true;
+    context.keys.set("deepgramApiKey", "newer-deepgramApiKey");
+    await context.update("deepgramApiKey");
+    assert.equal(runs.length, 1);
+  } finally {
+    manager.cleanup();
+  }
+});
+
 for (const { name, value, failHydration } of [
   { name: "replacement", value: "new-custom" },
   { name: "removal", value: "" },

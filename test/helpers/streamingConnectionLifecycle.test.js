@@ -86,6 +86,35 @@ for (const [name, StreamingClient] of [
   });
 }
 
+// ipcHandlers.js drops a stale warm socket and warms a new one straight away; the
+// dropped socket's close arrives afterwards and must not tear the new one down.
+for (const [name, StreamingClient] of [
+  ["AssemblyAI", AssemblyAiStreaming],
+  ["Deepgram", DeepgramStreaming],
+  ["Corti", CortiStreaming],
+]) {
+  test(`${name} keeps a replacement warm socket when the dropped one closes`, async () => {
+    await withWarmServer(async (url) => {
+      const streaming = new StreamingClient();
+      streaming.buildWebSocketUrl = () => url;
+      const options = { token: "t", environment: "us", tenant: "base", credentialGeneration: 1 };
+      try {
+        await streaming.warmup(options);
+        const dropped = streaming.warmConnection;
+        const droppedClosed = new Promise((resolve) => dropped.once("close", resolve));
+        streaming.cleanupWarmConnection();
+        await streaming.warmup({ ...options, credentialGeneration: 2 });
+        await droppedClosed;
+        assert.equal(streaming.hasWarmConnection(), true);
+        assert.equal(streaming.warmConnectionOptions.credentialGeneration, 2);
+        assert.equal(streaming.rewarmTimer ?? null, null);
+      } finally {
+        streaming.cleanupWarmConnection();
+      }
+    });
+  });
+}
+
 // A Corti socket is opened against one region and tenant, so a start for
 // another must not ride it.
 for (const [label, requested, connections] of [
