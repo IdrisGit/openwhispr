@@ -180,7 +180,10 @@ const {
   getMeetingStreamingClient,
   getMeetingConnectionKey,
 } = require("./meetingStreamingProviders");
-const { fetchRealtimeTokenForProvider } = require("./realtimeTokenProviders");
+const {
+  REALTIME_TOKEN_PROVIDERS,
+  fetchRealtimeTokenForProvider,
+} = require("./realtimeTokenProviders");
 const { getCalendarAvailability } = require("./calendarAvailabilityService");
 
 // Meeting capture runs at 24 kHz (see meetingRecordingStore AudioContext); cloud
@@ -1610,9 +1613,21 @@ class IPCHandlers {
       return this.windowManager.resizeDictationErrorWindowToContent(surfaceHeight);
     });
 
+    const saveSecretKey = (method, storeKey) => (event, key) => {
+      if (typeof key !== "string") throw new TypeError("API key must be a string");
+      const result = this.environmentManager[method](key);
+      // Notify peers by setting name only; leave the editor's pending input alone.
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+          win.webContents.send("api-key-updated", storeKey);
+        }
+      }
+      return result;
+    };
+
     for (const k of BYOK_API_KEYS) {
       ipcMain.handle(`get-${k.base}-key`, () => this.environmentManager[k.get]());
-      ipcMain.handle(`save-${k.base}-key`, (event, key) => this.environmentManager[k.save](key));
+      ipcMain.handle(`save-${k.base}-key`, saveSecretKey(k.save, k.storeKey));
     }
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
@@ -4735,17 +4750,16 @@ class IPCHandlers {
       return this.environmentManager.getCortiClientId();
     });
 
-    ipcMain.handle("save-corti-client-id", async (event, key) => {
-      return this.environmentManager.saveCortiClientId(key);
-    });
+    ipcMain.handle("save-corti-client-id", saveSecretKey("saveCortiClientId", "cortiClientId"));
 
     ipcMain.handle("get-corti-client-secret", async () => {
       return this.environmentManager.getCortiClientSecret();
     });
 
-    ipcMain.handle("save-corti-client-secret", async (event, key) => {
-      return this.environmentManager.saveCortiClientSecret(key);
-    });
+    ipcMain.handle(
+      "save-corti-client-secret",
+      saveSecretKey("saveCortiClientSecret", "cortiClientSecret")
+    );
 
     ipcMain.handle(
       "proxy-corti-transcription",
@@ -4810,17 +4824,19 @@ class IPCHandlers {
       return this.environmentManager.getCustomTranscriptionKey();
     });
 
-    ipcMain.handle("save-custom-transcription-key", async (event, key) => {
-      return this.environmentManager.saveCustomTranscriptionKey(key);
-    });
+    ipcMain.handle(
+      "save-custom-transcription-key",
+      saveSecretKey("saveCustomTranscriptionKey", "customTranscriptionApiKey")
+    );
 
     ipcMain.handle("get-cleanup-custom-key", async () => {
       return this.environmentManager.getCleanupCustomKey();
     });
 
-    ipcMain.handle("save-cleanup-custom-key", async (event, key) => {
-      return this.environmentManager.saveCleanupCustomKey(key);
-    });
+    ipcMain.handle(
+      "save-cleanup-custom-key",
+      saveSecretKey("saveCleanupCustomKey", "cleanupCustomApiKey")
+    );
 
     // Enterprise provider key handlers
     ipcMain.handle("get-bedrock-region", async () => {
@@ -4838,21 +4854,24 @@ class IPCHandlers {
     ipcMain.handle("get-bedrock-access-key-id", async () => {
       return this.environmentManager.getBedrockAccessKeyId();
     });
-    ipcMain.handle("save-bedrock-access-key-id", async (event, key) => {
-      return this.environmentManager.saveBedrockAccessKeyId(key);
-    });
+    ipcMain.handle(
+      "save-bedrock-access-key-id",
+      saveSecretKey("saveBedrockAccessKeyId", "bedrockAccessKeyId")
+    );
     ipcMain.handle("get-bedrock-secret-access-key", async () => {
       return this.environmentManager.getBedrockSecretAccessKey();
     });
-    ipcMain.handle("save-bedrock-secret-access-key", async (event, key) => {
-      return this.environmentManager.saveBedrockSecretAccessKey(key);
-    });
+    ipcMain.handle(
+      "save-bedrock-secret-access-key",
+      saveSecretKey("saveBedrockSecretAccessKey", "bedrockSecretAccessKey")
+    );
     ipcMain.handle("get-bedrock-session-token", async () => {
       return this.environmentManager.getBedrockSessionToken();
     });
-    ipcMain.handle("save-bedrock-session-token", async (event, key) => {
-      return this.environmentManager.saveBedrockSessionToken(key);
-    });
+    ipcMain.handle(
+      "save-bedrock-session-token",
+      saveSecretKey("saveBedrockSessionToken", "bedrockSessionToken")
+    );
     ipcMain.handle("get-azure-endpoint", async () => {
       return this.environmentManager.getAzureEndpoint();
     });
@@ -4862,9 +4881,7 @@ class IPCHandlers {
     ipcMain.handle("get-azure-api-key", async () => {
       return this.environmentManager.getAzureApiKey();
     });
-    ipcMain.handle("save-azure-api-key", async (event, key) => {
-      return this.environmentManager.saveAzureApiKey(key);
-    });
+    ipcMain.handle("save-azure-api-key", saveSecretKey("saveAzureApiKey", "azureApiKey"));
     ipcMain.handle("get-azure-deployment", async () => {
       return this.environmentManager.getAzureDeployment();
     });
@@ -4892,9 +4909,7 @@ class IPCHandlers {
     ipcMain.handle("get-vertex-api-key", async () => {
       return this.environmentManager.getVertexApiKey();
     });
-    ipcMain.handle("save-vertex-api-key", async (event, key) => {
-      return this.environmentManager.saveVertexApiKey(key);
-    });
+    ipcMain.handle("save-vertex-api-key", saveSecretKey("saveVertexApiKey", "vertexApiKey"));
 
     // Enterprise provider test connection
     ipcMain.handle("test-enterprise-connection", async (event, provider, config) => {
@@ -9400,6 +9415,13 @@ class IPCHandlers {
 
     let dictationWarmupQueue = Promise.resolve();
     ipcMain.handle("dictation-realtime-warmup", (event, options = {}) => {
+      const provider = options.provider || "openai-realtime";
+      if (
+        (options.mode === "byok" || provider === "tinfoil-realtime") &&
+        (provider === "orukeet" || Object.hasOwn(REALTIME_TOKEN_PROVIDERS, provider))
+      ) {
+        return { success: true, skipped: true };
+      }
       const warmup = dictationWarmupQueue
         .then(() => warmupDictationStreaming(event, options))
         .catch(streamingStartFailure);
@@ -9412,6 +9434,8 @@ class IPCHandlers {
         clearDictationIdleTimer();
         this._dictationPreviewEnabled = !!options.preview;
         if (
+          options.mode === "byok" ||
+          options.provider === "tinfoil-realtime" ||
           !this._dictationStreaming?.isConnected ||
           this._dictationStreaming.connectionKey !== dictationConnectionKey(options)
         ) {
@@ -10849,6 +10873,7 @@ class IPCHandlers {
     ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
       try {
         const byok = options.mode === "byok";
+        if (byok) return { success: true, skipped: true };
         if (!byok && !getApiUrl()) {
           return { success: false, error: "API not configured", code: "NO_API" };
         }
@@ -10900,6 +10925,7 @@ class IPCHandlers {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
         this.assemblyAiStreaming.adoptMode(options);
+        if (byok) this.assemblyAiStreaming.cleanupWarmConnection();
 
         // Clean up any stale active connection (shouldn't happen normally)
         if (this.assemblyAiStreaming.isConnected) {
@@ -11098,6 +11124,7 @@ class IPCHandlers {
     ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
       try {
         const byok = options.mode === "byok";
+        if (byok) return { success: true, skipped: true };
         if (!byok && !getApiUrl()) {
           return { success: false, error: "API not configured", code: "NO_API" };
         }
@@ -11168,6 +11195,7 @@ class IPCHandlers {
           this.deepgramStreaming = new DeepgramStreaming();
         }
         this.deepgramStreaming.adoptMode(options);
+        if (byok) this.deepgramStreaming.cleanupWarmConnection();
 
         setDeepgramTokenRefreshFn(event, byok);
 
@@ -11353,6 +11381,7 @@ class IPCHandlers {
 
     ipcMain.handle("gemini-streaming-warmup", async (event, options = {}) => {
       try {
+        if (options.mode === "byok") return { success: true, skipped: true };
         if (this.geminiStreaming?.isConnected) {
           ensureGeminiStreaming(event);
           debugLogger.debug("Gemini Live connection already warm", {}, "streaming");
@@ -11376,7 +11405,8 @@ class IPCHandlers {
       try {
         const streaming = ensureGeminiStreaming(event);
         if (geminiConnectInFlight) await geminiConnectInFlight;
-        const usedWarmConnection = streaming.isConnected && !options.forceNew;
+        const usedWarmConnection =
+          options.mode !== "byok" && streaming.isConnected && !options.forceNew;
         if (!usedWarmConnection) {
           if (streaming.isConnected) await streaming.disconnect(false);
           await connectGeminiStreaming(event, options);
@@ -11452,33 +11482,14 @@ class IPCHandlers {
       return this.geminiStreaming.getStatus();
     });
 
-    ipcMain.handle("corti-streaming-warmup", async (_event, options = {}) => {
-      try {
-        if (!this.cortiStreaming) {
-          this.cortiStreaming = new CortiStreaming();
-        }
-        if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
-          return { success: true, alreadyWarm: true };
-        }
-        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
-        await this.cortiStreaming.warmup({
-          token,
-          environment,
-          tenant,
-          language: options.language,
-          keyterms: options.keyterms,
-        });
-        return { success: true };
-      } catch (error) {
-        return { success: false, error: error.message, code: error.code };
-      }
-    });
+    ipcMain.handle("corti-streaming-warmup", () => ({ success: true, skipped: true }));
 
     ipcMain.handle("corti-streaming-start", async (event, options = {}) => {
       try {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
+        this.cortiStreaming.cleanupWarmConnection();
         if (this.cortiStreaming.isConnected) {
           await this.cortiStreaming.disconnect(false);
         }

@@ -4450,8 +4450,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
         this.warmupFailureStreak = 0;
         logger.info(
-          "Streaming connection warmed up",
-          { alreadyWarm: wsResult.alreadyWarm, micCached: !!this.cachedMicDeviceId },
+          "Streaming resources warmed up",
+          {
+            socketWarmed: !wsResult.skipped,
+            alreadyWarm: wsResult.alreadyWarm,
+            micCached: !!this.cachedMicDeviceId,
+          },
           "streaming"
         );
         return true;

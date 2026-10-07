@@ -59,6 +59,24 @@ test("OpenAI dictation realtime requests identify the token provider", async (t)
   ]);
 });
 
+test("skipped BYOK socket warmup still warms the microphone and worklet", async (t) => {
+  const manager = await loadManager(t);
+  setSettings();
+  const warmed = [];
+  manager.cacheMicrophoneDeviceId = async () => warmed.push("mic-device");
+  manager.getWorkletBlobUrl = () => "test-worklet";
+  manager.getOrCreateAudioContext = async () => ({
+    audioWorklet: { addModule: async () => warmed.push("worklet") },
+  });
+  manager._warmMicDriverIfCold = async () => warmed.push("mic-driver");
+  globalThis.window.electronAPI.dictationRealtimeWarmup = async () => ({
+    success: true,
+    skipped: true,
+  });
+  assert.equal(await manager.warmupStreamingConnection(), true);
+  assert.deepEqual(warmed, ["mic-device", "worklet", "mic-driver"]);
+});
+
 test("Gemini's live model routes onto the gemini-streaming-* channels", async (t) => {
   const manager = await loadManager(t);
   setSettings({
