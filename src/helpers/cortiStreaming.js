@@ -35,6 +35,7 @@ class CortiStreaming {
     this.sampleRate = SAMPLE_RATE;
     this.warmConnection = null;
     this.warmConnectionReady = false;
+    this.warmConnectionOptions = null;
     this.warmSessionId = null;
     this.warmSessionStartedAt = null;
     this.keepAliveInterval = null;
@@ -178,6 +179,7 @@ class CortiStreaming {
     }
 
     this.warmConnectionReady = false;
+    this.warmConnectionOptions = options;
     this.warmSessionId = null;
     this.sampleRate = options.sampleRate || SAMPLE_RATE;
 
@@ -316,6 +318,7 @@ class CortiStreaming {
       this.warmConnection = null;
     }
     this.warmConnectionReady = false;
+    this.warmConnectionOptions = null;
     this.warmSessionId = null;
     this.warmSessionStartedAt = null;
   }

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
 const { BYOK_API_KEYS } = require("../../src/config/secretKeys");
+const { deferred } = require("./harness/deferred");
 
 const bindings = [
   ...BYOK_API_KEYS.map((key) => ({ ...key, channel: `save-${key.base}-key` })),
@@ -30,7 +31,8 @@ const windows = [1, 2, 3].map((id) => ({
   isDestroyed: () => id === 3,
   webContents: { id, send: (...args) => notifications.push([id, ...args]) },
 }));
-let fetchToken = async (key) => `token-${key}`;
+const mintToken = async (key) => `token-${key}`;
+let fetchToken = mintToken;
 const environmentManager = Object.fromEntries(
   bindings.flatMap(({ get, save, storeKey }) => [
     [get, () => keys.get(storeKey) || ""],
@@ -44,10 +46,16 @@ const environmentManager = Object.fromEntries(
   ])
 );
 
+// The warm-socket contract the real clients share: a warmup records its options
+// only when it opens the socket (one already open or opening wins), cleanup
+// forgets both, and connect rides a warm socket when one is there.
 class FakeStreaming {
   warmToken = null;
+  warmConnectionOptions = null;
   cachedToken = null;
   isConnected = false;
+  rodeWarm = false;
+  disconnects = 0;
   adoptMode() {}
   beginConnecting() {}
   setTokenRefreshFn() {}
@@ -62,16 +70,24 @@ class FakeStreaming {
   }
   cleanupWarmConnection() {
     this.warmToken = null;
+    this.warmConnectionOptions = null;
   }
-  async warmup({ token }) {
-    this.warmToken = token;
+  cleanupAll() {
+    this.cleanupWarmConnection();
+  }
+  async warmup(options) {
+    if (this.warmToken !== null) return;
+    this.warmToken = options.token;
+    this.warmConnectionOptions = options;
   }
   async connect({ token, apiKey }) {
+    this.rodeWarm = this.warmToken !== null;
     this.token = this.warmToken || token || apiKey;
     this.warmToken = null;
     this.isConnected = true;
   }
   async disconnect() {
+    this.disconnects += 1;
     this.isConnected = false;
     this.warmToken = null;
     return { text: "" };
@@ -95,9 +111,13 @@ const electron = {
     fromWebContents: () => windows[1],
   },
   net: {
+    // BYOK mints present the saved key; managed ones present the account session.
     fetch: async (_url, init) => ({
       ok: true,
-      json: async () => ({ token: await fetchToken(init.headers.Authorization) }),
+      json: async () => {
+        const token = await fetchToken(init.headers.Authorization);
+        return { token, clientSecret: token };
+      },
     }),
   },
   shell: {},
@@ -123,6 +143,12 @@ Module._load = function (request, parent, isMain) {
     if (request === "./geminiLiveStreaming")
       return { GeminiLiveStreaming: FakeStreaming, GEMINI_LIVE_MODEL: "gemini-live" };
     if (request === "./debugLogger") return new Proxy({}, { get: () => () => {} });
+    if (request === "./tokenStore")
+      return {
+        get: () => "account",
+        getState: () => ({ token: "account", generation: 1 }),
+        subscribe: () => () => {},
+      };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -165,6 +191,20 @@ test.before(() => {
 });
 const invoke = (channel, ...args) => handlers.get(channel)({ sender: editor }, ...args);
 
+// Managed starts mint from the account, which needs an API URL.
+function withManagedApi(t) {
+  const previous = process.env.OPENWHISPR_API_URL;
+  process.env.OPENWHISPR_API_URL = "https://api.openwhispr.test";
+  t.after(() => {
+    if (previous === undefined) delete process.env.OPENWHISPR_API_URL;
+    else process.env.OPENWHISPR_API_URL = previous;
+  });
+}
+
+// Gemini keeps one connection, warm or live, so its start reports the reuse.
+const rodeWarm = (provider, property, result) =>
+  provider === "gemini" ? result.usedWarmConnection : target[property].rodeWarm;
+
 test("every secret saver notifies peers by name only, including removal", () => {
   for (const { channel, storeKey, get } of bindings) {
     for (const value of ["secret-sentinel", ""]) {
@@ -180,60 +220,197 @@ test("every secret saver notifies peers by name only, including removal", () => 
   );
 });
 
-for (const [provider, property, saveChannel, usesToken] of [
-  ["assemblyai", "assemblyAiStreaming", "save-assemblyai-key", true],
-  ["deepgram", "deepgramStreaming", "save-deepgram-key", false],
-  ["corti", "cortiStreaming", "save-corti-client-secret", true],
-  ["gemini", "geminiStreaming", "save-gemini-key", false],
-]) {
-  test(`${provider}: BYOK skips warmup and uses the new key at start`, async () => {
+// provider, the instance it keeps, the saver of the key it reads, and the session
+// token that key mints.
+const STREAMING = [
+  ["assemblyai", "assemblyAiStreaming", "save-assemblyai-key", (key) => `token-${key}`],
+  ["deepgram", "deepgramStreaming", "save-deepgram-key", (key) => key],
+  ["corti", "cortiStreaming", "save-corti-client-secret", (key) => `token-${key}`],
+  ["gemini", "geminiStreaming", "save-gemini-key", (key) => key],
+];
+
+for (const [provider, property, saveChannel, tokenFor] of STREAMING) {
+  test(`${provider}: a BYOK start rides the socket its warmup opened`, async () => {
     target[property] = null;
-    fetchToken = async (key) => `token-${key}`;
     invoke(saveChannel, "A");
     assert.deepEqual(await invoke(`${provider}-streaming-warmup`, { mode: "byok" }), {
       success: true,
-      skipped: true,
     });
-    assert.equal(target[property], null);
-    assert.equal((await invoke(`${provider}-streaming-start`, { mode: "byok" })).success, true);
-    assert.equal(target[property].token, usesToken ? "token-A" : "A");
-    target[property].warmToken = "stale-token";
-    target[property].cachedToken = "stale-token";
+    const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    assert.equal(result.success, true);
+    assert.equal(rodeWarm(provider, property, result), true);
+    assert.equal(target[property].token, tokenFor("A"));
+  });
+
+  test(`${provider}: a key saved after the warmup reaches the next start`, async () => {
+    target[property] = null;
+    invoke(saveChannel, "A");
+    await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
     invoke(saveChannel, "B");
-    assert.equal((await invoke(`${provider}-streaming-start`, { mode: "byok" })).success, true);
-    assert.equal(target[property].token, usesToken ? "token-B" : "B");
+    const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    assert.equal(result.success, true);
+    assert.equal(rodeWarm(provider, property, result), false);
+    assert.equal(target[property].token, tokenFor("B"));
+  });
+
+  test(`${provider}: a warmup after a key save does not vouch for the socket it finds`, async () => {
+    target[property] = null;
+    invoke(saveChannel, "A");
+    await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
+    invoke(saveChannel, "B");
+    assert.equal(
+      (await invoke(`${provider}-streaming-warmup`, { mode: "byok" })).alreadyWarm,
+      true
+    );
+    const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    assert.equal(rodeWarm(provider, property, result), false);
+    assert.equal(target[property].token, tokenFor("B"));
+  });
+
+  test(`${provider}: a key saved mid-session leaves the live session alone`, async () => {
+    target[property] = null;
+    invoke(saveChannel, "A");
+    await invoke(`${provider}-streaming-warmup`, { mode: "byok" });
+    await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    const live = target[property];
+    invoke(saveChannel, "B");
+    assert.equal(target[property], live);
+    assert.equal(live.isConnected, true);
+    assert.equal(live.disconnects, 0);
   });
 }
 
-for (const [provider, saveChannel] of [
-  ["openai-realtime", "save-openai-key"],
-  ["tinfoil-realtime", "save-tinfoil-key"],
-  ["orukeet", "save-custom-transcription-key"],
-]) {
-  test(`${provider}: BYOK opens a fresh connection for each start`, async () => {
-    target._dictationStreaming = null;
-    const options = { mode: "byok", provider, baseUrl: "https://example.com/v1" };
-    invoke(saveChannel, "A");
-    assert.deepEqual(await invoke("dictation-realtime-warmup", options), {
+for (const [provider, property, saveChannel] of STREAMING.filter(([name]) => name !== "corti")) {
+  test(`${provider}: a key save leaves a managed warm socket in place`, async (t) => {
+    withManagedApi(t);
+    target[property] = null;
+    assert.deepEqual(await invoke(`${provider}-streaming-warmup`, { mode: "openwhispr" }), {
       success: true,
-      skipped: true,
     });
-    assert.equal(target._dictationStreaming, null);
+    invoke(saveChannel, "B");
+    const result = await invoke(`${provider}-streaming-start`, { mode: "openwhispr" });
+    assert.equal(result.success, true);
+    assert.equal(rodeWarm(provider, property, result), true);
+  });
+}
+
+for (const [provider, property, saveChannel] of STREAMING.filter(([name]) =>
+  ["assemblyai", "corti"].includes(name)
+)) {
+  test(`${provider}: a key saved while the warmup mints is not ridden by the next start`, async (t) => {
+    t.after(() => (fetchToken = mintToken));
+    target[property] = null;
+    invoke(saveChannel, "A");
+    const minted = deferred();
+    fetchToken = async (key) => {
+      await minted.promise;
+      return mintToken(key);
+    };
+    const warming = invoke(`${provider}-streaming-warmup`, { mode: "byok" });
+    invoke(saveChannel, "B");
+    minted.resolve();
+    assert.deepEqual(await warming, { success: true });
+    const result = await invoke(`${provider}-streaming-start`, { mode: "byok" });
+    assert.equal(result.success, true);
+    assert.equal(rodeWarm(provider, property, result), false);
+    assert.equal(target[property].token, "token-B");
+  });
+}
+
+test("assemblyai: a socket opened on the old key loses to the save, even when it wins the race", async (t) => {
+  t.after(() => (fetchToken = mintToken));
+  target.assemblyAiStreaming = null;
+  invoke("save-assemblyai-key", "A");
+  const minted = { A: deferred(), B: deferred() };
+  fetchToken = async (key) => {
+    await minted[key].promise;
+    return mintToken(key);
+  };
+  const first = invoke("assemblyai-streaming-warmup", { mode: "byok" });
+  invoke("save-assemblyai-key", "B");
+  const second = invoke("assemblyai-streaming-warmup", { mode: "byok" });
+  minted.A.resolve();
+  await first;
+  // The second warmup finds the first one's socket open and keeps it.
+  minted.B.resolve();
+  await second;
+  const result = await invoke("assemblyai-streaming-start", { mode: "byok" });
+  assert.equal(result.success, true);
+  assert.equal(target.assemblyAiStreaming.rodeWarm, false);
+  assert.equal(target.assemblyAiStreaming.token, "token-B");
+});
+
+test("gemini: a warm socket never crosses between managed and BYOK", async (t) => {
+  withManagedApi(t);
+  target.geminiStreaming = null;
+  invoke("save-gemini-key", "A");
+  await invoke("gemini-streaming-warmup", { mode: "openwhispr" });
+  let result = await invoke("gemini-streaming-start", { mode: "byok" });
+  assert.equal(result.usedWarmConnection, false);
+  assert.equal(target.geminiStreaming.token, "A");
+  await invoke("gemini-streaming-stop");
+  await invoke("gemini-streaming-warmup", { mode: "byok" });
+  result = await invoke("gemini-streaming-start", { mode: "openwhispr" });
+  assert.equal(result.usedWarmConnection, false);
+  assert.equal(target.geminiStreaming.token, "token-Bearer account");
+});
+
+// Tinfoil reads the saved key whatever the transcription mode says.
+for (const [provider, saveChannel, mode] of [
+  ["openai-realtime", "save-openai-key", "byok"],
+  ["tinfoil-realtime", "save-tinfoil-key", "byok"],
+  ["tinfoil-realtime", "save-tinfoil-key", "openwhispr"],
+  ["orukeet", "save-custom-transcription-key", "byok"],
+]) {
+  const options = { mode, provider, baseUrl: "https://example.com/v1" };
+
+  test(`${provider} (${mode}): a start rides the connection its warmup opened`, async (t) => {
+    t.after(() => invoke("dictation-realtime-stop"));
+    target._dictationStreaming = null;
+    invoke(saveChannel, "A");
+    assert.deepEqual(await invoke("dictation-realtime-warmup", options), { success: true });
+    const warmed = target._dictationStreaming;
     assert.equal((await invoke("dictation-realtime-start", options)).success, true);
-    const previous = target._dictationStreaming;
-    assert.equal(previous.token, "A");
+    assert.equal(target._dictationStreaming, warmed);
+    assert.equal(warmed.token, "A");
+  });
+
+  test(`${provider} (${mode}): a key saved after the warmup reaches the next start`, async (t) => {
+    t.after(() => invoke("dictation-realtime-stop"));
+    target._dictationStreaming = null;
+    invoke(saveChannel, "A");
+    await invoke("dictation-realtime-warmup", options);
+    const warmed = target._dictationStreaming;
     invoke(saveChannel, "B");
     assert.equal((await invoke("dictation-realtime-start", options)).success, true);
-    assert.notEqual(target._dictationStreaming, previous);
+    assert.notEqual(target._dictationStreaming, warmed);
     assert.equal(target._dictationStreaming.token, "B");
   });
+
+  test(`${provider} (${mode}): a key saved mid-session leaves the live session alone`, async (t) => {
+    t.after(() => invoke("dictation-realtime-stop"));
+    target._dictationStreaming = null;
+    invoke(saveChannel, "A");
+    await invoke("dictation-realtime-warmup", options);
+    await invoke("dictation-realtime-start", options);
+    const live = target._dictationStreaming;
+    invoke(saveChannel, "B");
+    assert.equal(target._dictationStreaming, live);
+    assert.equal(live.isConnected, true);
+    assert.equal(live.disconnects, 0);
+  });
 }
 
-test("Tinfoil does not prewarm even when the saved mode is managed", async () => {
-  assert.deepEqual(
-    await invoke("dictation-realtime-warmup", { mode: "openwhispr", provider: "tinfoil-realtime" }),
-    { success: true, skipped: true }
-  );
+test("openai-realtime: a key save leaves a managed warm connection in place", async (t) => {
+  withManagedApi(t);
+  t.after(() => invoke("dictation-realtime-stop"));
+  const options = { mode: "openwhispr", provider: "openai-realtime" };
+  target._dictationStreaming = null;
+  assert.deepEqual(await invoke("dictation-realtime-warmup", options), { success: true });
+  const warmed = target._dictationStreaming;
+  invoke("save-openai-key", "B");
+  assert.equal((await invoke("dictation-realtime-start", options)).success, true);
+  assert.equal(target._dictationStreaming, warmed);
 });
 
 test("an unknown realtime provider still fails closed", async () => {

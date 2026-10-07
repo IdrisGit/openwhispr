@@ -180,10 +180,7 @@ const {
   getMeetingStreamingClient,
   getMeetingConnectionKey,
 } = require("./meetingStreamingProviders");
-const {
-  REALTIME_TOKEN_PROVIDERS,
-  fetchRealtimeTokenForProvider,
-} = require("./realtimeTokenProviders");
+const { fetchRealtimeTokenForProvider } = require("./realtimeTokenProviders");
 const { getCalendarAvailability } = require("./calendarAvailabilityService");
 
 // Meeting capture runs at 24 kHz (see meetingRecordingStore AudioContext); cloud
@@ -1613,9 +1610,13 @@ class IPCHandlers {
       return this.windowManager.resizeDictationErrorWindowToContent(surfaceHeight);
     });
 
+    // Counts saves of any key in Settings. A streaming socket keeps the count it
+    // was opened under, so a start never reuses one authenticated before a save.
+    let credentialGeneration = 0;
     const saveSecretKey = (method, storeKey) => (event, key) => {
       if (typeof key !== "string") throw new TypeError("API key must be a string");
       const result = this.environmentManager[method](key);
+      credentialGeneration += 1;
       // Notify peers by setting name only; leave the editor's pending input alone.
       for (const win of BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
@@ -8649,14 +8650,18 @@ class IPCHandlers {
     };
 
     // What a dictation connection was opened for; a start or warmup reuses one
-    // only when nothing about the route changed.
-    const dictationConnectionKey = (options) =>
-      JSON.stringify([
-        options.provider || "openai-realtime",
+    // only when nothing about the route changed and no key it read was saved since.
+    const dictationConnectionKey = (options) => {
+      const provider = options.provider || "openai-realtime";
+      const readsSavedKey = options.mode === "byok" || provider === "tinfoil-realtime";
+      return JSON.stringify([
+        provider,
         options.mode,
         options.model,
         options.baseUrl,
+        readsSavedKey ? credentialGeneration : null,
       ]);
+    };
 
     const connectDictationStreaming = async (event, options) => {
       // Older renderers did not label the OpenAI dictation adapter. Dictation
@@ -9415,13 +9420,6 @@ class IPCHandlers {
 
     let dictationWarmupQueue = Promise.resolve();
     ipcMain.handle("dictation-realtime-warmup", (event, options = {}) => {
-      const provider = options.provider || "openai-realtime";
-      if (
-        (options.mode === "byok" || provider === "tinfoil-realtime") &&
-        (provider === "orukeet" || Object.hasOwn(REALTIME_TOKEN_PROVIDERS, provider))
-      ) {
-        return { success: true, skipped: true };
-      }
       const warmup = dictationWarmupQueue
         .then(() => warmupDictationStreaming(event, options))
         .catch(streamingStartFailure);
@@ -9434,8 +9432,6 @@ class IPCHandlers {
         clearDictationIdleTimer();
         this._dictationPreviewEnabled = !!options.preview;
         if (
-          options.mode === "byok" ||
-          options.provider === "tinfoil-realtime" ||
           !this._dictationStreaming?.isConnected ||
           this._dictationStreaming.connectionKey !== dictationConnectionKey(options)
         ) {
@@ -10870,10 +10866,17 @@ class IPCHandlers {
         ? fetchRealtimeToken(event, { mode: "byok", provider: "assemblyai-realtime" })
         : fetchStreamingToken(event);
 
+    // A warm socket opened before the latest key save still carries the old key;
+    // dropping it sends the start out on a fresh connect with the new one.
+    const dropStaleWarmConnection = (streaming) => {
+      if (streaming.warmConnectionOptions?.credentialGeneration !== credentialGeneration) {
+        streaming.cleanupWarmConnection();
+      }
+    };
+
     ipcMain.handle("assemblyai-streaming-warmup", async (event, options = {}) => {
       try {
         const byok = options.mode === "byok";
-        if (byok) return { success: true, skipped: true };
         if (!byok && !getApiUrl()) {
           return { success: false, error: "API not configured", code: "NO_API" };
         }
@@ -10888,13 +10891,19 @@ class IPCHandlers {
           return { success: true, alreadyWarm: true };
         }
 
+        // Read before the key is, so a save during the mint marks this socket stale.
+        const generation = credentialGeneration;
         let token = byok ? null : this.assemblyAiStreaming.getCachedToken();
         if (!token) {
           debugLogger.debug("Fetching new streaming token for warmup", { byok }, "streaming");
           token = await fetchAssemblyAiToken(event, byok);
         }
 
-        await this.assemblyAiStreaming.warmup({ ...options, token });
+        await this.assemblyAiStreaming.warmup({
+          ...options,
+          token,
+          credentialGeneration: generation,
+        });
         debugLogger.debug("AssemblyAI connection warmed up", {}, "streaming");
 
         return { success: true };
@@ -10925,7 +10934,7 @@ class IPCHandlers {
           this.assemblyAiStreaming = new AssemblyAiStreaming();
         }
         this.assemblyAiStreaming.adoptMode(options);
-        if (byok) this.assemblyAiStreaming.cleanupWarmConnection();
+        if (byok) dropStaleWarmConnection(this.assemblyAiStreaming);
 
         // Clean up any stale active connection (shouldn't happen normally)
         if (this.assemblyAiStreaming.isConnected) {
@@ -11124,7 +11133,6 @@ class IPCHandlers {
     ipcMain.handle("deepgram-streaming-warmup", async (event, options = {}) => {
       try {
         const byok = options.mode === "byok";
-        if (byok) return { success: true, skipped: true };
         if (!byok && !getApiUrl()) {
           return { success: false, error: "API not configured", code: "NO_API" };
         }
@@ -11146,6 +11154,7 @@ class IPCHandlers {
           return { success: true, alreadyWarm: true };
         }
 
+        const generation = credentialGeneration;
         let token = byok ? null : this.deepgramStreaming.getCachedToken();
         if (!token) {
           debugLogger.debug(
@@ -11156,7 +11165,11 @@ class IPCHandlers {
           token = await fetchDeepgramToken(event, byok);
         }
 
-        await this.deepgramStreaming.warmup({ ...options, token });
+        await this.deepgramStreaming.warmup({
+          ...options,
+          token,
+          credentialGeneration: generation,
+        });
         debugLogger.debug("Deepgram connection warmed up", {}, "streaming");
 
         return { success: true };
@@ -11195,7 +11208,7 @@ class IPCHandlers {
           this.deepgramStreaming = new DeepgramStreaming();
         }
         this.deepgramStreaming.adoptMode(options);
-        if (byok) this.deepgramStreaming.cleanupWarmConnection();
+        if (byok) dropStaleWarmConnection(this.deepgramStreaming);
 
         setDeepgramTokenRefreshFn(event, byok);
 
@@ -11357,6 +11370,11 @@ class IPCHandlers {
       return streaming;
     };
 
+    // What a Gemini connection authenticated with: a managed one never serves a
+    // BYOK start or the reverse, and a BYOK one never outlives a key save.
+    const geminiConnectionKey = (options) =>
+      options.mode === "byok" ? `byok:${credentialGeneration}` : "managed";
+
     const connectGeminiStreaming = (event, options) => {
       if (geminiConnectInFlight) return geminiConnectInFlight;
       geminiConnectInFlight = (async () => {
@@ -11367,6 +11385,7 @@ class IPCHandlers {
         // Buffer before the token fetch (a real network round trip) so
         // gemini-streaming-send has somewhere to put the first frames.
         streaming.beginConnecting();
+        streaming.connectionKey = geminiConnectionKey(options);
         const token = await fetchRealtimeToken(event, tokenOptions);
         await streaming.connect({
           ...options,
@@ -11381,7 +11400,6 @@ class IPCHandlers {
 
     ipcMain.handle("gemini-streaming-warmup", async (event, options = {}) => {
       try {
-        if (options.mode === "byok") return { success: true, skipped: true };
         if (this.geminiStreaming?.isConnected) {
           ensureGeminiStreaming(event);
           debugLogger.debug("Gemini Live connection already warm", {}, "streaming");
@@ -11406,7 +11424,9 @@ class IPCHandlers {
         const streaming = ensureGeminiStreaming(event);
         if (geminiConnectInFlight) await geminiConnectInFlight;
         const usedWarmConnection =
-          options.mode !== "byok" && streaming.isConnected && !options.forceNew;
+          streaming.isConnected &&
+          !options.forceNew &&
+          streaming.connectionKey === geminiConnectionKey(options);
         if (!usedWarmConnection) {
           if (streaming.isConnected) await streaming.disconnect(false);
           await connectGeminiStreaming(event, options);
@@ -11482,14 +11502,36 @@ class IPCHandlers {
       return this.geminiStreaming.getStatus();
     });
 
-    ipcMain.handle("corti-streaming-warmup", () => ({ success: true, skipped: true }));
+    ipcMain.handle("corti-streaming-warmup", async (_event, options = {}) => {
+      try {
+        if (!this.cortiStreaming) {
+          this.cortiStreaming = new CortiStreaming();
+        }
+        if (this.cortiStreaming.hasWarmConnection() || this.cortiStreaming.isConnected) {
+          return { success: true, alreadyWarm: true };
+        }
+        const generation = credentialGeneration;
+        const { token, environment, tenant } = await this._mintStoredCortiToken(options);
+        await this.cortiStreaming.warmup({
+          token,
+          environment,
+          tenant,
+          language: options.language,
+          keyterms: options.keyterms,
+          credentialGeneration: generation,
+        });
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error.message, code: error.code };
+      }
+    });
 
     ipcMain.handle("corti-streaming-start", async (event, options = {}) => {
       try {
         if (!this.cortiStreaming) {
           this.cortiStreaming = new CortiStreaming();
         }
-        this.cortiStreaming.cleanupWarmConnection();
+        dropStaleWarmConnection(this.cortiStreaming);
         if (this.cortiStreaming.isConnected) {
           await this.cortiStreaming.disconnect(false);
         }
