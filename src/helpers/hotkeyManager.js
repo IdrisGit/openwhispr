@@ -1261,15 +1261,13 @@ class HotkeyManager extends EventEmitter {
 
     if (backend) {
       this.activationCapabilityResolved = true;
-      // Native preference policy is deliberately localStorage first; bind only
-      // the primary key of a saved list, not the constructor placeholder.
+      // Native lookup is localStorage-first; bind the saved primary key.
       const hotkey = parseHotkeyList(await this.getSavedHotkey())[0] || DEFAULT_HOTKEY;
       this.assertStartupActive();
       this.resolvedStartupHotkey = hotkey;
       const register = async (key) => {
         this.assertStartupActive();
-        // A proven capability limitation may use Tap at runtime. A failed or
-        // pending registration never changes the saved activation preference.
+        // Failed or pending registration does not mean Hold is unsupported.
         const supersededPortal =
           backend === "GNOME" && this.startupRevision !== this.intentRevision;
         const mode =
@@ -1328,10 +1326,9 @@ class HotkeyManager extends EventEmitter {
           return false;
         }
       }
-      // Failure of the preferred native backend is not evidence that saved Hold
-      // is unsupported, even if an emergency non-native Tap binding can register.
+      // Keep Hold capability unresolved after native registration failure.
       this.activationCapabilityResolved = false;
-      // Complete cleanup before changing backend or restoring any optional slot.
+      // Finish cleanup before backend fallback.
       if (backend === "GNOME") {
         if (!(await this.gnomeManager.close())) {
           this.notifyHotkeyFailure(hotkey);

@@ -1129,10 +1129,9 @@ async function startApp() {
         const success = await windowManager.setActivationModeCache(mode);
         hotkeyManager.assertStartupActive();
         const effectiveMode = windowManager.getActivationMode();
-        if (intent !== activationIntent) return;
         if (success) {
           environmentManager.saveActivationMode(effectiveMode);
-        } else {
+        } else if (intent === activationIntent) {
           for (const browserWindow of BrowserWindow.getAllWindows()) {
             if (!browserWindow.isDestroyed()) {
               browserWindow.webContents.send("setting-updated", {
@@ -1367,6 +1366,7 @@ async function startApp() {
 
   updateManager.checkForUpdatesOnStartup();
 
+  let syncMacNativeHotkeyConfiguration = null;
   if (process.platform === "darwin") {
     const { isGlobeLikeHotkey, isMouseButtonHotkey } = require("./src/helpers/hotkeyManager");
     let globeKeyDownTime = 0;
@@ -1584,7 +1584,7 @@ async function startApp() {
     });
 
     const MAC_NATIVE_HOTKEY_SLOTS = ["dictation", "voiceAgent", "translation"];
-    const syncMacNativeHotkeyConfiguration = () => {
+    syncMacNativeHotkeyConfiguration = () => {
       globeKeyManager.setConfiguration(
         hotkeyManager.getMacNativeListenerConfig(MAC_NATIVE_HOTKEY_SLOTS)
       );
@@ -1884,6 +1884,8 @@ async function startApp() {
       hotkeyManager.notifyRestoreFailures(key, result);
     }
     if (hotkeyManager.isInListeningMode()) return { status: "capture" };
+    // Accessibility readiness can precede optional-slot restoration.
+    syncMacNativeHotkeyConfiguration?.();
     windowManager._startupHotkeySlotsReady = true;
     windowManager.reconcileNativeKeyListeners();
   };
