@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
-const { BYOK_API_KEYS } = require("../../src/config/secretKeys");
+const { createFakeSecretApi } = require("../lib/fakeSecretApi");
 
 function deferred() {
   let resolve, reject;
@@ -11,6 +11,8 @@ function deferred() {
   });
   return { promise, resolve, reject };
 }
+const timeoutMockTrackers = new WeakSet();
+
 async function load(t, api, initialStorage = {}) {
   installBrowserGlobals(t, {
     initialStorage: { _dictationAgentSeeded: "1", ...initialStorage },
@@ -25,10 +27,13 @@ async function load(t, api, initialStorage = {}) {
     },
   });
   const mod = await vite.ssrLoadModule("/stores/settingsStore.ts");
-  const timeout = globalThis.setTimeout;
-  t.mock.method(globalThis, "setTimeout", (fn, delay, ...args) =>
-    timeout(delay === 1000 ? () => {} : fn, delay === 1000 ? 0 : delay, ...args)
-  );
+  if (!timeoutMockTrackers.has(t.mock)) {
+    timeoutMockTrackers.add(t.mock);
+    const timeout = globalThis.setTimeout;
+    t.mock.method(globalThis, "setTimeout", (fn, delay, ...args) =>
+      timeout(delay === 1000 ? () => {} : fn, delay === 1000 ? 0 : delay, ...args)
+    );
+  }
   return mod;
 }
 
@@ -38,19 +43,13 @@ test("startup hydration and awaited migration never overwrite newer edits/clears
   const writes = [];
   let notifications = 0,
     reads = 0;
-  const api = {
-    ...Object.fromEntries(
-      BYOK_API_KEYS.flatMap((k) => [
-        [k.get, async () => ""],
-        [
-          k.save,
-          async (key) => {
-            writes.push({ field: k.storeKey, key });
-            return { success: true };
-          },
-        ],
-      ])
-    ),
+  const { api } = createFakeSecretApi({
+    onSave: (field, key) => {
+      writes.push({ field, key });
+      return { success: true };
+    },
+  });
+  Object.assign(api, {
     syncNotificationPreferences: async () => notifications++,
     getOpenAIKey: () => {
       reads++;
@@ -67,7 +66,7 @@ test("startup hydration and awaited migration never overwrite newer edits/clears
       writes.push({ field: "noteFormattingCustomApiKey", key });
       return key === "fake-legacy" ? migration.promise : Promise.resolve({ success: true });
     },
-  };
+  });
   const { useSettingsStore: store, initializeSettings } = await load(t, api, {
     noteFormattingCustomApiKey: "fake-legacy",
   });
@@ -99,18 +98,20 @@ test("startup hydration and awaited migration never overwrite newer edits/clears
   );
   await initializeSettings();
   assert.equal(reads, 1, "startup replay does not repeat reads or migration writes");
-});
 
-test("failed hydration preserves edits", async (t) => {
-  const read = deferred();
-  const api = { getOpenAIKey: () => read.promise, saveOpenAIKey: async () => ({ success: true }) };
-  const { useSettingsStore: store, initializeSettings } = await load(t, api);
-  const init = initializeSettings();
+  // A rejected getter cannot clobber an edit made during hydration; rides its own store instance.
+  const failedRead = deferred();
+  const { useSettingsStore: failedStore, initializeSettings: failedInitializeSettings } =
+    await load(t, {
+      getOpenAIKey: () => failedRead.promise,
+      saveOpenAIKey: async () => ({ success: true }),
+    });
+  const failedInit = failedInitializeSettings();
   await Promise.resolve();
-  store.getState().setOpenaiApiKey("fake-new");
-  read.reject(new Error("fake getter failure"));
-  await init;
-  assert.equal(store.getState().openaiApiKey, "fake-new");
+  failedStore.getState().setOpenaiApiKey("fake-new");
+  failedRead.reject(new Error("fake getter failure"));
+  await failedInit;
+  assert.equal(failedStore.getState().openaiApiKey, "fake-new");
 });
 
 test("failed secure migration keeps the legacy copy recoverable", async (t) => {

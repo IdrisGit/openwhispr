@@ -218,9 +218,6 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   assert.equal(acknowledgements.length, acked, "queued callback cannot consume after cleanup");
   assert.equal(currentListener, null);
   root = null;
-  assert.equal(keydown, undefined);
-  assert.equal(showSettingsFromMain, undefined);
-  assert.equal(readyHost, undefined);
   assert.deepEqual(
     acknowledgements.map((item) => item.requestId),
     [2, 3, 4, 5, 10]

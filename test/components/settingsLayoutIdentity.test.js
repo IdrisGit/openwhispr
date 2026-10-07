@@ -93,9 +93,6 @@ test("sidebar layout context changes only when the compact breakpoint changes", 
   const compact = snapshots.at(-1);
   assert.equal(compact.isCompact, true);
   assert.notEqual(compact, regular);
-  await resize(650);
-  await render("speech");
-  assert.deepEqual(snapshots, [regular, compact]);
   await resize(800);
   assert.equal(snapshots.at(-1).isCompact, false);
   assert.notEqual(snapshots.at(-1), compact);

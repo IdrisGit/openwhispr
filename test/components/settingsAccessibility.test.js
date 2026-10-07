@@ -3,16 +3,12 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { createRendererServer } = require("../lib/rendererTestHarness");
-const { mountAuditDom } = require("../lib/settingsAuditHarness");
+const { mountDialogFixture } = require("../lib/dialogMountFixture");
 
 test("Settings modal returns focus to its invoker through the real Radix focus scope", async (t) => {
-  const { dom, container, render } = await mountAuditDom(t);
-  const vite = await createRendererServer(t, {
+  const { dom, container, render, vite, settle } = await mountDialogFixture(t, {
     cachePrefix: "openwhispr-settings-a11y-modal-",
-    noExternal: ["react-i18next", "@radix-ui/react-dialog"],
-    mockModules: {
-      "react-i18next": `export const useTranslation=()=>({t:key=>key});`,
-    },
+    noExternal: ["@radix-ui/react-dialog"],
   });
   const { default: SidebarModal } = await vite.ssrLoadModule("/components/ui/SidebarModal.tsx");
   function Host() {
@@ -50,7 +46,7 @@ test("Settings modal returns focus to its invoker through the real Radix focus s
     "page"
   );
   await React.act(async () => dialog.querySelector("button").click());
-  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await settle();
   assert.equal(dom.document.querySelector('[role="dialog"]'), null);
   assert.equal(
     dom.document.activeElement,
@@ -107,9 +103,7 @@ test("microphone controls have names without starting a device scan", async (t) 
       onMicWarmHoldSecondsChange() {},
     })
   );
-  const { Window } = await import("happy-dom");
-  const dom = new Window();
-  t.after(() => dom.happyDOM.close());
+  const { dom } = await mountDialogFixture(t, { cachePrefix: "openwhispr-settings-a11y-mic-" });
   dom.document.body.innerHTML = html;
   const labelId = dom.document
     .querySelector("select[aria-labelledby]")

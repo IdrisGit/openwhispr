@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const React = require("react");
 const { createRendererServer } = require("../lib/rendererTestHarness");
 const { mountAuditDom, deferred } = require("../lib/settingsAuditHarness");
+const { enterpriseProviderMocks } = require("../lib/enterpriseProviderFixture");
 
 const translator = `export const useTranslation = () => ({t: (key) => globalThis.__feedbackLocale + ":" + key});`;
 
@@ -26,10 +27,8 @@ test("retained Bedrock catalogs invalidate on shared effective configuration and
     noExternal: ["react-i18next"],
     mockModules: {
       "react-i18next": translator,
-      "/stores/settingsStore": `import {create} from "zustand"; const values={bedrockAuthMode:"keys",bedrockRegion:"us-east-1",bedrockProfile:"work",bedrockAccessKeyId:"fake-access",bedrockSecretAccessKey:"fake-secret",bedrockSessionToken:""}; export const useSettingsStore=create(set=>({...values,...Object.fromEntries(Object.keys(values).map(key=>["set"+key[0].toUpperCase()+key.slice(1),value=>set({[key]:value})]))})); globalThis.__bedrockOwned.store=useSettingsStore;`,
+      ...enterpriseProviderMocks("__bedrockOwned.store"),
       "/stores/policyStore": `import {create} from "zustand"; export const usePolicyStore=create(()=>({accountId:"fake-account",authGeneration:1})); globalThis.__bedrockOwned.policy=usePolicyStore;`,
-      "/models/ModelRegistry": `export const REASONING_PROVIDERS={};`,
-      "/utils/providerIcons": `export const getProviderIcon=()=>""; export const isMonochromeProvider=()=>false;`,
       "/TestConnectionButton": `export default ()=>null;`,
       "/ui/SearchableModelList": `import React,{useState} from "react"; export default function List({models}){const [draft,setDraft]=useState(""); globalThis.__bedrockOwned.leaves.push({models,draft,setDraft}); return React.createElement("span",null,models.map(m=>m.label).join(" "));}`,
     },

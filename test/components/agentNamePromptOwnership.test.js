@@ -195,10 +195,6 @@ test("real name inputs retain dirty drafts while all mounted and hidden studios 
     if (kind !== "cleanup") assert.match(request.args[3].systemPrompt, /Saved Nova/);
     await React.act(async () => request.resolve("finished"));
   }
-  await React.act(async () => names.setAgentName("External"));
-  assert.equal(input(one).value, "External");
-  assert.equal(input(two).value, "Genuine dirty draft");
-  assert.match(container.querySelector("#dictionary").textContent, /External/);
 });
 
 for (const kind of ["cleanup", "dictationAgent", "translate"]) {

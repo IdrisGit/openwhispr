@@ -1,14 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
-const { BYOK_API_KEYS } = require("../../src/config/secretKeys");
+const { createFakeSecretApi } = require("../lib/fakeSecretApi");
 
 // Separate Vite module graphs represent independent renderer JS/store/service owners.
 test("two renderer owners see rotations/clears without TTL caching or immediate-save refill races", async (t) => {
-  const owners = [],
-    listeners = new Set(),
-    saves = [],
-    logs = [];
+  const owners = [], logs = [];
   t.after(() => {
     for (const owner of owners) owner.service.destroy();
     delete globalThis.__credentialLogs;
@@ -19,26 +16,7 @@ test("two renderer owners see rotations/clears without TTL caching or immediate-
     ["anthropicApiKey", "fake-independent"],
     ["tinfoilApiKey", "fake-tinfoil-old"],
   ]);
-  const versions = new Map();
-  const api = Object.fromEntries(
-    BYOK_API_KEYS.flatMap((k) => [
-      [k.get, async () => values.get(k.storeKey) ?? ""],
-      [
-        k.save,
-        (key) => {
-          values.set(k.storeKey, key);
-          const version = (versions.get(k.storeKey) ?? 0) + 1;
-          versions.set(k.storeKey, version);
-          for (const callback of listeners) callback({ key: k.storeKey, version });
-          return new Promise((resolve) => saves.push({ field: k.storeKey, resolve }));
-        },
-      ],
-    ])
-  );
-  api.onSecretKeyChanged = (callback) => {
-    listeners.add(callback);
-    return () => listeners.delete(callback);
-  };
+  const { api, saves } = createFakeSecretApi({ values });
   installBrowserGlobals(t, {
     initialStorage: { _dictationAgentSeeded: "1" },
     window: { electronAPI: api, dispatchEvent() {} },

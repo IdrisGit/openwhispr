@@ -152,33 +152,31 @@ test("download selection leases reject reconfiguration but retain hidden/closed 
   store.setState({ cleanupMode: "providers" });
   await finish(request);
   assert.deepEqual(state.selections, [], "closed owner cannot overwrite newer configuration");
-  for (const disabledAtStart of [false, true]) {
-    await reset();
-    store.setState({
-      dictationAgentMode: "local",
-      dictationAgentProvider: "qwen",
-      dictationAgentModel: "",
-      useDictationAgent: !disabledAtStart,
-    });
-    await render({
-      selectionScope: "dictationAgent",
-      onModelSelect: (id) => {
-        state.selections.push(id);
-        setResolvedLLMConfig("dictationAgent", { model: id });
-      },
-    });
-    request = await begin();
-    await React.act(async () => store.setState({ useDictationAgent: false }));
-    await React.act(async () => root.unmount());
-    root = null;
-    await finish(request);
-    assert.deepEqual(
-      state.selections,
-      [],
-      "disabled agent intent cannot select a completed download"
-    );
-    assert.equal(store.getState().dictationAgentModel, "");
-  }
+  await reset();
+  store.setState({
+    dictationAgentMode: "local",
+    dictationAgentProvider: "qwen",
+    dictationAgentModel: "",
+    useDictationAgent: false,
+  });
+  await render({
+    selectionScope: "dictationAgent",
+    onModelSelect: (id) => {
+      state.selections.push(id);
+      setResolvedLLMConfig("dictationAgent", { model: id });
+    },
+  });
+  request = await begin();
+  assert.equal(store.getState().useDictationAgent, false, "agent starts the download disabled");
+  await React.act(async () => root.unmount());
+  root = null;
+  await finish(request);
+  assert.deepEqual(
+    state.selections,
+    [],
+    "disabled agent intent cannot select a completed download"
+  );
+  assert.equal(store.getState().dictationAgentModel, "");
   await reset();
   store.setState({
     dictationAgentMode: "local",

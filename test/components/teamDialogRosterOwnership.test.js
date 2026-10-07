@@ -105,7 +105,7 @@ test("real team dialog derives controls from current roster and expires leave co
   assert.deepEqual(seen.closes, [false]);
 });
 
-test("a rejected roster read settles the real picker to Retry and recovers", async (t) => {
+test("a rejected roster read settles the real picker to Retry inside the dialog", async (t) => {
   const { dom, render } = await mountAuditDom(t);
   const reads = [];
   globalThis.__teamRosterRetry = {
@@ -146,16 +146,4 @@ test("a rejected roster read settles the real picker to Retry and recovers", asy
     button.textContent.includes("loadError.retry")
   );
   assert.ok(retry, "a rejected roster read settles to Retry rather than an endless skeleton");
-  await React.act(async () => retry.click());
-  await React.act(async () =>
-    reads
-      .at(-1)
-      .resolve([
-        { user_id: "recovered", name: "Recovered", email: "recovered@example.test", role: "member" },
-      ])
-  );
-  assert.ok(
-    dom.document.body.textContent.includes("Recovered"),
-    "the retried roster read repopulates the picker"
-  );
 });

@@ -1,22 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
-const { createRendererServer } = require("../lib/rendererTestHarness");
-const { mountAuditDom } = require("../lib/settingsAuditHarness");
+const { mountDialogFixture } = require("../lib/dialogMountFixture");
 
 const en = require("../../src/locales/en/translation.json");
 const translate = (dict, key) => key.split(".").reduce((s, k) => s?.[k], dict) ?? key;
-const settle = () => React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
 
 test("real triggerless nested dialogs restore surviving invokers, fallback and overrides without stealing focus", async (t) => {
-  const { dom, container, render } = await mountAuditDom(t);
   globalThis.__dialogT = (key) => translate(en, key);
   t.after(() => {
     delete globalThis.__dialogT;
     delete globalThis.__dialogControls;
   });
-  const vite = await createRendererServer(t, {
-    noExternal: ["react-i18next"],
+  const { dom, container, render, vite, settle } = await mountDialogFixture(t, {
     mockModules: {
       "react-i18next": `export const useTranslation = () => ({t: globalThis.__dialogT});`,
     },

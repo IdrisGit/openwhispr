@@ -104,7 +104,7 @@ test.after(() => {
   fs.rmSync(importDir, { recursive: true, force: true });
 });
 
-test("multi-file Granola preview allocates distinct fallback ids across files", async () => {
+test("multi-file Granola preview allocates distinct fallback ids that stay stable when file picker order changes", async () => {
   selectedCsvPaths = csvPaths;
   const result = await handlers.get("granola-import-pick-and-preview")({ sender: {} });
 
@@ -115,6 +115,21 @@ test("multi-file Granola preview allocates distinct fallback ids across files", 
     new Set(target._granolaImportPending.notes.map((note) => note.clientNoteId)).size,
     3
   );
+  const idsByContent = Object.fromEntries(
+    target._granolaImportPending.notes
+      .map((note) => [note.content, note.clientNoteId])
+      .sort(([leftContent], [rightContent]) => leftContent.localeCompare(rightContent))
+  );
+
+  selectedCsvPaths = [...csvPaths].reverse();
+  await handlers.get("granola-import-pick-and-preview")({ sender: {} });
+  const reversedIdsByContent = Object.fromEntries(
+    target._granolaImportPending.notes
+      .map((note) => [note.content, note.clientNoteId])
+      .sort(([leftContent], [rightContent]) => leftContent.localeCompare(rightContent))
+  );
+
+  assert.deepEqual(reversedIdsByContent, idsByContent);
 });
 
 test("a canceled picker invalidates the old preview and another window cannot run it", async () => {
@@ -159,24 +174,4 @@ test("an older picker cannot replace a newer preview", async () => {
   } finally {
     nextDialog = null;
   }
-});
-
-test("multi-file Granola preview is stable when file picker order changes", async () => {
-  selectedCsvPaths = csvPaths;
-  await handlers.get("granola-import-pick-and-preview")({ sender: {} });
-  const firstIdsByContent = Object.fromEntries(
-    target._granolaImportPending.notes
-      .map((note) => [note.content, note.clientNoteId])
-      .sort(([leftContent], [rightContent]) => leftContent.localeCompare(rightContent))
-  );
-
-  selectedCsvPaths = [...csvPaths].reverse();
-  await handlers.get("granola-import-pick-and-preview")({ sender: {} });
-  const reversedIdsByContent = Object.fromEntries(
-    target._granolaImportPending.notes
-      .map((note) => [note.content, note.clientNoteId])
-      .sort(([leftContent], [rightContent]) => leftContent.localeCompare(rightContent))
-  );
-
-  assert.deepEqual(reversedIdsByContent, firstIdsByContent);
 });

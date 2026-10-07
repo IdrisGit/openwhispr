@@ -8,68 +8,6 @@ const {
   installHookDom,
 } = require("../lib/rendererTestHarness");
 
-test("useTheme ignores unrelated settings writes and synchronizes theme changes", async (t) => {
-  let root;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-  });
-
-  installBrowserGlobals(t, {
-    window: {
-      matchMedia: () => ({
-        matches: false,
-        addEventListener() {},
-        removeEventListener() {},
-      }),
-    },
-  });
-  const container = installHookDom(t);
-  const classes = new Set();
-  globalThis.document.documentElement.classList = {
-    add: (name) => classes.add(name),
-    remove: (name) => classes.delete(name),
-  };
-  globalThis.document.body = { classList: globalThis.document.documentElement.classList };
-
-  const vite = await createRendererServer(t, {
-    cachePrefix: "openwhispr-settings-subscriptions-test-",
-    mockModules: {
-      "/stores/settingsStore": `
-        import { create } from "zustand";
-        export const useSettingsStore = create((set) => ({
-          theme: "light",
-          unrelated: 0,
-          setTheme: (theme) => set({ theme }),
-        }));
-        globalThis.__settingsSubscriptionStore = useSettingsStore;
-      `,
-    },
-  });
-  const { useTheme } = await vite.ssrLoadModule("/hooks/useTheme.ts");
-  const useSettingsStore = globalThis.__settingsSubscriptionStore;
-  t.after(() => delete globalThis.__settingsSubscriptionStore);
-
-  let themeRenders = 0;
-
-  function ThemeProbe() {
-    useTheme();
-    themeRenders += 1;
-    return null;
-  }
-
-  root = createRoot(container);
-  await React.act(async () => root.render(React.createElement(ThemeProbe)));
-  assert.equal(classes.has("dark"), false);
-
-  const initial = themeRenders;
-  await React.act(async () => useSettingsStore.setState({ unrelated: 1 }));
-  assert.equal(themeRenders, initial, "unrelated settings leave the actual theme hook alone");
-
-  await React.act(async () => useSettingsStore.getState().setTheme("dark"));
-  assert.equal(classes.has("dark"), true, "theme changes still synchronize the DOM");
-  assert.equal(themeRenders, initial + 1);
-});
-
 test("SettingsProvider owns initialization and external synchronization once", async (t) => {
   let root;
   t.after(async () => {
@@ -266,13 +204,18 @@ test("SettingsProvider owns initialization and external synchronization once", a
   assert.equal(calls.notifications.length, 2, "subscription stops on unmount");
 
   // Remount/replay does not reset the module latch or republish the startup snapshot.
+  const notificationsBeforeRemount = calls.notifications.length;
   root = createRoot(container);
   await React.act(async () =>
     root.render(
       React.createElement(React.StrictMode, null, React.createElement(SettingsProvider, null))
     )
   );
-  assert.equal(calls.notifications.length, 2, "remount/replay does not republish startup");
+  assert.equal(
+    calls.notifications.length,
+    notificationsBeforeRemount,
+    "remount/replay does not republish startup"
+  );
   assert.deepEqual(
     [
       calls.dictionarySubscribed - calls.dictionaryCleaned,

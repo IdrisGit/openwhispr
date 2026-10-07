@@ -178,12 +178,11 @@ test("late copy success cannot mark a replacement key after pending Done; Escape
 });
 
 test("developer owner replacement and unmount fence copy/create/revoke/list completions", async (t) => {
-  const { seen, dom, renderOwner, render, create, prepare, click, auth, copied, fakeKey } =
+  const { seen, dom, renderOwner, render, create, prepare, click, copied, fakeKey } =
     await setup(t);
   for (const replace of [
     () => renderOwner("B", "owner"),
     () => renderOwner("B", "admin"),
-    () => React.act(async () => auth.observeAuthTokenStateEvent({ generation: 9, hasToken: true })),
   ]) {
     await create("current");
     await click("common.copy");

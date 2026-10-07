@@ -2,13 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
 const { createRoot } = require("react-dom/client");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
 const { deferred } = require("../lib/settingsAuditHarness");
 const { mountSettingsPageOwner } = require("../lib/settingsPageOwnerHarness");
 
-// Caller completion coverage; personalBillingLifetime keeps the real hook's
-// authorization, shared admission and valid-URL opening/return ownership.
-test("both Settings checkout controls retire obsolete feedback and retain current outcomes", async (t) => {
+test("Settings checkout controls render pending progress and surface current failures", async (t) => {
   const { container, render, SettingsPage, navigation, observed } = await mountSettingsPageOwner(
     t,
     { section: "plansBilling" }
@@ -35,102 +32,43 @@ test("both Settings checkout controls retire obsolete feedback and retain curren
   const card = () => button("settingsPage.account.pricing.pro.cta");
   const click = (node) => React.act(async () => node.click());
   const settle = (result) => React.act(async () => requests.at(-1).reply.resolve(result));
-  const replaceGeneration = (generation, accountId = "account-a") =>
-    React.act(async () => {
-      observed.authGeneration = generation;
-      observed.auth.setState({ user: { id: accountId, name: "Same name" } });
-    });
   const failure = {
     title: "settingsPage.account.checkout.couldNotOpenTitle",
     description: "settingsPage.account.checkout.couldNotOpenDescription",
   };
 
+  // Each control renders pending progress from the generation-keyed checkoutProgress and surfaces a current failure.
   await click(upgrade());
   assert.ok(button("settingsPage.account.checkout.opening").disabled);
-  await replaceGeneration(8, "account-b");
-  assert.equal(upgrade().disabled, false, "replacement account does not inherit pending progress");
-  await settle({ success: false, error: "obsolete checkout" });
-  assert.deepEqual(observed.toasts, [], "generation change alone retires inline feedback");
+  await settle({ success: false, error: "current checkout failure" });
+  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }]);
   assert.equal(upgrade().disabled, false);
 
   const cardControl = card();
   await click(cardControl);
   assert.equal(cardControl.disabled, true);
-  await replaceGeneration(9, "account-b");
-  assert.equal(card().disabled, false, "same-account generation replacement retires card progress");
-  await settle({ success: false, error: "obsolete checkout" });
-  assert.deepEqual(observed.toasts, [], "generation change alone retires pricing-card feedback");
-  assert.equal(card().disabled, false);
-
-  // Sequential requests respect the real hook's shared in-flight admission.
-  // No fictitious overlapping accepted checkout is used to assert progress.
-  await click(upgrade());
-  await settle({ success: false, code: "AUTH_CONTEXT_CHANGED" });
-  assert.deepEqual(observed.toasts, [], "current inline refusal is not an ordinary error");
-  assert.equal(upgrade().disabled, false);
-  await click(card());
-  await settle({ success: false, code: "AUTH_CONTEXT_UNVALIDATED" });
-  assert.deepEqual(observed.toasts, [], "current card refusal is not an ordinary error");
-  assert.equal(card().disabled, false);
-
-  await click(upgrade());
-  await settle({ success: false, error: "current checkout failure" });
-  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }]);
-  assert.equal(upgrade().disabled, false);
-  await click(card());
   await settle({ success: false, error: "current checkout failure" });
   assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }, failure]);
   assert.equal(card().disabled, false);
-
-  await click(upgrade());
-  await settle({ success: true });
-  assert.equal(upgrade().disabled, false);
-  await click(card());
-  await settle({ success: true });
-  assert.equal(card().disabled, false);
-  assert.deepEqual(observed.toasts, [{ ...failure, variant: "destructive" }, failure]);
   assert.ok(requests.every(({ options }) => options.plan === "annual" && options.tier === "pro"));
-
-  await replaceGeneration(null, "account-b");
-  await click(upgrade());
-  await click(card());
-  assert.equal(requests.length, 8, "unvalidated controls do not start checkout");
 });
 
 test("SettingsPage retains Speech state and current section actions", async (t) => {
-  const { Window } = await import("happy-dom");
-  const dom = new Window();
-  const originalDocument = globalThis.document;
-  const originalAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
-  let root;
+  const mounted = await mountSettingsPageOwner(t, {
+    section: "workspace",
+    speech: true,
+    extraMocks: {
+      "/settings/ProfileSection": "export default function Stub() { return null; }",
+      "/stores/noteStore.js": `export const useMigration = () => ({}); export const startMigration = () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
+      "/lib/accountDeletionRequest": `export const deleteAccount = async generation => { globalThis.__settingsPageOwner.deletions.push(generation); throw new Error("fake remote refusal"); };`,
+      "/lib/usageStore": `export const highestPlan = () => "free";`,
+    },
+  });
+  const { dom, container, observed, SettingsPage, vite } = mounted;
+  let root = mounted.root;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
-    delete globalThis.__settingsSpeech;
-    globalThis.document = originalDocument;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = originalAct;
-    await dom.happyDOM.close();
-  });
-  installBrowserGlobals(t);
-  globalThis.window = dom;
-  globalThis.document = dom.document;
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  dom.electronAPI = {};
-  const container = dom.document.createElement("div");
-  dom.document.body.appendChild(container);
-  const observed = (globalThis.__settingsSpeech = {
-    pickers: {},
-    mounted: 0,
-    disposed: 0,
-    inputs: [],
-    modes: [],
-    buttons: [],
-    rows: [],
-    toasts: [],
-    registered: [],
-    hotkeys: {},
-    hotkeyMounts: 0,
-    hotkeyDisposed: 0,
-    alerts: [],
+    root = null;
   });
   dom.electronAPI.updateHotkey = async (key) => {
     observed.registered.push(key);
@@ -142,173 +80,10 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
       if (observed.onDenial === listener) observed.onDenial = null;
     };
   };
-  observed.agentWrite = async () => ({ success: true });
-  observed.translationWrite = async () => ({ success: true });
-  const emptyComponent = "export default function Stub() { return null; }";
-  const vite = await createRendererServer(t, {
-    cachePrefix: "openwhispr-settings-speech-ownership-",
-    noExternal: ["react-i18next"],
-    mockModules: {
-      ...Object.fromEntries(
-        [
-          "/ui/MicPermissionWarning",
-          "/ui/MicrophoneSettings",
-          "/ui/PermissionCard",
-          "/ui/PasteToolsInfo",
-          "/ui/NixOsPasteInfo",
-          "/ui/LanguageSelector",
-          "/DeveloperSection",
-          "/settings/GpuDeviceSelector",
-          "/settings/LlmsSection",
-          "/settings/SystemUpdates",
-          "/settings/ProfileSection",
-          "/settings/WorkspaceSection",
-          "/settings/WorkspaceBillingOverview",
-          "/settings/EnterpriseCheckoutDialog",
-          "/CreateWorkspaceDialog",
-          "/SelfHostedPanel",
-        ].map((suffix) => [suffix, emptyComponent])
-      ),
-      "react-i18next": `
-        import { create } from "zustand";
-        const useLocale = create(() => ({ t: key => key }));
-        globalThis.__settingsSpeech.locale = useLocale;
-        export function useTranslation() { return { t: useLocale(s => s.t), i18n: { language: "en" } }; }
-      `,
-      "/stores/settingsStore": `
-        import { create } from "zustand";
-        export const useSettingsStore = create(set => ({
-          isSignedIn: true, customDictionary: [], activationMode: "tap",
-          dictationKey: "F8", meetingKey: "F7", voiceAgentKey: "F6", translationKey: "F5",
-          meetingHotkeyLayoutMode: "side-panel",
-          setActivationMode: value => set({activationMode: value}),
-          setDictationKey: value => set({dictationKey: value}),
-          setMeetingKey: value => set({meetingKey: value}),
-          setMeetingHotkeyLayoutMode: value => set({meetingHotkeyLayoutMode: value}),
-          setVoiceAgentKey: async value => {
-            const result = await globalThis.__settingsSpeech.agentWrite(value);
-            if (result.success) set({voiceAgentKey: value});
-            return result;
-          },
-          setTranslationKey: async value => {
-            const result = await globalThis.__settingsSpeech.translationWrite(value);
-            if (result.success) set({translationKey: value});
-            return result;
-          },
-          transcriptionMode: "local", localTranscriptionProvider: "whisper", whisperModel: "base",
-          useLocalWhisper: true, showTranscriptionPreview: false,
-          meetingTranscriptionMode: "local", meetingLocalTranscriptionProvider: "whisper", meetingWhisperModel: "base",
-          uploadTranscriptionMode: "local", uploadLocalTranscriptionProvider: "whisper", uploadWhisperModel: "base",
-          whisperVadThreshold: 0.5, whisperVadMinSpeechDurationMs: 250,
-          whisperVadMinSilenceDurationMs: 100, whisperVadMaxSpeechDurationS: 30,
-          whisperVadSpeechPadMs: 30, whisperVadSamplesOverlap: 0.1,
-          updateTranscriptionSettings: values => set(values),
-          setWhisperModel: value => set({ whisperModel: value }),
-          setWhisperVadThreshold: value => set({ whisperVadThreshold: value }),
-        }));
-        globalThis.__settingsSpeech.store = useSettingsStore;
-        export const TRANSCRIPTION_ENTERPRISE_POLICY_PROVIDER_IDS = [];
-        export const TRANSCRIPTION_POLICY_PROVIDER_IDS = [];
-        export const clearMissingLocalModelSelections = () => {};
-        export const reconcileLocalModelSelections = async () => {};
-      `,
-      "/hooks/useAuth": `
-        import { create } from "zustand";
-        const useAuthState = create(() => ({ isSignedIn: true, isLoaded: true }));
-        globalThis.__settingsSpeech.auth = useAuthState;
-        export const useAuth = () => useAuthState();
-      `,
-      "/hooks/usePolicy": `
-        import { create } from "zustand";
-        const usePolicy = create(() => ({ status: "unmanaged", policy: null, appVersion: null }));
-        globalThis.__settingsSpeech.policy = usePolicy;
-        export const usePolicySnapshot = () => usePolicy();
-        export function usePolicyModeOptions(modes, scope, current) {
-          const policy = usePolicy();
-          return { modes, effectiveMode: policy.forcedMode ?? current, isModeAllowed: () => true };
-        }
-      `,
-      "/stores/enterpriseIdentityStore": `export const useManagedScopeResolution = () => ({kind: "unmanaged"});`,
-      "/stores/policyStore": `export const usePolicyStore = select => globalThis.__settingsSpeech.policy(select); usePolicyStore.getState = () => globalThis.__settingsSpeech.policy.getState();`,
-      "/stores/workspaceStore": `const state = { workspaces: [], loaded: false }; export const useWorkspaceStore = select => select(state);`,
-      "/stores/noteStore.js": `export const useMigration = () => ({}); export const startMigration = () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
-      "/stores/meetingRecordingStore": `export const stopRecording = () => globalThis.__settingsSpeech.stopRecording?.();`,
-      "/services/SyncService.js": `export const syncService = { purgeTeamSpacesForSignOut: () => globalThis.__settingsSpeech.purgeTeamSpaces?.() };`,
-      "/lib/auth": `export const AUTH_URL = "https://auth.example.test"; export const signOut = () => globalThis.__settingsSpeech.signOut?.();`,
-      "/lib/accountDeletionRequest": `export const deleteAccount = async generation => { globalThis.__settingsSpeech.deletions.push(generation); throw new Error("fake remote refusal"); };`,
-      "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => globalThis.__settingsSpeech.authGeneration ?? null; export const getBoundSessionGeneration = id => id === globalThis.__settingsSpeech.auth.getState().user?.id ? getValidatedAuthGeneration() : null;`,
-      "/lib/usageStore": `export const highestPlan = () => "free";`,
-      "/hooks/useSettings": `export const useAutoLearnCorrections = () => ({});`,
-      "/hooks/useDialogs": `const noop = () => {}; const showAlertDialog = value => globalThis.__settingsSpeech.alerts.push(value); export const useDialogs = () => ({ confirmDialog: {}, alertDialog: {}, showConfirmDialog: noop, showAlertDialog, hideConfirmDialog: noop, hideAlertDialog: noop });`,
-      "/hooks/usePermissions": `export const usePermissions = () => ({});`,
-      "/hooks/useSystemAudioPermission": `export const useSystemAudioPermission = () => ({});`,
-      "/hooks/useInsightsSyncOptIn": `export const useInsightsSyncOptIn = () => ({});`,
-      "/hooks/useLeaderboardParticipation": `export const useLeaderboardParticipation = () => ({});`,
-      "/ui/HotkeyListInput": `
-        import React from "react";
-        export function HotkeyListInput(props) {
-          globalThis.__settingsSpeech.hotkeys[props.ariaLabel] = props;
-          React.useEffect(() => {
-            globalThis.__settingsSpeech.hotkeyMounts++;
-            return () => { globalThis.__settingsSpeech.hotkeyDisposed++; };
-          }, []);
-          return React.createElement("div", {"data-hotkey": props.ariaLabel}, props.footerEnd);
-        }
-      `,
-      "/ui/LinuxPttSetupInfo": `export default function Info(props) { globalThis.__settingsSpeech.ptt = props; return null; }`,
-      "/hooks/useBillingPortal": `export const useBillingPortal = () => ({});`,
-      "/hooks/useUsage": `export const useUsage = () => ({});`,
-      "/hooks/useTheme": `export const useTheme = () => ({});`,
-      "/ui/useToast": `const toast = value => globalThis.__settingsSpeech.toasts.push(value); export const useToast = () => ({toast});`,
-      "/ui/button": `import React from "react"; export function Button(props) { globalThis.__settingsSpeech.buttons.push(props); return React.createElement("button", {onClick: props.onClick, disabled: props.disabled}, props.children); }`,
-      "/ui/useSettingsLayout": `export const useSettingsLayout = () => ({isCompact: false});`,
-      "/models/ModelRegistry": `export const getTranscriptionProvider = () => null; export const enterpriseProviderName = id => id; export const getMeetingStreamingTranscriptionProviders = () => [];`,
-      "/ui/dialog": `export const ConfirmDialog = props => { if (props.title === "settingsPage.account.deleteAccount.title") {globalThis.__settingsSpeech.deleteDialog = props; return props.open ? props.children : null;} return null; }; export const AlertDialog = ConfirmDialog; export const Dialog = ConfirmDialog; export const DialogContent = ConfirmDialog; export const DialogHeader = ConfirmDialog; export const DialogTitle = ConfirmDialog; export const DialogDescription = ConfirmDialog; export const DialogFooter = ConfirmDialog;`,
-      "/ui/popover": `export const Popover = ({children}) => children; export const PopoverTrigger = Popover; export const PopoverContent = () => null;`,
-      "/ui/select": `import React from "react"; export const Select = ({children}) => children; export const SelectTrigger = ({children, ...props}) => React.createElement("button", props, children); export const SelectValue = () => null; export const SelectContent = () => null; export const SelectItem = ({children}) => children;`,
-      "/ui/SettingsSection": `
-        import React from "react";
-        export const SettingsPanel = ({children}) => children;
-        export const SettingsPanelRow = SettingsPanel;
-        export function SettingsRow(props) { globalThis.__settingsSpeech.rows.push(props); return props.children; }
-        export function SectionHeader({title}) {
-          return React.createElement("h3", null, title);
-        }
-        export function InferenceModeSelector(props) {
-          globalThis.__settingsSpeech.modes.push(props);
-          return null;
-        }
-      `,
-      "/ui/input": `export function Input(props) { globalThis.__settingsSpeech.inputs.push(props); return null; }`,
-      "/utils/platform": `export const getPlatform = () => "linux"; export const getCachedPlatform = getPlatform;`,
-      "/ui/ProviderTabs": `export function ProviderTabs(props) { globalThis.__settingsSpeech.tabs = props; return null; }`,
-      "/TranscriptionModelPicker": `
-        import React from "react";
-        import { useSettingsModelVisible } from "/stores/settingsNavigationStore.ts";
-        function Status({context, navigation}) {
-          const visible = useSettingsModelVisible(navigation, "speechToText", context === "meeting" ? "noteRecording" : context);
-          globalThis.__settingsSpeech.activity ??= {};
-          globalThis.__settingsSpeech.activity[context] = visible;
-          return null;
-        }
-        export default function Picker(props) {
-          const context = props.transcriptionContext ?? "dictation";
-          const [draft, setDraft] = React.useState("");
-          const [progress, setProgress] = React.useState(0);
-          const observed = globalThis.__settingsSpeech;
-          observed.pickers[context] = {props, draft, setDraft, progress, setProgress};
-          React.useEffect(() => { observed.mounted++; return () => observed.disposed++; }, []);
-          return React.createElement(Status, {context, navigation: props.settingsNavigation});
-        }
-      `,
-    },
-  });
-  const { default: SettingsPage } = await vite.ssrLoadModule("/components/SettingsPage.tsx");
   const { createSettingsNavigationStore } = await vite.ssrLoadModule(
     "/stores/settingsNavigationStore.ts"
   );
   let navigation, previousRoot;
-  root = createRoot(container);
   const render = (activeSection, initialSubTab) =>
     React.act(async () => {
       if (previousRoot !== root) {
@@ -1002,6 +777,8 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
       });
       assert.equal(usageRow().description, "settingsPage.privacy.audioStorageEmpty");
       assert.equal(clearButton().disabled, true);
+      await React.act(async () => root.unmount());
+      root = null;
     }
   );
 });

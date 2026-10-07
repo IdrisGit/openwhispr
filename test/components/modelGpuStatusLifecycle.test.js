@@ -242,87 +242,87 @@ async function setup(t) {
   };
 }
 
-test("LLM routine requests follow retained section/subtab visibility", async (t) => {
-  const h = await setup(t);
-  const render = h.renderLlm;
-  await render(true);
-  assert.equal(h.counts.llama, 1);
-  await React.act(async () => globalThis.__gpuLlmTab("dictationAgent"));
-  await React.act(async () => globalThis.__gpuLlmTab("noteFormatting"));
-  const before = h.counts.llama;
-  await h.tick(5000);
-  assert.equal(h.counts.llama - before, 1, "only visible retained local tab polls");
-  assert.equal(h.counts.vulkan, h.counts.llama);
-  await render(false);
-  await h.tick(5000);
-  assert.equal(h.counts.llama, before + 1, "active subtab in hidden section stops routine reads");
-  await render(true);
-  assert.equal(h.counts.llama, before + 2, "revisit refreshes immediately");
-  await React.act(async () => globalThis.__gpuLlmTab("dictationAgent"));
-  await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: false }));
-  const afterRemoval = h.counts.llama;
-  await h.tick(5000);
-  assert.equal(h.counts.llama, afterRemoval + 1);
-  // Folded from the vision-mapping test: an agent-vision editor shares its
-  // containing agent tab's visibility.
-  await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: true }));
-  await React.act(async () => h.navigation.getState().openSettings("dictationAgent"));
-  const vision = h.counts.llama;
-  await h.render(
-    React.createElement(h.Selector, {
-      ...h.llmProps,
-      settingsNavigation: h.navigation,
-      settingsScope: "dictationAgentVision",
-    })
-  );
-  assert.equal(h.counts.llama, vision + 1, "a visible agent-vision editor reads its tab status");
-  await h.tick(5000);
-  assert.equal(h.counts.llama, vision + 2);
-  await React.act(async () => h.navigation.getState().openSettings("general"));
-  await h.tick(5000);
-  assert.equal(h.counts.llama, vision + 2, "a hidden agent-vision editor stops polling");
-  await h.close();
-  const closed = h.counts.llama;
-  await h.tick(5000);
-  assert.equal(h.counts.llama, closed);
-  assert.equal(h.counts.progress, h.counts.disposed);
+test("retained panels poll only the visible subtab across hide and revisit", async (t) => {
+  // One visibility scenario keeps the {llm, speech} flavors' distinct assertions on one shared body.
+  for (const flavor of ["llm", "speech"]) {
+    const h = await setup(t);
+    const isLlm = flavor === "llm";
+    const polls = () => (isLlm ? h.counts.llama : h.counts.whisper);
+    let renderActive;
+    if (isLlm) {
+      renderActive = h.renderLlm;
+    } else {
+      const panels = ["dictation", "meeting", "upload"].map((transcriptionContext) =>
+        React.createElement(h.Picker, {
+          ...h.props,
+          settingsNavigation: h.navigation,
+          transcriptionContext,
+        })
+      );
+      renderActive = (active) =>
+        h.renderSpeech(active, { dictation: panels[0], noteRecording: panels[1], upload: panels[2] });
+    }
+    const switchTab = (tab) =>
+      React.act(async () => (isLlm ? globalThis.__gpuLlmTab : globalThis.__gpuSpeechTab)(tab));
+    await renderActive(true);
+    if (isLlm) {
+      assert.equal(h.counts.llama, 1);
+    } else {
+      assert.equal(h.counts.whisper, 1, "hidden initial siblings do not poll");
+      assert.equal(h.counts.inventory, 3, "hidden inventory still hydrates");
+    }
+    const registrations = h.counts.progress;
+    await switchTab(isLlm ? "dictationAgent" : "noteRecording");
+    await switchTab(isLlm ? "noteFormatting" : "upload");
+    const before = polls();
+    await h.tick(5000);
+    assert.equal(polls() - before, 1, "only visible retained local tab polls");
+    if (isLlm) assert.equal(h.counts.vulkan, h.counts.llama);
+    await renderActive(false);
+    await h.tick(5000);
+    assert.equal(polls(), before + 1, "active subtab in hidden section stops routine reads");
+    await renderActive(true);
+    assert.equal(polls(), before + 2, "revisit refreshes immediately");
+    if (isLlm) {
+      await switchTab("dictationAgent");
+      await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: false }));
+      const afterRemoval = h.counts.llama;
+      await h.tick(5000);
+      assert.equal(h.counts.llama, afterRemoval + 1);
+      await React.act(async () => globalThis.__gpuPolicy.setState({ agentAllowed: true }));
+      await React.act(async () => h.navigation.getState().openSettings("dictationAgent"));
+      const vision = h.counts.llama;
+      await h.render(
+        React.createElement(h.Selector, {
+          ...h.llmProps,
+          settingsNavigation: h.navigation,
+          settingsScope: "dictationAgentVision",
+        })
+      );
+      assert.equal(h.counts.llama, vision + 1, "a visible agent-vision editor reads its tab status");
+      await h.tick(5000);
+      assert.equal(h.counts.llama, vision + 2);
+      await React.act(async () => h.navigation.getState().openSettings("general"));
+      await h.tick(5000);
+      assert.equal(h.counts.llama, vision + 2, "a hidden agent-vision editor stops polling");
+      await h.close();
+      const closed = h.counts.llama;
+      await h.tick(5000);
+      assert.equal(h.counts.llama, closed);
+      assert.equal(h.counts.progress, h.counts.disposed);
+    } else {
+      assert.equal(h.counts.inventory, 3);
+      assert.equal(
+        h.counts.progress,
+        registrations,
+        "visibility does not replace download/fallback listeners"
+      );
+      await h.close();
+    }
+  }
 });
 
-test("Speech routine checks pause hidden while inventory and subscriptions retain their lifetime", async (t) => {
-  const h = await setup(t);
-  const panels = ["dictation", "meeting", "upload"].map((transcriptionContext) =>
-    React.createElement(h.Picker, {
-      ...h.props,
-      settingsNavigation: h.navigation,
-      transcriptionContext,
-    })
-  );
-  const render = (active) =>
-    h.renderSpeech(active, { dictation: panels[0], noteRecording: panels[1], upload: panels[2] });
-  await render(true);
-  assert.equal(h.counts.whisper, 1, "hidden initial siblings do not poll");
-  assert.equal(h.counts.inventory, 3, "hidden inventory still hydrates");
-  const registrations = h.counts.progress;
-  await React.act(async () => globalThis.__gpuSpeechTab("noteRecording"));
-  await React.act(async () => globalThis.__gpuSpeechTab("upload"));
-  const before = h.counts.whisper;
-  await h.tick(5000);
-  assert.equal(h.counts.whisper, before + 1);
-  await render(false);
-  await h.tick(5000);
-  assert.equal(h.counts.whisper, before + 1);
-  await render(true);
-  assert.equal(h.counts.whisper, before + 2);
-  assert.equal(h.counts.inventory, 3);
-  assert.equal(
-    h.counts.progress,
-    registrations,
-    "visibility does not replace download/fallback listeners"
-  );
-  await h.close();
-});
-
-test("routine replies are ignored after hide, supersession, rejection and close", async (t) => {
+test("routine replies are ignored after hide, supersession, rejection, provider/mode change and close", async (t) => {
   const h = await setup(t);
   const pending = [];
   h.api.llamaServerStatus = () => {
@@ -352,6 +352,39 @@ test("routine replies are ignored after hide, supersession, rejection and close"
   assert.match(h.container.textContent, /gpu.active/, "hidden owner ignores its obsolete reply");
   await h.renderLlm(true);
   assert.equal(pending.length, 5, "revisit fetches immediately");
+
+  // Whisper picker act: provider/mode changes fence obsolete replies and never drop progress listeners.
+  const replies = [];
+  h.api.whisperServerStatus = () => {
+    h.counts.whisper++;
+    const reply = deferred();
+    replies.push(reply);
+    return reply.promise;
+  };
+  await h.render(React.createElement(h.Picker, h.props));
+  const registrations = h.counts.progress;
+  await React.act(async () => globalThis.__gpuProvider("nvidia"));
+  await h.tick(5000);
+  assert.equal(replies.length, 1, "another provider does not poll Whisper");
+  await React.act(async () => globalThis.__gpuProvider("whisper"));
+  assert.equal(replies.length, 2, "returning to Whisper starts a fresh unresolved read");
+  await React.act(async () => replies[0].resolve({ gpuAccelerated: true }));
+  assert.doesNotMatch(
+    h.container.textContent,
+    /gpu.active/,
+    "obsolete reply cannot activate the current GPU badge"
+  );
+  await React.act(async () => replies[1].resolve({ gpuAccelerated: true }));
+  assert.match(h.container.textContent, /gpu.active/, "current reply activates the same badge");
+  assert.equal(
+    h.counts.progress,
+    registrations,
+    "provider/mode changes keep the progress listeners"
+  );
+  await h.render(React.createElement(h.Picker, { ...h.props, mode: "cloud" }));
+  await h.tick(5000);
+  assert.equal(h.counts.whisper, 2);
+
   await h.close();
   await React.act(async () => pending[4].resolve({ gpuAccelerated: false }));
   assert.equal(h.intervals.size, 0);
@@ -564,37 +597,6 @@ test("completed LLM pack download still resets native state after Settings close
   await action;
   assert.equal(resets, 1);
   assert.equal(h.intervals.size, 0);
-});
-
-test("changing Whisper provider/mode discards old replies without dropping progress owners", async (t) => {
-  const h = await setup(t);
-  const replies = [];
-  h.api.whisperServerStatus = () => {
-    h.counts.whisper++;
-    const reply = deferred();
-    replies.push(reply);
-    return reply.promise;
-  };
-  await h.render(React.createElement(h.Picker, h.props));
-  const registrations = h.counts.progress;
-  await React.act(async () => globalThis.__gpuProvider("nvidia"));
-  await h.tick(5000);
-  assert.equal(replies.length, 1, "another provider does not poll Whisper");
-  await React.act(async () => globalThis.__gpuProvider("whisper"));
-  assert.equal(replies.length, 2, "returning to Whisper starts a fresh unresolved read");
-  await React.act(async () => replies[0].resolve({ gpuAccelerated: true }));
-  assert.doesNotMatch(
-    h.container.textContent,
-    /gpu.active/,
-    "obsolete reply cannot activate the current GPU badge"
-  );
-  await React.act(async () => replies[1].resolve({ gpuAccelerated: true }));
-  assert.match(h.container.textContent, /gpu.active/, "current reply activates the same badge");
-  assert.equal(h.counts.progress, registrations);
-  await h.render(React.createElement(h.Picker, { ...h.props, mode: "cloud" }));
-  await h.tick(5000);
-  assert.equal(h.counts.whisper, 2);
-  await h.close();
 });
 
 test("non-Settings callers poll independently and StrictMode cleans obsolete reads", async (t) => {

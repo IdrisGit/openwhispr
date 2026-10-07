@@ -1,45 +1,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const Module = require("node:module");
-const os = require("node:os");
+const { installElectronStub, getIpcHandlers } = require("./harness/electronStub.js");
 
 // Load/register the real handler without starting Electron or constructing managers.
 test("delete-all-audio preserves filesystem outcomes and reports DB reconciliation failure", async (t) => {
   const modulePath = require.resolve("../../src/helpers/ipcHandlers");
+  installElectronStub({ ipcMain: true });
+  // Capture the loader after the stub install so require("electron") resolves to the shared ipcMain facade.
   const originalLoad = Module._load;
-  const handlers = new Map();
-  const electron = {
-    app: {
-      getPath: () => os.tmpdir(),
-      getName: () => "test",
-      getVersion: () => "0.0.0",
-      isPackaged: false,
-      on() {},
-      requestSingleInstanceLock: () => true,
-    },
-    ipcMain: { handle: (name, fn) => handlers.set(name, fn), on() {}, removeHandler() {} },
-    net: { fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }) },
-    BrowserWindow: class {
-      static getAllWindows() {
-        return [];
-      }
-      static fromWebContents() {
-        return null;
-      }
-    },
-    shell: {},
-    dialog: {},
-    clipboard: {},
-    nativeImage: {},
-    globalShortcut: {},
-    utilityProcess: {},
-    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 0, height: 0 } }) },
-    systemPreferences: { getMediaAccessStatus: () => "granted" },
-    session: { fromPartition: () => ({}) },
-    MessageChannelMain: class {},
-  };
   Module._load = function (request, parent, isMain) {
-    if (request === "electron") return electron;
     if (parent?.filename === modulePath && request === "./debugLogger") {
       return new Proxy({}, { get: () => () => {} });
     }
@@ -74,7 +44,7 @@ test("delete-all-audio preserves filesystem outcomes and reports DB reconciliati
       get: (value, key) => (key in value ? value[key] : inert()),
     })
   );
-  const remove = handlers.get("delete-all-audio");
+  const remove = getIpcHandlers().get("delete-all-audio");
   assert.equal(typeof remove, "function");
   for (const [failed, failDb] of [
     [false, false],

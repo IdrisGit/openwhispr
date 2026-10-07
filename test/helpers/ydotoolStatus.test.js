@@ -57,14 +57,13 @@ test("Wayland diagnostics do not block main and skip irrelevant sessions", async
   const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
   const getYdotoolStatus = loadStatus();
   try {
-    for (const platform of ["win32", "linux"]) {
-      Object.defineProperty(process, "platform", { value: platform, configurable: true });
-      session = { isWayland: false, isKde: false, isWlroots: false };
-      const status = await getYdotoolStatus();
-      assert.equal(status.isWayland, false);
-      assert.equal(status.isLinux, platform === "linux");
-      assert.deepEqual(commands, [], "other sessions need no tool or filesystem probes");
-    }
+    // win32 and non-Wayland linux share the same early return; one linux run covers both.
+    Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+    session = { isWayland: false, isKde: false, isWlroots: false };
+    const nonWayland = await getYdotoolStatus();
+    assert.equal(nonWayland.isWayland, false);
+    assert.equal(nonWayland.isLinux, true);
+    assert.deepEqual(commands, [], "other sessions need no tool or filesystem probes");
 
     session = { isWayland: true, isKde: true, isWlroots: false };
     const status = await getYdotoolStatus();

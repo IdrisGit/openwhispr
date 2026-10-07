@@ -162,143 +162,138 @@ for (const kind of ["workspace", "team", "invite"]) {
   });
 }
 
-for (const obsoleteOutcome of ["success", "failure"]) {
-  test(`invitation pricing retires on reopen and ignores obsolete preview ${obsoleteOutcome} after roster fallback`, async (t) => {
-    const { dom, container, render } = await mountAuditDom(t);
-    const seen = (globalThis.__invitationPricing = {
-      previews: [],
-      rosters: [],
-      sends: [],
-      toasts: [],
-      invited: [],
-      reconciled: [],
-    });
-    seen.begin = (kind, workspaceId) => {
-      const request = { ...deferred(), workspaceId };
-      seen[kind].push(request);
-      return request.promise;
-    };
-    t.after(() => delete globalThis.__invitationPricing);
-    const vite = await createRendererServer(t, {
-      noExternal: ["react-i18next"],
-      mockModules: {
-        "react-i18next": `const t=(key,values)=>key==="workspaces.invite.seatUsage"?key+":"+values.used+"/"+values.seats:key==="workspaces.invite.seatCost"?key+":"+values.amount:key;export const useTranslation=()=>({t});`,
-        "/services/WorkspacesService": `export const WorkspacesService={previewSeats:id=>globalThis.__invitationPricing.begin("previews",id),listMembers:id=>globalThis.__invitationPricing.begin("rosters",id)};`,
-        "/services/InvitationsService": `export const InvitationsService={send:id=>globalThis.__invitationPricing.begin("sends",id)};`,
-        policyStore: `export const usePolicyStore={getState:()=>({accountId:null,authGeneration:null})};`,
-        enterpriseIdentityStore: `export const useEnterpriseIdentityStore={getState:()=>({clear(){}})};`,
-        "/utils/logger": `export default {error(){}};`,
-        "/ui/useToast": `export const useToast=()=>({toast:props=>globalThis.__invitationPricing.toasts.push(props)});`,
-        "/ui/dialog": `import React from "react";const W=({children})=>React.createElement("div",null,children);export function Dialog({children,open,onOpenChange}){globalThis.__invitationPricing.dismiss=()=>onOpenChange(false);return open?React.createElement("div",null,children):null;}export const DialogContent=W,DialogHeader=W,DialogTitle=W,DialogDescription=W,DialogFooter=W;`,
-      },
-    });
-    const { default: Dialog } = await vite.ssrLoadModule("/components/InviteTeammateDialog.tsx");
-    const { useWorkspaceStore: store } = await vite.ssrLoadModule("/stores/workspaceStore.ts");
-    const auth = await vite.ssrLoadModule("/lib/authRequestContext.ts");
-    const { formatAmount } = await vite.ssrLoadModule("/utils/formatAmount.ts");
-    store.setState({ workspaces: [{ id: "A", name: "A", role: "owner", seats: 2 }] });
-    let setOpen, setWorkspace;
-    function Owner() {
-      const [open, changeOpen] = React.useState(true);
-      const [workspaceId, changeWorkspace] = React.useState("A");
-      setOpen = changeOpen;
-      setWorkspace = changeWorkspace;
-      return React.createElement(Dialog, {
-        open,
-        onOpenChange: changeOpen,
-        workspaceId,
-        workspaceName: workspaceId,
-        onInvited: (email) => seen.invited.push(email),
-        onReconciled: (email) => seen.reconciled.push(email),
-      });
-    }
-    const quote = (used, amount) => ({
-      seats_used: used,
-      current_quantity: used,
-      amount_due: amount,
-      currency: "usd",
-    });
-    const usage = () =>
-      [...container.querySelectorAll("p")].find((p) =>
-        p.textContent.startsWith("workspaces.invite.seatUsage:")
-      )?.textContent;
-    const cost = () =>
-      [...container.querySelectorAll("p")].find((p) =>
-        p.textContent.startsWith("workspaces.invite.seatCost:")
-      )?.textContent;
-    const assertNoPricing = () => {
-      assert.equal(usage(), undefined, "new owner cannot retain old occupancy");
-      assert.equal(cost(), undefined, "new owner cannot retain old charge");
-    };
-    const reopen = async () => {
-      await React.act(async () => seen.dismiss());
-      await React.act(async () => setOpen(true));
-    };
-    await render(React.createElement(Owner));
-    await React.act(async () => seen.previews.at(-1).resolve(quote(2, 1200)));
-    assert.equal(usage(), "workspaces.invite.seatUsage:2/2");
-    assert.equal(cost(), `workspaces.invite.seatCost:${formatAmount(1200, "usd")}`);
-
-    await reopen();
-    assertNoPricing();
-    const obsolete = seen.previews.at(-1);
-    await reopen();
-    assertNoPricing();
-    await React.act(async () => seen.previews.at(-1).reject(new Error("no subscription")));
-    assertNoPricing();
-    assert.equal(seen.rosters.length, 1, "current preview failure requests roster fallback");
-    await React.act(async () => seen.rosters[0].resolve([{ id: "current-member" }]));
-    assert.equal(usage(), "workspaces.invite.seatUsage:1/2");
-    assert.equal(cost(), undefined, "fallback must not restore the retired billed quote");
-    await React.act(async () => {
-      if (obsoleteOutcome === "success") obsolete.resolve(quote(9, 9900));
-      else obsolete.reject(new Error("obsolete preview failure"));
-    });
-    assert.equal(usage(), "workspaces.invite.seatUsage:1/2");
-    assert.equal(cost(), undefined);
-    assert.equal(seen.rosters.length, 1, "obsolete failure must not dispatch a fallback read");
-
-    await React.act(async () => {
-      store.setState({ workspaces: [{ id: "B", name: "B", role: "owner", seats: 3 }] });
-      setWorkspace("B");
-    });
-    assertNoPricing();
-    assert.equal(seen.previews.at(-1).workspaceId, "B");
-    await React.act(async () => seen.previews.at(-1).resolve(quote(3, 3400)));
-    assert.equal(usage(), "workspaces.invite.seatUsage:3/3");
-    assert.equal(cost(), `workspaces.invite.seatCost:${formatAmount(3400, "usd")}`);
-
-    const previewCount = seen.previews.length;
-    await React.act(async () => {
-      auth.observeAuthTokenStateEvent({ generation: 7, hasToken: true });
-      store.getState().resetForAccountChange();
-      store.setState({ workspaces: [{ id: "B", name: "B", role: "owner", seats: 4 }] });
-    });
-    assertNoPricing();
-    assert.equal(seen.previews.length, previewCount + 1, "account replacement starts a new read");
-    const pending = seen.previews.at(-1);
-    await React.act(async () => {
-      const input = container.querySelector("input");
-      const key = Object.keys(input).find((key) => key.startsWith("__reactProps$"));
-      input[key].onChange({ target: { value: "current@example.test" } });
-    });
-    assert.equal(container.querySelector('button[type="submit"]').disabled, false);
-    await React.act(async () => {
-      container
-        .querySelector("form")
-        .dispatchEvent(new dom.Event("submit", { bubbles: true, cancelable: true }));
-    });
-    assert.equal(seen.sends.length, 1, "Send is not gated by pending pricing");
-    await React.act(async () => seen.sends[0].resolve({ email_sent: true }));
-    assert.equal(container.querySelector("input"), null);
-    assert.deepEqual(seen.invited, ["current@example.test"]);
-    assert.deepEqual(seen.reconciled, ["current@example.test"]);
-    assert.equal(seen.toasts.length, 1, "current send still publishes success");
-    await React.act(async () => pending.resolve(quote(4, 5600)));
-    await React.act(async () => setOpen(true));
-    assertNoPricing();
+test("invitation pricing retires on reopen and ignores an obsolete preview after roster fallback", async (t) => {
+  const { dom, container, render } = await mountAuditDom(t);
+  const seen = (globalThis.__invitationPricing = {
+    previews: [],
+    rosters: [],
+    sends: [],
+    toasts: [],
+    invited: [],
+    reconciled: [],
   });
-}
+  seen.begin = (kind, workspaceId) => {
+    const request = { ...deferred(), workspaceId };
+    seen[kind].push(request);
+    return request.promise;
+  };
+  t.after(() => delete globalThis.__invitationPricing);
+  const vite = await createRendererServer(t, {
+    noExternal: ["react-i18next"],
+    mockModules: {
+      "react-i18next": `const t=(key,values)=>key==="workspaces.invite.seatUsage"?key+":"+values.used+"/"+values.seats:key==="workspaces.invite.seatCost"?key+":"+values.amount:key;export const useTranslation=()=>({t});`,
+      "/services/WorkspacesService": `export const WorkspacesService={previewSeats:id=>globalThis.__invitationPricing.begin("previews",id),listMembers:id=>globalThis.__invitationPricing.begin("rosters",id)};`,
+      "/services/InvitationsService": `export const InvitationsService={send:id=>globalThis.__invitationPricing.begin("sends",id)};`,
+      policyStore: `export const usePolicyStore={getState:()=>({accountId:null,authGeneration:null})};`,
+      enterpriseIdentityStore: `export const useEnterpriseIdentityStore={getState:()=>({clear(){}})};`,
+      "/utils/logger": `export default {error(){}};`,
+      "/ui/useToast": `export const useToast=()=>({toast:props=>globalThis.__invitationPricing.toasts.push(props)});`,
+      "/ui/dialog": `import React from "react";const W=({children})=>React.createElement("div",null,children);export function Dialog({children,open,onOpenChange}){globalThis.__invitationPricing.dismiss=()=>onOpenChange(false);return open?React.createElement("div",null,children):null;}export const DialogContent=W,DialogHeader=W,DialogTitle=W,DialogDescription=W,DialogFooter=W;`,
+    },
+  });
+  const { default: Dialog } = await vite.ssrLoadModule("/components/InviteTeammateDialog.tsx");
+  const { useWorkspaceStore: store } = await vite.ssrLoadModule("/stores/workspaceStore.ts");
+  const auth = await vite.ssrLoadModule("/lib/authRequestContext.ts");
+  const { formatAmount } = await vite.ssrLoadModule("/utils/formatAmount.ts");
+  store.setState({ workspaces: [{ id: "A", name: "A", role: "owner", seats: 2 }] });
+  let setOpen, setWorkspace;
+  function Owner() {
+    const [open, changeOpen] = React.useState(true);
+    const [workspaceId, changeWorkspace] = React.useState("A");
+    setOpen = changeOpen;
+    setWorkspace = changeWorkspace;
+    return React.createElement(Dialog, {
+      open,
+      onOpenChange: changeOpen,
+      workspaceId,
+      workspaceName: workspaceId,
+      onInvited: (email) => seen.invited.push(email),
+      onReconciled: (email) => seen.reconciled.push(email),
+    });
+  }
+  const quote = (used, amount) => ({
+    seats_used: used,
+    current_quantity: used,
+    amount_due: amount,
+    currency: "usd",
+  });
+  const usage = () =>
+    [...container.querySelectorAll("p")].find((p) =>
+      p.textContent.startsWith("workspaces.invite.seatUsage:")
+    )?.textContent;
+  const cost = () =>
+    [...container.querySelectorAll("p")].find((p) =>
+      p.textContent.startsWith("workspaces.invite.seatCost:")
+    )?.textContent;
+  const assertNoPricing = () => {
+    assert.equal(usage(), undefined, "new owner cannot retain old occupancy");
+    assert.equal(cost(), undefined, "new owner cannot retain old charge");
+  };
+  const reopen = async () => {
+    await React.act(async () => seen.dismiss());
+    await React.act(async () => setOpen(true));
+  };
+  await render(React.createElement(Owner));
+  await React.act(async () => seen.previews.at(-1).resolve(quote(2, 1200)));
+  assert.equal(usage(), "workspaces.invite.seatUsage:2/2");
+  assert.equal(cost(), `workspaces.invite.seatCost:${formatAmount(1200, "usd")}`);
+
+  await reopen();
+  assertNoPricing();
+  const obsolete = seen.previews.at(-1);
+  await reopen();
+  assertNoPricing();
+  await React.act(async () => seen.previews.at(-1).reject(new Error("no subscription")));
+  assertNoPricing();
+  assert.equal(seen.rosters.length, 1, "current preview failure requests roster fallback");
+  await React.act(async () => seen.rosters[0].resolve([{ id: "current-member" }]));
+  assert.equal(usage(), "workspaces.invite.seatUsage:1/2");
+  assert.equal(cost(), undefined, "fallback must not restore the retired billed quote");
+  await React.act(async () => obsolete.reject(new Error("obsolete preview failure")));
+  assert.equal(usage(), "workspaces.invite.seatUsage:1/2");
+  assert.equal(cost(), undefined);
+  assert.equal(seen.rosters.length, 1, "obsolete failure must not dispatch a fallback read");
+
+  await React.act(async () => {
+    store.setState({ workspaces: [{ id: "B", name: "B", role: "owner", seats: 3 }] });
+    setWorkspace("B");
+  });
+  assertNoPricing();
+  assert.equal(seen.previews.at(-1).workspaceId, "B");
+  await React.act(async () => seen.previews.at(-1).resolve(quote(3, 3400)));
+  assert.equal(usage(), "workspaces.invite.seatUsage:3/3");
+  assert.equal(cost(), `workspaces.invite.seatCost:${formatAmount(3400, "usd")}`);
+
+  const previewCount = seen.previews.length;
+  await React.act(async () => {
+    auth.observeAuthTokenStateEvent({ generation: 7, hasToken: true });
+    store.getState().resetForAccountChange();
+    store.setState({ workspaces: [{ id: "B", name: "B", role: "owner", seats: 4 }] });
+  });
+  assertNoPricing();
+  assert.equal(seen.previews.length, previewCount + 1, "account replacement starts a new read");
+  const pending = seen.previews.at(-1);
+  await React.act(async () => {
+    const input = container.querySelector("input");
+    const key = Object.keys(input).find((key) => key.startsWith("__reactProps$"));
+    input[key].onChange({ target: { value: "current@example.test" } });
+  });
+  assert.equal(container.querySelector('button[type="submit"]').disabled, false);
+  await React.act(async () => {
+    container
+      .querySelector("form")
+      .dispatchEvent(new dom.Event("submit", { bubbles: true, cancelable: true }));
+  });
+  assert.equal(seen.sends.length, 1, "Send is not gated by pending pricing");
+  await React.act(async () => seen.sends[0].resolve({ email_sent: true }));
+  assert.equal(container.querySelector("input"), null);
+  assert.deepEqual(seen.invited, ["current@example.test"]);
+  assert.deepEqual(seen.reconciled, ["current@example.test"]);
+  assert.equal(seen.toasts.length, 1, "current send still publishes success");
+  await React.act(async () => pending.resolve(quote(4, 5600)));
+  await React.act(async () => setOpen(true));
+  assertNoPricing();
+});
 
 test("real Groups creation reconciles through core and mounted roster once; dismissed/reopened creation suppresses assignment success/error feedback", async (t) => {
   const { dom, container, render } = await mountAuditDom(t);

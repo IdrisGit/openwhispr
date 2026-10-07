@@ -1,16 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
-const { createRendererServer } = require("../lib/rendererTestHarness");
-const { mountAuditDom } = require("../lib/settingsAuditHarness");
+const { mountDialogFixture } = require("../lib/dialogMountFixture");
 
 test("real DialogContent composes caller cleanup on ref replacement and unmount", async (t) => {
-  const { render } = await mountAuditDom(t);
-  const vite = await createRendererServer(t, {
-    noExternal: ["@radix-ui/react-dialog", "react-i18next"],
-    mockModules: {
-      "react-i18next": `export const useTranslation=()=>({t:key=>key});`,
-    },
+  const { render, vite, settle } = await mountDialogFixture(t, {
+    noExternal: ["@radix-ui/react-dialog"],
   });
   const { Dialog, DialogContent, DialogTitle } = await vite.ssrLoadModule(
     "/components/ui/dialog.tsx"
@@ -35,10 +30,10 @@ test("real DialogContent composes caller cleanup on ref replacement and unmount"
       )
     );
   await render(node(one));
-  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await settle();
   assert.deepEqual(attached, ["one"]);
   await render(node(two));
-  await React.act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await settle();
   assert.deepEqual(cleaned, ["one"]);
   await render(null);
   assert.deepEqual(cleaned, ["one", "two"]);

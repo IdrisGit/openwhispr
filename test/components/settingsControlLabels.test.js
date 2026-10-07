@@ -1,37 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
-const { createRoot } = require("react-dom/client");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
-
-async function mountDom(t) {
-  const { Window } = await import("happy-dom");
-  const dom = new Window();
-  const windowBefore = globalThis.window;
-  const documentBefore = globalThis.document;
-  const actBefore = globalThis.IS_REACT_ACT_ENVIRONMENT;
-  const rafBefore = globalThis.requestAnimationFrame;
-  globalThis.requestAnimationFrame = dom.requestAnimationFrame.bind(dom);
-  installBrowserGlobals(t);
-  globalThis.window = dom;
-  globalThis.document = dom.document;
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const container = dom.document.createElement("div");
-  dom.document.body.appendChild(container);
-  const root = createRoot(container);
-  t.after(async () => {
-    globalThis.window = dom;
-    globalThis.document = dom.document;
-    await React.act(async () => root.unmount());
-    globalThis.window = windowBefore;
-    globalThis.document = documentBefore;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = actBefore;
-    globalThis.requestAnimationFrame = rafBefore;
-    delete globalThis.__controlLabels;
-    await dom.happyDOM.close();
-  });
-  return { dom, container, root };
-}
+const { createRendererServer } = require("../lib/rendererTestHarness");
+const { mountAuditDom } = require("../lib/settingsAuditHarness");
+const { enterpriseProviderMocks } = require("../lib/enterpriseProviderFixture");
 
 const translations = require("../../src/locales/en/translation.json");
 const translate = (key) => {
@@ -42,7 +14,7 @@ const translate = (key) => {
 
 // These checks use native labels/ARIA attributes, not a browser accessibility tree.
 test("shared controls keep explicit names, native labels and multi-control actions distinct", async (t) => {
-  const { dom, root, container } = await mountDom(t);
+  const { dom, root, container } = await mountAuditDom(t);
   globalThis.__controlLabels = { t: translate };
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-control-labels-",
@@ -156,7 +128,7 @@ test("shared controls keep explicit names, native labels and multi-control actio
 });
 
 test("Enterprise and GPU names distinguish fields and retained instances", async (t) => {
-  const { root, container } = await mountDom(t);
+  const { root, container } = await mountAuditDom(t);
   globalThis.__controlLabels = { t: translate };
   globalThis.window.electronAPI = {
     listGpus: async () => [
@@ -170,14 +142,9 @@ test("Enterprise and GPU names distinguish fields and retained instances", async
     noExternal: ["react-i18next"],
     mockModules: {
       "react-i18next": `export const useTranslation = () => ({t: globalThis.__controlLabels.t});`,
-      "/stores/settingsStore": `
-        import { create } from "zustand";
-        const initial = { bedrockAuthMode: "keys", bedrockRegion: "us-east-1", bedrockProfile: "work", bedrockAccessKeyId: "fake-access", bedrockSecretAccessKey: "fake-secret", bedrockSessionToken: "", azureEndpoint: "", azureApiKey: "", azureDeploymentName: "", azureApiVersion: "", vertexAuthMode: "apikey", vertexProject: "", vertexLocation: "us-central1", vertexApiKey: "" };
-        export const useSettingsStore = create(set => ({ ...initial, ...Object.fromEntries(Object.keys(initial).map(key => ["set" + key[0].toUpperCase() + key.slice(1), value => set({[key]: value})])) }));
-        globalThis.__controlLabels.store = useSettingsStore;
-      `,
-      "/models/ModelRegistry": `export const REASONING_PROVIDERS = {};`,
-      "/utils/providerIcons": `export const getProviderIcon = () => ""; export const isMonochromeProvider = () => false;`,
+      ...enterpriseProviderMocks("__controlLabels.store", {
+        providers: ["bedrock", "azure", "vertex"],
+      }),
       "/ui/ModelCardList": `export default function Stub() { return null; }`,
       "/ui/SearchableModelList": `export default function Stub() { return null; }`,
       "/TestConnectionButton": `export default function Stub() { return null; }`,
@@ -233,7 +200,7 @@ test("Enterprise and GPU names distinguish fields and retained instances", async
 });
 
 test("GPU StrictMode reads keep the saved purpose and debug readers ignore superseded replies", async (t) => {
-  const { root, container } = await mountDom(t);
+  const { root, container } = await mountAuditDom(t);
   const observed = (globalThis.__controlLabels = { t: translate, toasts: [] });
   const gpuReads = [];
   const debugReads = [];
@@ -291,7 +258,7 @@ test("GPU StrictMode reads keep the saved purpose and debug readers ignore super
 });
 
 test("Workspace list refreshes keep the newest roster, teams and key metadata", async (t) => {
-  const { root, container } = await mountDom(t);
+  const { root, container } = await mountAuditDom(t);
   const lists = { keys: [], teams: [], invites: [] };
   globalThis.__controlLabels = {
     t: (key) => key,
@@ -361,4 +328,97 @@ test("Workspace list refreshes keep the newest roster, teams and key metadata", 
     assert.ok(container.textContent.includes("new-workspace"), kind);
     assert.equal(container.textContent.includes("old-workspace"), false, kind);
   }
+});
+
+test("small Settings controls use current commands, platform and keyboard selection", async (t) => {
+  const { dom, container, render } = await mountAuditDom(t);
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { writeText: async (text) => copied.push(text) } },
+  });
+  let platform = "linux";
+  dom.electronAPI = { getPlatform: () => platform };
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-small-actions-",
+    noExternal: ["react-i18next"],
+    mockModules: {
+      "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
+    },
+  });
+  const { CopyableCommand } = await vite.ssrLoadModule("/components/ui/CopyableCommand.tsx");
+  const { default: Warning } = await vite.ssrLoadModule("/components/ui/MicPermissionWarning.tsx");
+  const { default: Language } = await vite.ssrLoadModule("/components/ui/LanguageSelector.tsx");
+  const feedbackTimers = [];
+  const originalTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
+    if (delay !== 2000) return originalTimeout(callback, delay, ...args);
+    feedbackTimers.push(callback);
+    return 1;
+  });
+  const callbacks = [];
+  await render(
+    React.createElement(CopyableCommand, {
+      command: "first",
+      onCopied: () => callbacks.push("first"),
+    })
+  );
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copy");
+  await React.act(async () => container.querySelector("button").click());
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copied");
+  await React.act(async () => feedbackTimers.splice(0).forEach((callback) => callback()));
+  await render(
+    React.createElement(CopyableCommand, {
+      command: "second",
+      copyLabel: "Copy MCP URL",
+      onCopied: () => callbacks.push("second"),
+    })
+  );
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copy MCP URL");
+  await React.act(async () => container.querySelector("button").click());
+  assert.deepEqual(copied, ["first", "second"]);
+  assert.deepEqual(callbacks, ["first", "second"]);
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "common.copied");
+  await React.act(async () => feedbackTimers.splice(0).forEach((callback) => callback()));
+  assert.equal(container.querySelector("button").getAttribute("aria-label"), "Copy MCP URL");
+  let sound = 0;
+  let privacy = 0;
+  for (platform of ["linux", "darwin", "win32"]) {
+    await render(
+      React.createElement(Warning, {
+        error: null,
+        onOpenSoundSettings: () => sound++,
+        onOpenPrivacySettings: () => privacy++,
+      })
+    );
+    const buttons = container.querySelectorAll("button");
+    assert.equal(buttons.length, platform === "linux" ? 1 : 2);
+    await React.act(async () => {
+      for (const button of buttons) button.click();
+    });
+  }
+  assert.deepEqual([sound, privacy], [3, 2]);
+  const selected = [];
+  await render(
+    React.createElement(Language, {
+      value: "en",
+      onChange: (value) => selected.push(value),
+      options: [
+        { value: "en", label: "English", flag: "" },
+        { value: "fr", label: "French", flag: "" },
+      ],
+    })
+  );
+  const trigger = container.querySelector('button[aria-haspopup="listbox"]');
+  const key = (value) =>
+    React.act(async () =>
+      trigger.dispatchEvent(new dom.KeyboardEvent("keydown", { key: value, bubbles: true }))
+    );
+  await key("Enter");
+  await key("ArrowDown");
+  await key("Escape");
+  assert.equal(trigger.getAttribute("aria-expanded"), "false");
+  await key("Enter");
+  await key("Enter");
+  assert.deepEqual(selected, ["en"], "Escape resets the highlighted index before reopening");
 });

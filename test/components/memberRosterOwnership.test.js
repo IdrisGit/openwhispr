@@ -91,11 +91,11 @@ async function mountRosterAdapter(t, kind) {
     via_teams: [],
   });
   const finish = (read, name) => React.act(async () => read.resolve([member(name)]));
-  return { render, seen, auth, node, member, finish };
+  return { render, seen, auth, vite, node, member, finish };
 }
 
 test("team roster accepts only owned latest reads and preserves independent row mutations", async (t) => {
-  const { render, seen, auth, node, member, finish } = await mountRosterAdapter(t, "team");
+  const { render, seen, auth, node, member, finish, vite } = await mountRosterAdapter(t, "team");
   await render(node("A"));
   assert.equal(seen.reads.length, 2, "StrictMode read cleanup rejects the probe");
   await finish(seen.reads[1], "fresh");
@@ -282,6 +282,32 @@ test("team roster accepts only owned latest reads and preserves independent row 
   await render(null);
   await finish(unmounted, "unmounted");
   assert.equal(seen.publications.length, count);
+
+  // A real addTeamMembers write invalidates the real roster cache and triggers exactly one re-read.
+  const { useMemberRoster } = await vite.ssrLoadModule("/hooks/useMemberRoster.ts");
+  const { createSpaceActions } = await vite.ssrLoadModule("/services/spaceActionsCore.ts");
+  const { invalidateSpaceRoster } = await vite.ssrLoadModule("/lib/spaceRosterCache.ts");
+  let hook,
+    liveMembers = [];
+  const tracker = createSpaceActions({
+    teams: { addMember: async (_team, userId) => { liveMembers = [...liveMembers, { user_id: userId }]; } },
+    spaces: { mySpaces: async () => [] },
+    local: { loadSpaces: async () => {} },
+    mirror: { upsertCloudSpaces: async () => {} },
+    invalidateSpaceRoster,
+  });
+  const liveLoad = () => seen.load("live");
+  function LiveRoster() {
+    hook = useMemberRoster("team:live-roster", liveLoad);
+    return React.createElement("div", { ref: hook.bindRoster });
+  }
+  await render(React.createElement(LiveRoster));
+  const liveReads = seen.reads.length;
+  await React.act(async () => hook.mutate("new", () => tracker.addTeamMembers("live-team", ["new"])));
+  assert.equal(seen.reads.length - liveReads, 1, "one successful real write has one refresh owner");
+  assert.equal(seen.reads.at(-1).id, "live");
+  await finish(seen.reads.at(-1), "new");
+  assert.deepEqual(hook.members.map((entry) => entry.user_id), ["new"]);
 });
 
 test("space roster adapter switches resources and adds then reloads the current space", async (t) => {
@@ -301,45 +327,4 @@ test("space roster adapter switches resources and adds then reloads the current 
   assert.equal(seen.props.loading, true, "successful add starts a fresh roster read");
   await finish(seen.reads.at(-1), "added");
   assert.equal(seen.props.members[0].name, "added");
-});
-
-test("real membership action invalidation dispatches exactly one roster read", async (t) => {
-  const { render } = await mountAuditDom(t);
-  const vite = await createRendererServer(t, {
-    noExternal: ["react-i18next"],
-    mockModules: {
-      "react-i18next": `export const useTranslation=()=>({t:key=>key});`,
-      "/ui/useToast": `export const useToast=()=>({toast(){}});`,
-    },
-  });
-  const { useMemberRoster } = await vite.ssrLoadModule("/hooks/useMemberRoster.ts");
-  const { createSpaceActions } = await vite.ssrLoadModule("/services/spaceActionsCore.ts");
-  const { invalidateSpaceRoster } = await vite.ssrLoadModule("/lib/spaceRosterCache.ts");
-  let reads = 0,
-    roster,
-    members = [];
-  const load = async () => {
-    reads++;
-    return members;
-  };
-  const actions = createSpaceActions({
-    teams: {
-      addMember: async (_team, id) => {
-        members = [...members, { user_id: id }];
-      },
-    },
-    spaces: { mySpaces: async () => [] },
-    mirror: { upsertCloudSpaces: async () => {} },
-    local: { loadSpaces: async () => {} },
-    invalidateSpaceRoster,
-  });
-  function MountedRoster() {
-    roster = useMemberRoster("team:A", load);
-    return React.createElement("div", { ref: roster.bindRoster });
-  }
-  await render(React.createElement(MountedRoster));
-  assert.equal(reads, 1);
-  await React.act(async () => roster.mutate("new", () => actions.addTeamMembers("A", ["new"])));
-  assert.equal(reads, 2, "one successful write has one refresh owner");
-  assert.deepEqual(roster.members, [{ user_id: "new" }]);
 });

@@ -144,22 +144,12 @@ test("retained local picker loads disk state once per mount and balances progres
   root = null;
   assert.deepEqual([registrations, cleanups, listeners.size], [2, 2, 0]);
 
-  let resolveInventory;
-  globalThis.window.electronAPI.modelGetAll = () =>
-    new Promise((resolve) => (resolveInventory = resolve));
-  let staleSelections = 0;
-  let latestSelections = 0;
-  root = createRoot(container);
-  await renderPicker(() => staleSelections++, "local-one");
-  await renderPicker(() => latestSelections++, "local-one");
-  await React.act(async () => resolveInventory([]));
-  assert.deepEqual([staleSelections, latestSelections], [0, 1]);
-
+  // Reconciliation acts (stale replies, confirmed-empty clears, unmounted owners) live in transcriptionInventoryReconciliation.
   const api = globalThis.window.electronAPI;
   const selected = [];
   const select = (id) => selected.push(id);
   const remount = async () => {
-    await React.act(async () => root.unmount());
+    if (root) await React.act(async () => root.unmount());
     root = createRoot(container);
     selected.length = 0;
   };
@@ -176,36 +166,4 @@ test("retained local picker loads disk state once per mount and balances progres
   await React.act(async () => events.dispatchEvent(new Event("openwhispr-models-cleared")));
   assert.equal(globalThis.__localPickerCards[0].isDownloaded, true);
   assert.deepEqual(selected, []);
-
-  await remount();
-  api.modelGetAll = async () => [];
-  await renderPicker(select, "local-one");
-  assert.deepEqual(selected, [""], "confirmed empty inventory clears an owned selection");
-  selected.length = 0;
-  await renderPicker(select, "cloud-model");
-  assert.deepEqual(selected, [], "an empty local inventory does not own a foreign selection");
-
-  await remount();
-  const pending = [];
-  api.modelGetAll = () => new Promise((resolve) => pending.push(resolve));
-  await renderPicker(select, "local-one");
-  await renderPicker(select, "cloud-model", { selectedProvider: "cloud" });
-  await React.act(async () => pending[1]([{ id: "local-one", isDownloaded: true }]));
-  await React.act(async () => pending[0]([]));
-  assert.deepEqual(selected, [], "late old-selection replies cannot clear a new selection");
-  assert.equal(globalThis.__localPickerCards.length, 0);
-  await renderPicker(select, "cloud-model");
-  assert.equal(
-    globalThis.__localPickerCards[0].isDownloaded,
-    true,
-    "late replies cannot replace inventory"
-  );
-
-  await remount();
-  await renderPicker(select, "local-one");
-  const resolveAfterUnmount = pending.at(-1);
-  await React.act(async () => root.unmount());
-  root = null;
-  await React.act(async () => resolveAfterUnmount([]));
-  assert.deepEqual(selected, [], "unmounted owners cannot write preferences");
 });

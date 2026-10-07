@@ -1,28 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const React = require("react");
-const { createRoot } = require("react-dom/client");
-const { createRendererServer, installBrowserGlobals } = require("../lib/rendererTestHarness");
+const { createRendererServer } = require("../lib/rendererTestHarness");
+const { mountAuditDom } = require("../lib/settingsAuditHarness");
 
 test("microphone inventory is usable before native label hydration and preserves device behavior", async (t) => {
-  const { Window } = await import("happy-dom");
-  const dom = new Window();
-  const originalDocument = globalThis.document;
-  const originalAct = globalThis.IS_REACT_ACT_ENVIRONMENT;
-  const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-  let root;
-  t.after(async () => {
-    if (root) await React.act(async () => root.unmount());
-    globalThis.document = originalDocument;
-    globalThis.IS_REACT_ACT_ENVIRONMENT = originalAct;
-    if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
-    else delete globalThis.navigator;
-    await dom.happyDOM.close();
-  });
-  installBrowserGlobals(t);
-  globalThis.window = dom;
-  globalThis.document = dom.document;
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const mounted = await mountAuditDom(t);
+  const { dom, container } = mounted;
+  let root = mounted.root;
   const calls = { enumerate: 0, permission: 0, added: 0, removed: 0, defaults: 0, stopped: 0 };
   let deviceChanged;
   let devices = [{ kind: "audioinput", deviceId: "mic", label: "USB microphone" }];
@@ -63,8 +48,6 @@ test("microphone inventory is usable before native label hydration and preserves
       return defaultMic();
     },
   };
-  const container = dom.document.createElement("div");
-  dom.document.body.appendChild(container);
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-general-controls-",
     noExternal: ["react-i18next"],
@@ -87,7 +70,6 @@ test("microphone inventory is usable before native label hydration and preserves
     onDeviceSelect: (...args) => selections.push(args),
     onMicWarmHoldSecondsChange: (seconds) => warmHolds.push(seconds),
   };
-  root = createRoot(container);
   const render = (changes = {}) =>
     React.act(async () =>
       root.render(React.createElement(MicrophoneSettings, { ...props, ...changes }))

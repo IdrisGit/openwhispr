@@ -120,6 +120,24 @@ test("billing callbacks reject old identities/replies and only publish valid bro
   assert.deepEqual(opened, [{ url: "https://stripe.test/fresh", generation: state.generation }]);
   events.dispatchEvent(new Event("focus"));
   assert.deepEqual(state.loads, [true]);
+  // A newly mounted useUsage owner consumes the pending return-focus refresh the unmounted opener armed.
+  let transfer;
+  await React.act(async () => {
+    transfer = usage.openCheckout(opts);
+  });
+  await React.act(async () =>
+    pending.at(-1).resolve({ success: true, url: "https://stripe.test/transfer" })
+  );
+  assert.equal((await transfer).success, true);
+  await React.act(async () => root.render(null));
+  await render();
+  state.loads.length = 0;
+  events.dispatchEvent(new Event("focus"));
+  assert.deepEqual(
+    state.loads,
+    [true],
+    "a remaining owner consumes the checkout return refresh after its opener unmounted"
+  );
   await React.act(async () => {
     request = usage.switchPlan(opts);
   });

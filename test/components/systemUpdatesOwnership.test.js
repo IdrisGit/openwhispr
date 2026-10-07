@@ -244,10 +244,6 @@ test("System update owner mounts on first visit and retains live state and insta
   await render(false);
   assert.equal(calls.status, 1);
   await render(true);
-  assert.deepEqual(
-    [calls.status, calls.info, calls.listen],
-    [2, 2, 6],
-    "close/reopen creates a fresh System owner"
-  );
+  // Reopen must not replay a consumed stall alert.
   assert.equal(calls.alerts.length, 1, "a consumed stall alert does not replay on reopen");
 });

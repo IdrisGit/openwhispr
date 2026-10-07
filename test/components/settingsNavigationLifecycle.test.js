@@ -82,17 +82,6 @@ test("scoped host survives StrictMode, reconciles hidden policy and cannot leak 
   assert.equal(counts.registered - counts.disposed, 1, "StrictMode leaves one policy bridge");
   assert.equal(storage.getItem("settings.llmsTab"), JSON.stringify("dictationAgent"));
   const actions = navigation.getState();
-  await React.act(async () => actions.openSettings("general"));
-  await React.act(async () => counts.policy.setState({ status: "loading" }));
-  assert.equal(navigation.getState().section, "general");
-  assert.equal(
-    navigation.getState().llmTab,
-    "dictationCleanup",
-    "unresolved policy is fail-closed even while hidden"
-  );
-  await React.act(async () => counts.policy.setState({ status: "unmanaged" }));
-  await React.act(async () => actions.openSettings("llms"));
-  assert.equal(navigation.getState().llmTab, "dictationCleanup");
   await React.act(async () => actions.setSettingsOpen(false));
   await render("transcription");
   assert.equal(

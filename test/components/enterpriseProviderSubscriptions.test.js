@@ -7,6 +7,7 @@ const {
   installBrowserGlobals,
   installHostDom,
 } = require("../lib/rendererTestHarness");
+const { enterpriseProviderMocks } = require("../lib/enterpriseProviderFixture");
 
 test("retained Enterprise panels expose current credential configs and preserve catalog state", async (t) => {
   let root;
@@ -45,28 +46,22 @@ test("retained Enterprise panels expose current credential configs and preserve 
     noExternal: ["react-i18next"],
     mockModules: {
       "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
-      "/stores/settingsStore": `
-        import { create } from "zustand";
-        const initial = {
-          bedrockAuthMode: "keys", bedrockRegion: "us-east-1", bedrockProfile: "work",
-          bedrockAccessKeyId: "fake-access", bedrockSecretAccessKey: "fake-secret", bedrockSessionToken: "fake-session",
-          azureEndpoint: "https://example.openai.azure.com", azureApiKey: "fake-azure",
-          azureDeploymentName: "deployment", azureApiVersion: "2024-10-21",
-          vertexAuthMode: "apikey", vertexProject: "project", vertexLocation: "us-central1", vertexApiKey: "fake-vertex",
-        };
-        export const useSettingsStore = create(set => ({
-          ...initial,
-          ...Object.fromEntries(Object.keys(initial).map(key => [
-            "set" + key[0].toUpperCase() + key.slice(1), value => set({[key]: value})
-          ])),
-        }));
-        globalThis.__enterprisePanels.store = useSettingsStore;
-      `,
-      "/models/ModelRegistry": `export const REASONING_PROVIDERS = {
-        bedrock: {models: [{value: "us.model", label: "Bedrock model"}]},
-        vertex: {models: [{value: "vertex-model", label: "Vertex model"}]},
-      };`,
-      "/utils/providerIcons": `export const getProviderIcon = () => ""; export const isMonochromeProvider = () => false;`,
+      ...enterpriseProviderMocks("__enterprisePanels.store", {
+        providers: ["bedrock", "azure", "vertex"],
+        values: {
+          bedrockSessionToken: "fake-session",
+          azureEndpoint: "https://example.openai.azure.com",
+          azureApiKey: "fake-azure",
+          azureDeploymentName: "deployment",
+          azureApiVersion: "2024-10-21",
+          vertexProject: "project",
+          vertexApiKey: "fake-vertex",
+        },
+        registry: `export const REASONING_PROVIDERS = {
+          bedrock: {models: [{value: "us.model", label: "Bedrock model"}]},
+          vertex: {models: [{value: "vertex-model", label: "Vertex model"}]},
+        };`,
+      }),
       "/TestConnectionButton": `export default function TestConnectionButton({provider, getConfig}) {
         globalThis.__enterprisePanels.config[provider] = getConfig;
         return null;
