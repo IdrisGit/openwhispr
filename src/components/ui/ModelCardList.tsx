@@ -113,9 +113,7 @@ export function ModelCard({
       <div className="flex items-center gap-1.5">
         <div
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${getStatusDotClass()} ${
-            isDownloading
-              ? "animate-[spinner-rotate_1s_linear_infinite]"
-              : ""
+            isDownloading ? "animate-[spinner-rotate_1s_linear_infinite]" : ""
           }`}
         />
 
