@@ -300,7 +300,6 @@ const AlertDialog: React.FC<AlertDialogProps> = ({
   okText,
   onOk,
 }) => {
-  const { t } = useTranslation();
   const handleOk = () => {
     onOk();
     onOpenChange(false);

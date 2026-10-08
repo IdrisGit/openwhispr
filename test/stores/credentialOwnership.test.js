@@ -116,14 +116,18 @@ test("startup hydration and awaited migration never overwrite newer edits/clears
 
 test("failed secure migration keeps the legacy copy recoverable", async (t) => {
   const api = {
+    getOpenAIKey: async () => "fake-openai",
     getNoteFormattingCustomKey: async () => "",
     saveNoteFormattingCustomKey: async () => ({ success: false }),
   };
-  const { initializeSettings } = await load(t, api, {
+  const { useSettingsStore: store, initializeSettings } = await load(t, api, {
     noteFormattingCustomApiKey: "fake-recoverable",
+    openaiApiKey: "fake-stale-plaintext",
   });
   await initializeSettings();
   assert.equal(localStorage.getItem("noteFormattingCustomApiKey"), "fake-recoverable");
+  assert.equal(store.getState().openaiApiKey, "fake-openai", "other secrets still hydrate");
+  assert.equal(localStorage.getItem("openaiApiKey"), null, "migrated stale copies are swept");
 });
 
 test("metadata refresh accepts only current field/version/read ownership and never persists secrets in localStorage", async (t) => {

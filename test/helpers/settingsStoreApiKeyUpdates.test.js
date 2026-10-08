@@ -98,7 +98,7 @@ test("all registered secrets refresh in memory without persistence or save loops
   assert.equal(changes.length, bindings.length * 2);
   // ReasoningService reads keys on every request; only the Tinfoil client caches one.
   await context.vite.ssrLoadModule("/services/ReasoningService");
-  assert.deepEqual(context.window.cacheClears, [["tinfoil"], ["tinfoil"]]);
+  assert.deepEqual(context.window.cacheClears, [[], []]);
 });
 
 test("the next batch dictation reads the changed key, not its populated cache", async (t) => {

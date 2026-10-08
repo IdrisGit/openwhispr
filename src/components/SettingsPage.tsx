@@ -1,14 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef, useId, useMemo } from "react";
 import { useStore } from "zustand";
-import type {
-  SettingsNavigationStore,
-  SettingsSectionType,
-} from "../stores/settingsNavigationStore";
+import type { SettingsNavigationStore } from "../stores/settingsNavigationStore";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { BIDI_VALUE_TOKEN, BidiInterpolatedText } from "./ui/BidiInterpolatedText";
 import { Badge } from "./ui/badge";
 import {
   Mic,
@@ -123,14 +118,12 @@ import {
   canChangeCloudBackupPreference,
   effectiveAudioRetentionDays,
   effectiveLocalHistoryEnabled,
-  isAgentAllowed,
   isCloudBackupAllowed,
   isEnterpriseTranscriptionOfferable,
   lockedLocalHistoryValue,
   maxAudioRetentionDays,
 } from "../stores/policyRules";
 import { usePolicyModeOptions, usePolicySnapshot } from "../hooks/usePolicy";
-import { usePolicyStore } from "../stores/policyStore";
 import { stopRecording } from "../stores/meetingRecordingStore";
 import { requestSignIn } from "../utils/requestSignIn";
 import { canManageSystemAudioInApp } from "../utils/systemAudioAccess";
@@ -144,8 +137,6 @@ import { formatAmount } from "../utils/formatAmount";
 import { enterpriseProviderName, getTranscriptionProvider } from "../models/ModelRegistry";
 import { useManagedScopeResolution } from "../stores/enterpriseIdentityStore";
 import { supportsLiveTranscriptionPreview } from "../utils/transcriptionPreview";
-
-export type { SettingsSectionType };
 
 interface SettingsPageProps {
   navigation: SettingsNavigationStore;

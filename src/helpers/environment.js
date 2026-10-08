@@ -8,18 +8,7 @@ const secretCrypto = require("./secretCrypto");
 const { BYOK_API_KEYS, SECRET_STORE_KEYS_BY_ENV } = require("../config/secretKeys");
 const { broadcastToWindows } = require("./windowBroadcast");
 
-const SECRET_KEYS = [
-  ...BYOK_API_KEYS.map((k) => k.env),
-  "CORTI_CLIENT_ID",
-  "CORTI_CLIENT_SECRET",
-  "CUSTOM_TRANSCRIPTION_API_KEY",
-  "CUSTOM_CLEANUP_API_KEY",
-  "BEDROCK_ACCESS_KEY_ID",
-  "BEDROCK_SECRET_ACCESS_KEY",
-  "BEDROCK_SESSION_TOKEN",
-  "AZURE_OPENAI_API_KEY",
-  "VERTEX_API_KEY",
-];
+const SECRET_KEYS = Object.keys(SECRET_STORE_KEYS_BY_ENV);
 
 const SECRET_KEY_SET = new Set(SECRET_KEYS);
 

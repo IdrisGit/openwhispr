@@ -196,6 +196,52 @@ test("permission reads cannot overwrite a newer grant or persist after cleanup",
   );
 });
 
+test("a poll tick during Grant still opens Accessibility settings", async (t) => {
+  const rootRef = { current: null };
+  t.after(async () => {
+    if (rootRef.current) await React.act(async () => rootRef.current.unmount());
+  });
+  const accessibility = [];
+  let opened = 0;
+  installBrowserGlobals(t, {
+    window: {
+      electronAPI: {
+        getPlatform: () => "darwin",
+        checkAccessibilityPermission: () => pending(accessibility),
+        openAccessibilitySettings: async () => (opened++, { success: true }),
+      },
+    },
+  });
+  const ticks = [];
+  const intervalBefore = globalThis.setInterval;
+  const clearBefore = globalThis.clearInterval;
+  globalThis.setInterval = (callback) => ticks.push(callback);
+  globalThis.clearInterval = () => {};
+  t.after(() => {
+    globalThis.setInterval = intervalBefore;
+    globalThis.clearInterval = clearBefore;
+  });
+  const container = installHookDom(t);
+  const vite = await createRendererServer(t, {
+    cachePrefix: "openwhispr-permission-grant-poll-",
+    noExternal: ["react-i18next"],
+    mockModules: { "react-i18next": i18nMock },
+  });
+  const { usePermissions } = await vite.ssrLoadModule("/hooks/usePermissions.ts");
+  const state = await mountReader(container, rootRef)(usePermissions);
+  await React.act(async () => accessibility.forEach((read) => read.resolve(false)));
+  const grantRead = accessibility.length;
+  let grant;
+  await React.act(async () => {
+    grant = state().requestAccessibilityPermission();
+  });
+  await React.act(async () => ticks.at(-1)());
+  await React.act(async () => accessibility[grantRead].resolve(false));
+  await grant;
+  accessibility.at(-1).resolve(false);
+  assert.equal(opened, 1, "the poll must not cancel the Grant click");
+});
+
 // Bespoke paste preservation: the mount revalidation cannot lose to an older read; a concurrent check keeps the latest answer.
 test("paste tools stay live until a newer paste check wins", async (t) => {
   const rootRef = { current: null };

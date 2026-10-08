@@ -769,7 +769,8 @@ class WhisperManager {
       };
     }
 
-    return { model: modelName, deleted: false, error: "Model not found", success: false };
+    // Already absent counts as deleted, so the renderer refreshes its stale list.
+    return { model: modelName, deleted: false, freed_bytes: 0, freed_mb: 0, success: true };
   }
 
   async deleteAllWhisperModels() {

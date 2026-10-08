@@ -283,9 +283,13 @@ export const usePermissions = (
     const platform = getPlatform();
 
     if (platform === "darwin") {
-      // Check if already granted
-      const alreadyGranted = await checkAccessibility();
-      if (alreadyGranted === undefined || alreadyGranted || generation !== owner.current) return;
+      // Check if already granted. Read directly: the 2 s poll supersedes checkAccessibility's reads.
+      const alreadyGranted = await window.electronAPI?.checkAccessibilityPermission?.(true);
+      if (generation !== owner.current) return;
+      if (alreadyGranted) {
+        setAccessibilityPermissionGranted(true);
+        return;
+      }
 
       // Open System Settings directly — avoids the undismissable macOS TCC dialog
       // that isTrustedAccessibilityClient(true) would show.
@@ -304,12 +308,7 @@ export const usePermissions = (
       await checkPasteToolsAvailability();
       if (generation === owner.current) setAccessibilityPermissionGranted(true);
     }
-  }, [
-    openSystemSettings,
-    checkAccessibility,
-    checkPasteToolsAvailability,
-    setAccessibilityPermissionGranted,
-  ]);
+  }, [openSystemSettings, checkPasteToolsAvailability, setAccessibilityPermissionGranted]);
 
   // Check paste tools on mount
   useEffect(() => {

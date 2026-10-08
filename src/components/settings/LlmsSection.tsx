@@ -22,7 +22,6 @@ import {
   type LlmTab,
   type SettingsNavigationStore,
 } from "../../stores/settingsNavigationStore";
-export type { LlmTab } from "../../stores/settingsNavigationStore";
 const NON_AGENT_LLM_TABS = LLM_TABS.filter((tabId) => !AGENT_LLM_TABS.has(tabId));
 
 const CLEANUP_MODE_TOAST_KEY: Record<InferenceMode, string> = {

@@ -1383,25 +1383,9 @@ class ReasoningService extends BaseReasoningService {
     }
   }
 
-  clearApiKeyCache(
-    provider?:
-      | "openai"
-      | "anthropic"
-      | "gemini"
-      | "groq"
-      | "mistral"
-      | "tinfoil"
-      | "custom"
-      | "openrouter"
-      | "corti"
-  ): void {
-    if (provider === "tinfoil") {
-      clearTinfoilClientCache();
-      logger.logReasoning("API_KEY_CACHE_CLEARED", { provider });
-    } else if (!provider) {
-      clearTinfoilClientCache();
-      logger.logReasoning("API_KEY_CACHE_CLEARED", { provider: "all" });
-    }
+  clearApiKeyCache(): void {
+    clearTinfoilClientCache();
+    logger.logReasoning("API_KEY_CACHE_CLEARED", { provider: "tinfoil" });
   }
 
   destroy(): void {

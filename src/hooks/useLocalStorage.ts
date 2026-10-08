@@ -21,9 +21,9 @@ export function useLocalStorage<T>(
     }
   });
 
-  // Callers put these setters in Effect dependency arrays (usePermissions.ts:161,
-  // WorkspaceSection.tsx:84), so the identity has to hold — while an updater
-  // function still has to read the newest value within the same tick.
+  // Callers put these setters in Effect dependency arrays (usePermissions.ts:161),
+  // so the identity has to hold — while an updater function still has to read
+  // the newest value within the same tick.
   const current = useRef(value);
 
   // Direct preference readers need missing defaults, but an abandoned render must not write them.

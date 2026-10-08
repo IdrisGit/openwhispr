@@ -54,6 +54,22 @@ test("bulk model deletion reports a surviving Whisper or Parakeet model", async 
   assert.equal(fs.existsSync(modelDir), true);
 });
 
+test("deleting a model that is already gone succeeds so the list can refresh", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openwhispr-model-absent-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  for (const [Manager, method] of [
+    [WhisperManager, "deleteWhisperModel"],
+    [ParakeetManager, "deleteParakeetModel"],
+  ]) {
+    const manager = Object.create(Manager.prototype);
+    manager.getModelPath = (name) => path.join(dir, name);
+    const result = await manager[method]("missing");
+    assert.equal(result.success, true, method);
+    assert.equal(result.deleted, false, method);
+    assert.equal(result.freed_mb, 0, method);
+  }
+});
+
 // Folded from audioStorageDeleteAll.test.js — same installElectronStub fixture
 // and the same "bulk deleteAll reports partial failures" mechanism.
 test("bulk audio deletion reports partial failures and the IDs it could not delete", (t) => {

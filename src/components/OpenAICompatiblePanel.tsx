@@ -60,14 +60,14 @@ export default function OpenAICompatiblePanel({
   const requestRef = useRef(0);
   const activeRequestRef = useRef<{ owner: string; controller: AbortController } | null>(null);
   const liveRef = useRef(false);
-  const bindLifetime = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
+  useEffect(() => {
     liveRef.current = true;
+    const requests = requestRef;
     return () => {
       liveRef.current = false;
       activeRequestRef.current?.controller.abort();
       activeRequestRef.current = null;
-      requestRef.current++;
+      requests.current++;
     };
   }, []);
   const adoptedOwnerRef = useRef<string | null>(null);
@@ -274,7 +274,7 @@ export default function OpenAICompatiblePanel({
   const queryUrl = buildApiUrl(hasBase ? normalizedBase : baseUrlPlaceholder, "/models");
 
   return (
-    <div ref={bindLifetime} className="contents">
+    <>
       {!lockedBaseUrl && (
         <div className="space-y-2">
           <h4 className="font-medium text-foreground">{t("reasoning.custom.endpointTitle")}</h4>
@@ -394,6 +394,6 @@ export default function OpenAICompatiblePanel({
           />
         )}
       </div>
-    </div>
+    </>
   );
 }

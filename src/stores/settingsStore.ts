@@ -1466,26 +1466,15 @@ const STALE_SECRET_LOCALSTORAGE_KEYS = [
   "vertexApiKey",
 ] as const;
 
-function invalidateApiKeyCaches(
-  provider?:
-    | "openai"
-    | "anthropic"
-    | "gemini"
-    | "groq"
-    | "mistral"
-    | "tinfoil"
-    | "custom"
-    | "openrouter"
-    | "corti"
-) {
+function invalidateApiKeyCaches(provider?: "tinfoil") {
   if (provider === "tinfoil") {
     if (_ReasoningService) {
-      _ReasoningService.clearApiKeyCache(provider);
+      _ReasoningService.clearApiKeyCache();
     } else {
       import("../services/ReasoningService")
         .then((mod) => {
           _ReasoningService = mod.default;
-          _ReasoningService.clearApiKeyCache(provider);
+          _ReasoningService.clearApiKeyCache();
         })
         .catch(() => {});
     }
@@ -1900,8 +1889,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setNoteFormattingRemoteUrl: createStringSetter("noteFormattingRemoteUrl"),
   setNoteFormattingCustomApiKey: createSecretSetter(
     "noteFormattingCustomApiKey",
-    "noteFormattingCustom",
-    "custom"
+    "noteFormattingCustom"
   ),
 
   setTranslationMode: createStringSetter("translationMode") as (mode: InferenceMode) => void,
@@ -1910,11 +1898,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setTranslationCloudMode: createStringSetter("translationCloudMode"),
   setTranslationCloudBaseUrl: createStringSetter("translationCloudBaseUrl"),
   setTranslationRemoteUrl: createStringSetter("translationRemoteUrl"),
-  setTranslationCustomApiKey: createSecretSetter(
-    "translationCustomApiKey",
-    "translationCustom",
-    "custom"
-  ),
+  setTranslationCustomApiKey: createSecretSetter("translationCustomApiKey", "translationCustom"),
   setTranslationDisableThinking: createBooleanSetter("translationDisableThinking"),
   setUseDictationTranslation: createBooleanSetter("useDictationTranslation"),
   setTranslationSourceLanguage: createStringSetter("translationSourceLanguage"),
@@ -2001,8 +1985,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setDictationAgentRemoteUrl: createStringSetter("dictationAgentRemoteUrl"),
   setDictationAgentCustomApiKey: createSecretSetter(
     "dictationAgentCustomApiKey",
-    "dictationAgentCustom",
-    "custom"
+    "dictationAgentCustom"
   ),
 
   setVoiceAgentScreenContext: createBooleanSetter("voiceAgentScreenContext"),
@@ -2014,8 +1997,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setDictationAgentVisionCloudBaseUrl: createStringSetter("dictationAgentVisionCloudBaseUrl"),
   setDictationAgentVisionCustomApiKey: createSecretSetter(
     "dictationAgentVisionCustomApiKey",
-    "dictationAgentVisionCustom",
-    "custom"
+    "dictationAgentVisionCustom"
   ),
 
   setCleanupDisableThinking: createBooleanSetter("cleanupDisableThinking"),
@@ -2212,28 +2194,26 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     }
   },
 
-  setOpenaiApiKey: createSecretSetter("openaiApiKey", "openai", "openai"),
-  setAnthropicApiKey: createSecretSetter("anthropicApiKey", "anthropic", "anthropic"),
-  setGeminiApiKey: createSecretSetter("geminiApiKey", "gemini", "gemini"),
-  setGroqApiKey: createSecretSetter("groqApiKey", "groq", "groq"),
+  setOpenaiApiKey: createSecretSetter("openaiApiKey", "openai"),
+  setAnthropicApiKey: createSecretSetter("anthropicApiKey", "anthropic"),
+  setGeminiApiKey: createSecretSetter("geminiApiKey", "gemini"),
+  setGroqApiKey: createSecretSetter("groqApiKey", "groq"),
   setXaiApiKey: createSecretSetter("xaiApiKey", "xai"),
-  setMistralApiKey: createSecretSetter("mistralApiKey", "mistral", "mistral"),
-  setOpenrouterApiKey: createSecretSetter("openrouterApiKey", "openrouter", "openrouter"),
-  setCortiClientId: createSecretSetter("cortiClientId", "cortiClientId", "corti"),
-  setCortiClientSecret: createSecretSetter("cortiClientSecret", "cortiClientSecret", "corti"),
-  setCortiApiKey: createSecretSetter("cortiApiKey", "cortiApiKey", "corti"),
+  setMistralApiKey: createSecretSetter("mistralApiKey", "mistral"),
+  setOpenrouterApiKey: createSecretSetter("openrouterApiKey", "openrouter"),
+  setCortiClientId: createSecretSetter("cortiClientId", "cortiClientId"),
+  setCortiClientSecret: createSecretSetter("cortiClientSecret", "cortiClientSecret"),
+  setCortiApiKey: createSecretSetter("cortiApiKey", "cortiApiKey"),
   setCortiEnvironment: createStringSetter("cortiEnvironment"),
   setCortiTenant: createStringSetter("cortiTenant"),
   setTinfoilApiKey: createSecretSetter("tinfoilApiKey", "tinfoil", "tinfoil"),
-  // STT-only, so there is no ReasoningService key cache to invalidate.
   setDeepgramApiKey: createSecretSetter("deepgramApiKey", "deepgram"),
   setAssemblyaiApiKey: createSecretSetter("assemblyaiApiKey", "assemblyai"),
   setCustomTranscriptionApiKey: createSecretSetter(
     "customTranscriptionApiKey",
-    "customTranscription",
-    "custom"
+    "customTranscription"
   ),
-  setCleanupCustomApiKey: createSecretSetter("cleanupCustomApiKey", "cleanupCustom", "custom"),
+  setCleanupCustomApiKey: createSecretSetter("cleanupCustomApiKey", "cleanupCustom"),
 
   // Enterprise provider setters
   setEnterpriseSetupMode: createStringSetter("enterpriseSetupMode") as (
@@ -2558,11 +2538,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setChatAgentMode: createStringSetter("chatAgentMode") as (mode: InferenceMode) => void,
   setChatAgentCloudBaseUrl: createStringSetter("chatAgentCloudBaseUrl"),
   setChatAgentRemoteUrl: createStringSetter("chatAgentRemoteUrl"),
-  setChatAgentCustomApiKey: createSecretSetter(
-    "chatAgentCustomApiKey",
-    "chatAgentCustom",
-    "custom"
-  ),
+  setChatAgentCustomApiKey: createSecretSetter("chatAgentCustomApiKey", "chatAgentCustom"),
 
   updateTranscriptionSettings: (settings: Partial<TranscriptionSettings>) => {
     const s = useSettingsStore.getState();
@@ -3254,10 +3230,11 @@ export function isCloudTranslationMode() {
 // One-time migration: scope custom keys lived in plaintext localStorage before
 // moving to the OS secure store. Prefer the secure value; otherwise push the
 // legacy plaintext copy into the secure store — the stale-secret sweep in
-// initializeSettings then strips it from localStorage.
+// initializeSettings then strips it from localStorage unless that write failed.
 async function migrateScopeCustomKeys(
   entries: ReadonlyArray<[keyof SettingsState & string, string | null | undefined, string]>,
-  owns: (key: string) => boolean
+  owns: (key: string) => boolean,
+  unmigrated: Set<string>
 ): Promise<Partial<SettingsState>> {
   const updates: Record<string, string> = {};
   for (const [storeKey, secureValue, saverName] of entries) {
@@ -3270,7 +3247,7 @@ async function migrateScopeCustomKeys(
         const save = window.electronAPI?.[saverName as keyof typeof window.electronAPI] as
           ((key: string) => Promise<{ success: boolean }>) | undefined;
         const result = await save?.(legacy);
-        if (!result?.success) throw new Error("Secure credential migration failed");
+        if (!result?.success) unmigrated.add(storeKey);
       }
     }
     if (owns(storeKey)) updates[storeKey] = value;
@@ -3409,6 +3386,7 @@ export async function initializeSettings(): Promise<void> {
         window.electronAPI.getAssemblyAIKey?.(),
       ]);
 
+      const unmigratedKeys = new Set<string>();
       const hydratedSecrets = {
         openaiApiKey: openai || "",
         anthropicApiKey: anthropic || "",
@@ -3436,7 +3414,8 @@ export async function initializeSettings(): Promise<void> {
             ],
             ["chatAgentCustomApiKey", chatAgentCustom, "saveChatAgentCustomKey"],
           ],
-          ownsSecret
+          ownsSecret,
+          unmigratedKeys
         )),
         bedrockSecretAccessKey: bedrockSecretAccessKey || "",
         bedrockSessionToken: bedrockSessionToken || "",
@@ -3481,7 +3460,7 @@ export async function initializeSettings(): Promise<void> {
       }
 
       for (const key of STALE_SECRET_LOCALSTORAGE_KEYS) {
-        localStorage.removeItem(key);
+        if (!unmigratedKeys.has(key)) localStorage.removeItem(key);
       }
       // Latch for the one-time semantic reindex that no longer exists (#2143).
       localStorage.removeItem("semanticReindexVersion");

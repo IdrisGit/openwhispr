@@ -5,7 +5,6 @@ import { FileAudio, Mic, Upload } from "../icons";
 import { ProviderTabs } from "../ui/ProviderTabs";
 import { SectionHeader } from "../ui/SettingsSection";
 import type { SettingsNavigationStore } from "../../stores/settingsNavigationStore";
-export type { SpeechTab } from "../../stores/settingsNavigationStore";
 
 export function TabPanel({ active, children }: { active: boolean; children: ReactNode }) {
   return <div className={active ? undefined : "hidden"}>{children}</div>;

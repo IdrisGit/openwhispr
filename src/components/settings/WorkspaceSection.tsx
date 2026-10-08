@@ -33,11 +33,7 @@ import type { Workspace } from "../../types/electron";
 const SUB_TABS = ["general", "members", "teams", "developer"] as const;
 type WorkspaceTab = (typeof SUB_TABS)[number];
 
-interface Props {
-  initialSubTab?: string;
-}
-
-export default function WorkspaceSection({ initialSubTab }: Props) {
+export default function WorkspaceSection() {
   const { t } = useTranslation();
   const { isSignedIn } = useAuth();
   const { workspaces, activeWorkspaceId, setActiveWorkspaceId, loaded, loading, error, refresh } =
@@ -52,10 +48,7 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
         refresh: s.refresh,
       }))
     );
-  const [storedTab, setStoredTab] = useLocalStorage<string>(
-    "settings.workspaceTab",
-    SUB_TABS.includes(initialSubTab as WorkspaceTab) ? (initialSubTab as WorkspaceTab) : "members"
-  );
+  const [storedTab, setStoredTab] = useLocalStorage<string>("settings.workspaceTab", "members");
   const [createOpen, setCreateOpen] = useState(false);
   const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,12 +73,6 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
   useEffect(() => {
     if (isSignedIn && !loaded) void refresh();
   }, [isSignedIn, loaded, refresh]);
-
-  useEffect(() => {
-    if (initialSubTab && SUB_TABS.includes(initialSubTab as WorkspaceTab)) {
-      setStoredTab(initialSubTab);
-    }
-  }, [initialSubTab, setStoredTab]);
 
   if (!isSignedIn) return null;
 
