@@ -126,12 +126,13 @@ export default function SettingsModal({ navigation, onOpenChange }: SettingsModa
         ) : undefined
       }
       notice={
-        policyManaged ? (
-          <>
-            <ShieldCheck className="h-4 w-4 shrink-0" />
-            {t("settingsModal.managedByOrg")}
-          </>
-        ) : undefined
+        policyManaged
+          ? {
+              icon: <ShieldCheck className="h-3.5 w-3.5 shrink-0" />,
+              label: t("settingsModal.managedAccount"),
+              description: t("settingsModal.managedByOrg"),
+            }
+          : undefined
       }
     >
       <SettingsPage navigation={navigation} />
