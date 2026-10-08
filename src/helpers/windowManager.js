@@ -1508,15 +1508,11 @@ class WindowManager {
 
     MenuManager.setupControlPanelMenu(this.controlPanelWindow, () => this.openSettings());
 
-    this.controlPanelWindow.webContents.on(
-      "did-start-navigation",
-      (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) {
-          this._settingsHost = null;
-          this._settingsDocumentId++;
-        }
-      }
-    );
+    // Committed main-frame documents only: will-navigate can still block a started navigation.
+    this.controlPanelWindow.webContents.on("did-navigate", () => {
+      this._settingsHost = null;
+      this._settingsDocumentId++;
+    });
 
     this.controlPanelWindow.webContents.on("did-finish-load", () => {
       // Every fresh document starts unresolved. AppRouter releases the gate

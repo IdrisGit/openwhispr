@@ -61,7 +61,7 @@ const EXPECTED_SHARED_FIELD_DIRECTIONS = {
   "src/components/CreateTeamDialog.tsx": ["auto"],
   "src/components/CreateWorkspaceDialog.tsx": ["auto"],
   "src/components/DictionaryView.tsx": ["auto", "auto", "auto"],
-  "src/components/EnterpriseProviderConfig.tsx": ["ltr", "ltr", "ltr", "ltr", "ltr", "ltr"],
+  "src/components/EnterpriseProviderConfig.tsx": ["ltr", "ltr", "ltr", "ltr", "ltr"],
   "src/components/ForgotPasswordView.tsx": ["ltr"],
   "src/components/InviteTeammateDialog.tsx": ["ltr"],
   "src/components/LeaderboardSection.tsx": ["ltr"],

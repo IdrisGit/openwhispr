@@ -91,11 +91,12 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
 
   // Shared by the empty and populated branches so the create→invite chain
   // survives the branch switch when the first workspace lands in the store.
+  // The key keeps the dialog mounted although its index differs per branch.
   const inviteWorkspace = inviteWorkspaceId
     ? (workspaces.find((w) => w.id === inviteWorkspaceId) ?? null)
     : null;
   const createDialog = (
-    <>
+    <React.Fragment key="create-workspace">
       <CreateWorkspaceDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -112,7 +113,7 @@ export default function WorkspaceSection({ initialSubTab }: Props) {
           cancelLabel={t("common.skip")}
         />
       )}
-    </>
+    </React.Fragment>
   );
 
   if (!loaded) {

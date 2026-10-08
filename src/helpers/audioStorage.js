@@ -149,7 +149,6 @@ class AudioStorageManager {
   }
 
   deleteAllAudio() {
-    const deletedIds = [];
     const failedIds = new Set();
     let deleted = 0;
     let failed = false;
@@ -161,7 +160,6 @@ class AudioStorageManager {
         try {
           fs.unlinkSync(path.join(this.audioDir, file));
           deleted++;
-          if (/^\d+$/.test(id)) deletedIds.push(id);
         } catch (error) {
           failed = true;
           failedIds.add(id);
@@ -177,7 +175,7 @@ class AudioStorageManager {
       failed = true;
       debugLogger.error("Failed to delete all audio", { error: error.message }, "audio-storage");
     }
-    return { deleted, deletedIds: deletedIds.filter((id) => !failedIds.has(id)), failed };
+    return { deleted, failedIds: [...failedIds], failed };
   }
 
   getStorageUsage() {

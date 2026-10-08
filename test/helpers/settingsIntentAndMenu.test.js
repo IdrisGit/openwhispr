@@ -121,8 +121,14 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
   const latest = sends.at(-1)[1];
   manager.acknowledgeSettingsOpen(event(), "host-two", latest.requestId - 1);
   assert.equal(manager._pendingSettingsOpen, latest.requestId);
+  contents.emit("did-start-navigation", {}, "https://example.com", false, true);
+  assert.equal(
+    manager._settingsHost?.id,
+    "host-two",
+    "a navigation will-navigate blocks keeps the host"
+  );
   const oldEvent = event();
-  contents.emit("did-start-navigation", {}, "app", false, true);
+  contents.emit("did-navigate", {}, "app");
   contents.mainFrame = { id: "reload" };
   manager.setSettingsHostReady(oldEvent, "stale-document", true, documentId);
   manager.setSettingsHostReady(event(), "stale-same-frame", true, documentId);

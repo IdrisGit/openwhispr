@@ -749,7 +749,7 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
         usageReads++;
         return { fileCount: 2, totalBytes: 100 };
       };
-      api.deleteAllAudio = async () => ({ deleted: 3, deletedIds: ["1", "2", "3"], failed: true });
+      api.deleteAllAudio = async () => ({ deleted: 3, failed: true });
       const clearButton = () =>
         observed.buttons.findLast(
           (button) => button.children === "settingsPage.privacy.clearAllAudio"
@@ -768,7 +768,7 @@ test("SettingsPage retains Speech state and current section actions", async (t) 
         "old mount usage cannot overwrite post-delete evidence"
       );
       assert.equal(clearButton().disabled, false);
-      api.deleteAllAudio = async () => ({ deleted: 2, deletedIds: ["4", "5"], failed: false });
+      api.deleteAllAudio = async () => ({ deleted: 2, failed: false });
       api.getAudioStorageUsage = async () => ({ fileCount: 0, totalBytes: 0 });
       await React.act(async () => clearButton().onClick());
       assert.deepEqual(observed.toasts.at(-1), {

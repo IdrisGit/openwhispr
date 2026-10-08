@@ -22,13 +22,9 @@ export function useDialogSession(open: boolean, owner = "") {
     getAuthRequestContextSnapshot,
     getAuthRequestContextServerSnapshot
   );
-  const sessionKey = JSON.stringify([
-    open,
-    owner,
-    auth.sessionUserId,
-    auth.observedGeneration,
-    auth.validatedGeneration,
-  ]);
+  // A credential change resets the session; a failed session refetch at the same
+  // generation does not. capture() still checks the full account binding.
+  const sessionKey = JSON.stringify([open, owner, auth.observedGeneration]);
   const session = useRef<object | null>(null);
   // The committed form owns the session. Ref replacement/cleanup also fences
   // external close, account/resource changes and StrictMode replay.

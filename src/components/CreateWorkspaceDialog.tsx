@@ -61,9 +61,11 @@ export default function CreateWorkspaceDialog({
     try {
       const workspace = await createWorkspace(name.trim());
       if (!workspace) return;
-      if (completion.isAccountCurrent()) await onReconciled?.(workspace.id);
+      if (completion.isAccountCurrent()) {
+        setActive(workspace.id);
+        await onReconciled?.(workspace.id);
+      }
       if (!completion.isCurrent()) return;
-      setActive(workspace.id);
       handleOpenChange(false);
       toast({
         title: t("workspaces.created.title"),

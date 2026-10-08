@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useUpdater } from "../../hooks/useUpdater";
@@ -39,17 +39,27 @@ const SystemUpdates = React.memo(function SystemUpdates({
   } = useUpdater();
   const isUpdateAvailable =
     !updateStatus.isDevelopment && (updateStatus.updateAvailable || updateStatus.updateDownloaded);
-  // Update metadata is not trusted HTML. Keep notes and URLs inert as text.
+  // Update metadata is not trusted HTML: parse it inertly and render only its
+  // text, one heading, paragraph or list item per line.
   const notes = updateInfo?.releaseNotes;
-  const releaseNotes =
-    typeof notes === "string"
-      ? notes
-      : Array.isArray(notes)
+  const releaseNotes = useMemo(() => {
+    const html =
+      typeof notes === "string"
         ? notes
-            .filter((entry) => typeof entry?.note === "string")
-            .map((entry) => entry.note)
-            .join("\n\n")
-        : "";
+        : Array.isArray(notes)
+          ? notes
+              .filter((entry) => typeof entry?.note === "string")
+              .map((entry) => entry.note)
+              .join("\n\n")
+          : "";
+    const body = new DOMParser().parseFromString(html, "text/html").body;
+    body.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, br").forEach((el) => el.after("\n"));
+    return (body.textContent ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join("\n");
+  }, [notes]);
 
   useEffect(() => {
     let mounted = true;

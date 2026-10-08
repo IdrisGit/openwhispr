@@ -9,6 +9,7 @@ test("workspace parent choices preserve fallback focus and tab preferences", asy
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
     delete globalThis.__workspaceStore;
+    delete globalThis.__createDialogMounts;
   });
   const { Window } = await import("happy-dom");
   const dom = new Window();
@@ -50,7 +51,13 @@ test("workspace parent choices preserve fallback focus and tab preferences", asy
       "/ui/SettingsSection": `export const SettingsPanel = () => null; export const SettingsPanelRow = () => null; export const SettingsRow = () => null;`,
       "/ui/useToast": `export const useToast = () => ({ toast() {} });`,
       "/ui/dialog": `export const ConfirmDialog = () => null;`,
-      "/CreateWorkspaceDialog": `export default function CreateWorkspaceDialog() { return null; }`,
+      "/CreateWorkspaceDialog": `
+        import React from "react";
+        export default function CreateWorkspaceDialog() {
+          React.useEffect(() => { globalThis.__createDialogMounts = (globalThis.__createDialogMounts ?? 0) + 1; }, []);
+          return null;
+        }
+      `,
       "/InviteTeammateDialog": `export default function InviteTeammateDialog() { return null; }`,
       "/ui/dropdown-menu": `
         import React from "react";
@@ -124,4 +131,18 @@ test("workspace parent choices preserve fallback focus and tab preferences", asy
   await React.act(async () => choice("teams").click());
   assert.equal(choice("teams").getAttribute("aria-pressed"), "true");
   assert.equal(choice("members").getAttribute("aria-pressed"), "false");
+
+  await React.act(async () => globalThis.__workspaceStore.setState({ workspaces: [] }));
+  const mounts = globalThis.__createDialogMounts;
+  await React.act(async () =>
+    globalThis.__workspaceStore.setState({
+      workspaces: [{ id: "new", name: "New", role: "owner" }],
+      activeWorkspaceId: "new",
+    })
+  );
+  assert.equal(
+    globalThis.__createDialogMounts,
+    mounts,
+    "the first workspace landing keeps the create dialog mounted"
+  );
 });

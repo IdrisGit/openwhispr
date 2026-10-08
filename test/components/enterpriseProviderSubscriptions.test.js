@@ -19,6 +19,7 @@ test("retained Enterprise panels expose current credential configs and preserve 
     config: {},
     models: [],
     inputs: [],
+    apiKeys: [],
     catalogCalls: [],
     catalog: null,
   });
@@ -68,7 +69,7 @@ test("retained Enterprise panels expose current credential configs and preserve 
       }`,
       "/ui/button": `export function Button(props) { globalThis.__enterprisePanels.browse = props.onClick; return null; }`,
       "/ui/input": `export function Input(props) { globalThis.__enterprisePanels.inputs.push(props); return null; }`,
-      "/ui/ApiKeyInput": `export default function ApiKeyInput() { return null; }`,
+      "/ui/ApiKeyInput": `export default function ApiKeyInput(props) { globalThis.__enterprisePanels.apiKeys.push(props); return null; }`,
       "/ui/ModelCardList": `export default function ModelCardList({models}) { globalThis.__enterprisePanels.models.push(models); return null; }`,
       "/ui/CustomModelInput": `export default function CustomModelInput() { return null; }`,
       "/ui/SearchableModelList": `
@@ -106,6 +107,14 @@ test("retained Enterprise panels expose current credential configs and preserve 
   );
   const update = (patch) => React.act(async () => observed.store.setState(patch));
   await update({ customDictionary: ["unrelated"] });
+
+  // Secrets commit once through the key editor, never on every keystroke.
+  const isSessionToken = (props) => props.id?.endsWith("-session-token");
+  assert.equal(observed.inputs.some(isSessionToken), false);
+  assert.equal(
+    observed.apiKeys.findLast(isSessionToken).setApiKey,
+    observed.store.getState().setBedrockSessionToken
+  );
 
   await update({ bedrockRegion: "eu-west-1", bedrockSecretAccessKey: "changed-secret" });
   assert.equal(observed.models.at(-1)[0].value, "eu.model");

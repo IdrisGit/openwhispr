@@ -123,17 +123,18 @@ test("saved name synchronizes independent renderer owners, dictionary deltas, de
   names.setAgentName(" ");
   assert.equal(names.getAgentName(), "OpenWhispr");
   names.setAgentName("BeforeClear");
-  localStorage.clear();
-  storageEvent(null);
-  assert.equal(second.getAgentName(), "OpenWhispr");
   const writes = seen.notifications,
     deltas = seen.deltas.length;
+  localStorage.clear();
+  storageEvent(null);
+  assert.equal(second.getAgentName(), "BeforeClear", "clearing storage is not a rename");
+  assert.equal(seen.deltas.length, deltas, "clearing storage writes no dictionary delta");
   t.mock.method(dom.localStorage, "setItem", () => {
     throw new Error("fake denied storage");
   });
   assert.throws(() => names.setAgentName("Unsaved"), /denied storage/);
-  assert.equal(names.getAgentName(), "OpenWhispr");
-  assert.equal(second.getAgentName(), "OpenWhispr");
+  assert.equal(names.getAgentName(), "BeforeClear");
+  assert.equal(second.getAgentName(), "BeforeClear");
   assert.equal(seen.notifications, writes);
   assert.equal(seen.deltas.length, deltas);
   t.mock.restoreAll();
@@ -142,7 +143,7 @@ test("saved name synchronizes independent renderer owners, dictionary deltas, de
   assert.equal(seen.listeners.size, 0);
   localStorage.setItem("agentName", "Detached");
   storageEvent("agentName");
-  assert.equal(names.getAgentName(), "OpenWhispr", "storage listener disposed too");
+  assert.equal(names.getAgentName(), "BeforeClear", "storage listener disposed too");
 });
 
 test("real name inputs retain dirty drafts while all mounted and hidden studios use the saved name", async (t) => {

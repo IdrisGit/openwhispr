@@ -42,9 +42,9 @@ export function subscribeAgentNameChanges(): () => void {
     useSettingsStore.setState({ agentName: name });
     syncAgentNameToDictionary(name, previous);
   };
+  // A null key is localStorage.clear() (Reset app data), which must not write the dictionary back.
   const onStorage = (event: StorageEvent) => {
-    if (event.storageArea === localStorage && (event.key === AGENT_NAME_KEY || event.key === null))
-      refresh();
+    if (event.storageArea === localStorage && event.key === AGENT_NAME_KEY) refresh();
   };
   window.addEventListener("storage", onStorage);
   const unsubscribe = window.electronAPI?.onAgentNameChanged?.(refresh);

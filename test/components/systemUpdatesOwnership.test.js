@@ -60,6 +60,14 @@ test("System update owner mounts on first visit and retains live state and insta
     },
   });
   const container = installHostDom(t);
+  // Release notes are parsed inertly; the host DOM stub has no parser of its own.
+  const { Window } = await import("happy-dom");
+  const parserWindow = new Window();
+  globalThis.DOMParser = parserWindow.DOMParser;
+  t.after(async () => {
+    delete globalThis.DOMParser;
+    await parserWindow.happyDOM.close();
+  });
   globalThis.__systemUpdateLocale = require("zustand").create(() => ({ language: "en" }));
   const vite = await createRendererServer(t, {
     cachePrefix: "openwhispr-system-updates-test-",
@@ -151,22 +159,23 @@ test("System update owner mounts on first visit and retains live state and insta
     return { notes: notes.join(""), hostile };
   };
   const malicious =
-    '<script>window.bad=true</script><img src="bad" onerror="bad()"><a href="javascript:bad()">run</a><iframe srcdoc="bad"></iframe>';
+    '<img src="bad" onerror="bad()"><a href="javascript:bad()">run</a><iframe srcdoc="bad"></iframe><script>window.bad=true</script>';
   for (const [notes, expected] of [
-    [malicious, malicious],
+    [malicious, "runwindow.bad=true"],
+    ["<ul><li>Ordinary <strong>notes</strong></li></ul>\nnext line", "Ordinary notes\nnext line"],
     [
-      "<ul><li>Ordinary <strong>notes</strong></li></ul>\nnext line",
-      "<ul><li>Ordinary <strong>notes</strong></li></ul>\nnext line",
+      "<h2>What's new</h2>\n<ul>\n<li>Fix A</li>\n<li>Fix B</li>\n</ul>\n<p>One<br>Two</p>",
+      "What's new\nFix A\nFix B\nOne\nTwo",
     ],
     [
       [
-        { version: "2", note: "First" },
+        { version: "2", note: "<p>First</p>" },
         { version: "1", note: "Second" },
         { note: null },
         { note: { bad: true } },
         null,
       ],
-      "First\n\nSecond",
+      "First\nSecond",
     ],
     [null, ""],
     ["", ""],

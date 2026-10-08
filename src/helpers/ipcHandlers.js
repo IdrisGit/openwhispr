@@ -1979,8 +1979,14 @@ class IPCHandlers {
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
       try {
-        if (result.deletedIds.length > 0) {
-          this.databaseManager.clearAudioFlags(result.deletedIds);
+        // Files that were already missing still clear their flags; failed deletes keep theirs.
+        const ids = this.databaseManager.db
+          .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
+          .all()
+          .map((row) => row.id)
+          .filter((id) => !result.failedIds.includes(String(id)));
+        if (ids.length > 0) {
+          this.databaseManager.clearAudioFlags(ids);
         }
       } catch (error) {
         debugLogger.error(
