@@ -7,8 +7,6 @@ const { EventEmitter } = require("node:events");
 function load() {
   let api;
   const ipc = new EventEmitter();
-  ipc.sent = [];
-  ipc.send = (...args) => ipc.sent.push(args);
   ipc.invoked = [];
   ipc.invoke = (channel, ...args) => {
     ipc.invoked.push({ channel, args });
@@ -82,18 +80,4 @@ test("every BYOK manifest key ships a working get/save bridge on its own channel
     assert.equal(saver.channel, `save-${k.base}-key`, k.save);
     assert.deepEqual(saver.args, ["fake-key"], k.save);
   }
-});
-
-test("agent-name bridge carries only a notification and disposes the exact payload-free listener", () => {
-  const { api, ipc } = load();
-  api.notifyAgentNameChanged();
-  assert.equal(JSON.stringify(ipc.sent), JSON.stringify([["agent-name-changed"]]));
-  const calls = [];
-  const dispose = api.onAgentNameChanged((...args) => calls.push(args));
-  ipc.emit("agent-name-changed", { sender: ipc }, { name: "fake must not forward" });
-  assert.equal(JSON.stringify(calls), "[[]]");
-  dispose();
-  ipc.emit("agent-name-changed", { sender: ipc });
-  assert.equal(calls.length, 1);
-  assert.equal(ipc.listenerCount("agent-name-changed"), 0);
 });

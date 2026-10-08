@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { memo, useMemo, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useTranslation } from "react-i18next";
 import { BookOpen, Languages, MessageSquare, Sparkles, Wand2 } from "../icons";
@@ -15,6 +15,7 @@ import DictationAgentSettings from "./DictationAgentSettings";
 import DictationTranslationSettings from "./DictationTranslationSettings";
 import GpuDeviceSelector from "./GpuDeviceSelector";
 import InferenceConfigEditor from "./InferenceConfigEditor";
+import { KeepAlive, TabPanel } from "./KeepAlive";
 import type { InferenceMode } from "../../types/electron";
 import {
   LLM_TABS,
@@ -116,22 +117,6 @@ function NoteFormattingSettings({ navigation }: { navigation: SettingsNavigation
   );
 }
 
-function TabPanel({
-  active,
-  children,
-  ref,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  ref?: React.Ref<HTMLDivElement>;
-}) {
-  return (
-    <div hidden={!active} ref={ref}>
-      {children}
-    </div>
-  );
-}
-
 const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNavigationStore }) {
   const { t } = useTranslation();
   const agentAllowed = usePolicyStore(isAgentAllowed);
@@ -229,13 +214,9 @@ const LlmsTabs = memo(function LlmsTabs({ navigation }: { navigation: SettingsNa
 
 export default function LlmsKeepAlive({ navigation }: { navigation: SettingsNavigationStore }) {
   const active = useStore(navigation, (state) => state.section === "llms");
-  const [mounted, setMounted] = useState(active);
-  if (active && !mounted) setMounted(true);
-
-  if (!mounted) return null;
   return (
-    <div hidden={!active}>
+    <KeepAlive active={active}>
       <LlmsTabs navigation={navigation} />
-    </div>
+    </KeepAlive>
   );
 }

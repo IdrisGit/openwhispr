@@ -1,6 +1,11 @@
-import React, { Suspense, useEffect, useMemo, type ReactNode } from "react";
-import { useSettingsNavigation } from "../hooks/useSettingsNavigation";
-import type { SettingsNavigationStore } from "../stores/settingsNavigationStore";
+import React, { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useStore } from "zustand";
+import {
+  createSettingsNavigationStore,
+  type SettingsNavigationStore,
+} from "../stores/settingsNavigationStore";
+import { usePolicyStore } from "../stores/policyStore";
+import { isAgentAllowed } from "../stores/policyRules";
 import { getCachedPlatform } from "../utils/platform";
 
 const SettingsModal = React.lazy(() => import("./SettingsModal"));
@@ -13,8 +18,24 @@ export function SettingsHost({
   children: (navigation: SettingsNavigationStore) => ReactNode;
   initialSection?: string;
 }) {
-  const { navigation, showSettings, openSettings, setSettingsOpen } =
-    useSettingsNavigation(initialSection);
+  // React retains the instance; all navigation values/actions live in Zustand.
+  const [navigation] = useState(() =>
+    createSettingsNavigationStore(initialSection, () => isAgentAllowed(usePolicyStore.getState()))
+  );
+  const showSettings = useStore(navigation, (state) => state.section !== null);
+  const openSettings = useStore(navigation, (state) => state.openSettings);
+  const setSettingsOpen = useStore(navigation, (state) => state.setSettingsOpen);
+
+  useEffect(() => {
+    const reconcile = navigation.getState().reconcilePolicy;
+    const unsubscribe = usePolicyStore.subscribe(reconcile);
+    reconcile();
+    // Initial preferences were read during pure construction. Writes belong
+    // after commit; subsequent navigation actions persist their own changes.
+    navigation.getState().persistCurrentTab();
+    return unsubscribe;
+  }, [navigation]);
+
   // The store/action identity is stable. Host-only open/close updates must not
   // reconstruct ControlPanel/history, even though no Context distributes it.
   const content = useMemo(() => children(navigation), [children, navigation]);

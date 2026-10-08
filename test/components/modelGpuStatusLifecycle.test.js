@@ -123,9 +123,8 @@ async function setup(t) {
     },
   });
   const { default: Llms } = await vite.ssrLoadModule("/components/settings/LlmsSection.tsx");
-  const { default: Speech, TabPanel } = await vite.ssrLoadModule(
-    "/components/settings/SpeechToTextTabs.tsx"
-  );
+  const { default: Speech } = await vite.ssrLoadModule("/components/settings/SpeechToTextTabs.tsx");
+  const { TabPanel } = await vite.ssrLoadModule("/components/settings/KeepAlive.tsx");
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");
   const { default: Selector } = await vite.ssrLoadModule("/components/ReasoningModelSelector.tsx");
   const { createSettingsNavigationStore } = await vite.ssrLoadModule(

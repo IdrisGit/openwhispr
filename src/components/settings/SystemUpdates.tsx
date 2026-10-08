@@ -10,6 +10,7 @@ import { Button } from "../ui/button";
 import { Download, RefreshCw } from "../icons";
 import { SettingsPanel, SettingsPanelRow, SettingsRow, SectionHeader } from "../ui/SettingsSection";
 import { Toggle } from "../ui/toggle";
+import { KeepAlive } from "./KeepAlive";
 
 const SystemUpdates = React.memo(function SystemUpdates({
   showAlertDialog,
@@ -273,12 +274,9 @@ export default function SystemUpdatesKeepAlive({
   showAlertDialog: ReturnType<typeof useDialogs>["showAlertDialog"];
   showConfirmDialog: ReturnType<typeof useDialogs>["showConfirmDialog"];
 }) {
-  const [mounted, setMounted] = useState(active);
-  if (active && !mounted) setMounted(true);
-  if (!mounted) return null;
   return (
-    <div hidden={!active}>
+    <KeepAlive active={active}>
       <SystemUpdates showAlertDialog={showAlertDialog} showConfirmDialog={showConfirmDialog} />
-    </div>
+    </KeepAlive>
   );
 }

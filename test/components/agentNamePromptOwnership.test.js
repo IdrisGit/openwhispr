@@ -8,20 +8,10 @@ async function setup(t) {
   const mounted = await mountAuditDom(t);
   const seen = (globalThis.__namePrompt = {
     calls: [],
-    notifications: 0,
     deltas: [],
-    listeners: new Set(),
   });
   t.after(() => delete globalThis.__namePrompt);
   mounted.dom.electronAPI = {
-    notifyAgentNameChanged() {
-      seen.notifications++;
-      for (const cb of seen.listeners) cb();
-    },
-    onAgentNameChanged(cb) {
-      seen.listeners.add(cb);
-      return () => seen.listeners.delete(cb);
-    },
     applyDictionaryChanges: async (delta) => {
       seen.deltas.push(delta);
     },
@@ -93,38 +83,35 @@ test("saved name synchronizes independent renderer owners, dictionary deltas, de
   const { dom, names, store, mocks, seen } = await setup(t);
   const other = await createRendererServer(t, { mockModules: mocks });
   const second = await other.ssrLoadModule("/utils/agentName.ts");
-  const { useSettingsStore: otherStore } = await other.ssrLoadModule("/stores/settingsStore.ts");
   const stopOne = names.subscribeAgentNameChanges(),
     stopTwo = second.subscribeAgentNameChanges();
   t.after(() => {
-    if (seen.listeners.size) {
-      stopOne();
-      stopTwo();
-    }
+    stopOne();
+    stopTwo();
   });
-  assert.equal(seen.listeners.size, 2);
+  // The browser delivers a rename to other windows as a storage event.
+  const storageEvent = (key) =>
+    dom.dispatchEvent(new dom.StorageEvent("storage", { key, storageArea: dom.localStorage }));
   names.setAgentName("  Nova  ");
+  storageEvent("agentName");
   assert.equal(names.getAgentName(), "Nova");
   assert.equal(second.getAgentName(), "Nova");
   assert.deepEqual(store.getState().customDictionary, ["Unrelated", "Nova"]);
-  assert.deepEqual(otherStore.getState().customDictionary, ["Unrelated", "Nova"]);
+  assert.equal(seen.deltas.length, 1, "only the renaming owner writes the dictionary");
   assert.ok(seen.deltas.every((d) => !d.remove.includes("Unrelated")));
-  assert.equal(seen.notifications, 1, "notifications reread without echo");
-  const storageEvent = (key) =>
-    dom.dispatchEvent(new dom.StorageEvent("storage", { key, storageArea: dom.localStorage }));
   localStorage.setItem("agentName", "  External  ");
   await React.act(async () => storageEvent("agentName"));
   assert.equal(names.getAgentName(), "External");
   assert.equal(second.getAgentName(), "External");
-  assert.equal(seen.notifications, 1);
+  assert.equal(seen.deltas.length, 1);
   localStorage.removeItem("agentName");
   storageEvent("agentName");
   assert.equal(names.getAgentName(), "OpenWhispr");
   names.setAgentName(" ");
   assert.equal(names.getAgentName(), "OpenWhispr");
   names.setAgentName("BeforeClear");
-  const writes = seen.notifications,
-    deltas = seen.deltas.length;
+  storageEvent("agentName");
+  const deltas = seen.deltas.length;
   localStorage.clear();
   storageEvent(null);
   assert.equal(second.getAgentName(), "BeforeClear", "clearing storage is not a rename");
@@ -135,12 +122,10 @@ test("saved name synchronizes independent renderer owners, dictionary deltas, de
   assert.throws(() => names.setAgentName("Unsaved"), /denied storage/);
   assert.equal(names.getAgentName(), "BeforeClear");
   assert.equal(second.getAgentName(), "BeforeClear");
-  assert.equal(seen.notifications, writes);
   assert.equal(seen.deltas.length, deltas);
   t.mock.restoreAll();
   stopOne();
   stopTwo();
-  assert.equal(seen.listeners.size, 0);
   localStorage.setItem("agentName", "Detached");
   storageEvent("agentName");
   assert.equal(names.getAgentName(), "BeforeClear", "storage listener disposed too");
@@ -179,7 +164,7 @@ test("real name inputs retain dirty drafts while all mounted and hidden studios 
   await click(one, "settingsPage.agentConfig.save");
   assert.equal(input(one).value, "Saved Nova");
   assert.equal(input(two).value, "Genuine dirty draft");
-  assert.equal(seen.notifications, 1);
+  assert.equal(seen.deltas.length, 1);
   assert.match(container.querySelector("#dictionary").textContent, /Saved Nova/);
   assert.match(container.querySelector("#dictionary").textContent, /Unrelated/);
   assert.equal(container.querySelector("#dictionary").textContent.includes("Whisper"), false);

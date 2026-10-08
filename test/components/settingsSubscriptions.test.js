@@ -18,9 +18,7 @@ test("SettingsProvider owns initialization and external synchronization once", a
   const calls = {
     dictionarySubscribed: 0,
     dictionaryCleaned: 0,
-    agentSubscribed: 0,
-    agentCleaned: 0,
-    agentCallback: null,
+    storageListeners: new Set(),
     snippetsSubscribed: 0,
     snippetsCleaned: 0,
     autoLearn: [],
@@ -31,15 +29,13 @@ test("SettingsProvider owns initialization and external synchronization once", a
   const { storage } = installBrowserGlobals(t, {
     initialStorage: { autoLearnCorrections: "false" },
     window: {
+      addEventListener(type, listener) {
+        if (type === "storage") calls.storageListeners.add(listener);
+      },
+      removeEventListener(type, listener) {
+        if (type === "storage") calls.storageListeners.delete(listener);
+      },
       electronAPI: {
-        onAgentNameChanged(callback) {
-          calls.agentSubscribed += 1;
-          calls.agentCallback = callback;
-          return () => {
-            calls.agentCleaned += 1;
-            calls.agentCallback = null;
-          };
-        },
         onDictionaryUpdated() {
           calls.dictionarySubscribed += 1;
           return () => (calls.dictionaryCleaned += 1);
@@ -163,9 +159,13 @@ test("SettingsProvider owns initialization and external synchronization once", a
   );
   assert.deepEqual(calls.autoLearn, [false], "the persisted value syncs on startup");
   assert.equal(calls.retention, 1);
-  assert.equal(calls.agentSubscribed, 1);
+  assert.equal(calls.storageListeners.size, 1);
   storage.setItem("agentName", "ExternalName");
-  await React.act(async () => calls.agentCallback());
+  await React.act(async () => {
+    for (const listener of calls.storageListeners) {
+      listener({ key: "agentName", storageArea: storage });
+    }
+  });
   assert.equal(globalThis.__settingsLifecycleStore.getState().agentName, "ExternalName");
   assert.equal(calls.startup, 1);
   assert.equal(calls.notifications.length, 1, "startup sync has no duplicate on Settings mount");
@@ -199,7 +199,10 @@ test("SettingsProvider owns initialization and external synchronization once", a
 
   await React.act(async () => root.unmount());
   root = null;
-  assert.deepEqual([calls.dictionaryCleaned, calls.snippetsCleaned, calls.agentCleaned], [1, 1, 1]);
+  assert.deepEqual(
+    [calls.dictionaryCleaned, calls.snippetsCleaned, calls.storageListeners.size],
+    [1, 1, 0]
+  );
   globalThis.__settingsLifecycleStore.setState({ meetingProcessDetection: false });
   assert.equal(calls.notifications.length, 2, "subscription stops on unmount");
 
@@ -220,7 +223,7 @@ test("SettingsProvider owns initialization and external synchronization once", a
     [
       calls.dictionarySubscribed - calls.dictionaryCleaned,
       calls.snippetsSubscribed - calls.snippetsCleaned,
-      calls.agentSubscribed - calls.agentCleaned,
+      calls.storageListeners.size,
     ],
     [1, 1, 1],
     "remount/replay leaves one active listener per external source"

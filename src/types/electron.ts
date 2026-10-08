@@ -1558,9 +1558,6 @@ declare global {
         rawText: string
       ) => Promise<{ success: boolean; transcription?: TranscriptionItem; error?: string }>;
 
-      notifyAgentNameChanged?: () => void;
-      onAgentNameChanged?: (callback: () => void) => () => void;
-
       // Dictionary operations
       getDictionary: () => Promise<string[]>;
       /** Replaces the whole dictionary — omitted words are deleted. Prefer applyDictionaryChanges. */

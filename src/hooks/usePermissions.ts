@@ -144,8 +144,7 @@ export const usePermissions = (
       const request = ++accessibilityRequest.current;
       try {
         const granted = await window.electronAPI?.checkAccessibilityPermission?.(true);
-        if (request !== accessibilityRequest.current) return undefined;
-        if (granted === undefined) return null;
+        if (request !== accessibilityRequest.current || granted === undefined) return;
         setAccessibilityPermissionGranted(granted);
         if (granted) {
           setAccessibilityTroubleshooting(false);
@@ -153,10 +152,7 @@ export const usePermissions = (
         } else if (poll && ++accessibilityPollCount.current >= 5) {
           setAccessibilityTroubleshooting(true);
         }
-        return granted;
-      } catch {
-        return null;
-      }
+      } catch {}
     },
     [setAccessibilityPermissionGranted]
   );

@@ -73,7 +73,8 @@ import { Toggle } from "./ui/toggle";
 import DeveloperSection from "./DeveloperSection";
 import GpuDeviceSelector from "./settings/GpuDeviceSelector";
 import LlmsKeepAlive from "./settings/LlmsSection";
-import SpeechToTextTabs, { TabPanel } from "./settings/SpeechToTextTabs";
+import SpeechToTextTabs from "./settings/SpeechToTextTabs";
+import { KeepAlive } from "./settings/KeepAlive";
 import { MeetingTranscriptionPanel } from "./settings/MeetingSettings";
 import { UploadTranscriptionPanel } from "./settings/UploadSettings";
 import LanguageSelector from "./ui/LanguageSelector";
@@ -992,15 +993,6 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
       active = false;
     };
   }, [activeSection]);
-
-  // Speech-to-text keeps its existing lazy ownership. LLM keep-alive state lives
-  // in LlmsKeepAlive so SettingsPage section changes cannot reconstruct editors.
-  const [hasMountedSpeechToText, setHasMountedSpeechToText] = useState(
-    activeSection === "speechToText"
-  );
-  if (activeSection === "speechToText" && !hasMountedSpeechToText) {
-    setHasMountedSpeechToText(true);
-  }
 
   const handleClearAllAudio = async () => {
     if (!window.electronAPI?.deleteAllAudio) return;
@@ -4032,16 +4024,14 @@ EOF`,
       />
 
       {/* Mounted on first visit and kept alive so model-download progress and IPC listeners survive section switches. */}
-      {hasMountedSpeechToText && (
-        <TabPanel active={activeSection === "speechToText"}>
-          <SpeechToTextTabs
-            navigation={navigation}
-            dictation={<DictationPanel isSignedIn={isSignedIn ?? false} navigation={navigation} />}
-            noteRecording={speechPanels.noteRecording}
-            upload={speechPanels.upload}
-          />
-        </TabPanel>
-      )}
+      <KeepAlive active={activeSection === "speechToText"}>
+        <SpeechToTextTabs
+          navigation={navigation}
+          dictation={<DictationPanel isSignedIn={isSignedIn ?? false} navigation={navigation} />}
+          noteRecording={speechPanels.noteRecording}
+          upload={speechPanels.upload}
+        />
+      </KeepAlive>
       <HotkeysSection
         active={activeSection === "hotkeys"}
         linuxPttAvailable={linuxPttAvailable}

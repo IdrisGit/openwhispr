@@ -18,6 +18,7 @@ import { ActivationModeSelector } from "../ui/ActivationModeSelector";
 import LinuxPttSetupInfo from "../ui/LinuxPttSetupInfo";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsPanel, SettingsPanelRow, SectionHeader } from "../ui/SettingsSection";
+import { KeepAlive } from "./KeepAlive";
 
 interface Props {
   active: boolean;
@@ -373,7 +374,9 @@ function HotkeysControls({ active, linuxPttAvailable, showAlertDialog }: Props) 
 }
 
 export default function HotkeysSection(props: Props) {
-  const [mounted, setMounted] = useState(props.active);
-  if (props.active && !mounted) setMounted(true);
-  return mounted ? <HotkeysControls {...props} /> : null;
+  return (
+    <KeepAlive active={props.active}>
+      <HotkeysControls {...props} />
+    </KeepAlive>
+  );
 }

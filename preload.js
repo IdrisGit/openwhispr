@@ -185,14 +185,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("update-transcription-text", id, text, rawText),
   getTranscriptionById: (id) => ipcRenderer.invoke("get-transcription-by-id", id),
 
-  // Saved agent-name notifications carry no value; renderers reread shared preferences.
-  notifyAgentNameChanged: () => ipcRenderer.send("agent-name-changed"),
-  onAgentNameChanged: (callback) => {
-    const listener = () => callback?.();
-    ipcRenderer.on("agent-name-changed", listener);
-    return () => ipcRenderer.removeListener("agent-name-changed", listener);
-  },
-
   // Dictionary functions
   getDictionary: () => ipcRenderer.invoke("db-get-dictionary"),
   setDictionary: (words) => ipcRenderer.invoke("db-set-dictionary", words),
