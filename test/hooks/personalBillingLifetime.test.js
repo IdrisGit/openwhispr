@@ -53,7 +53,7 @@ test("billing callbacks reject old identities/replies and only publish valid bro
       "/useAuth": `export const useAuth = () => globalThis.__billing.auth;`,
       "/lib/auth": `export const withSessionRefresh = fn => fn();`,
       "/lib/authRequestContext": `export const getValidatedAuthGeneration = () => globalThis.__billing.generation; export const getBoundSessionGeneration = id => globalThis.__billing.auth.isSignedIn && id === globalThis.__billing.auth.user?.id ? globalThis.__billing.generation : null;`,
-      "/lib/usageStore": `const state = {status: "success", data: {entitlementSources: {personal: false, workspaceIds: []}}}; export const getUsageState = () => state; export const subscribeUsage = () => () => {}; export const setUsageAccount = () => {}; export const loadUsage = async (_fn, opts) => globalThis.__billing.loads.push(Boolean(opts?.force)); export const retryUsage = async () => {}; export const watchForUpgrade = async () => {}; export const isPastDueUsage = () => false;`,
+      "/lib/usageStore": `const state = {status: "success", data: {entitlementSources: {personal: false, workspaceIds: []}}}; export const getUsageState = () => state; export const subscribeUsage = () => () => {}; export const setUsageAccount = () => {}; export const loadUsage = async (_fn, opts) => globalThis.__billing.loads.push(Boolean(opts?.force)); export const retryUsage = async () => {}; export const watchForUpgrade = async () => {}; export const isPastDueUsage = () => false; export const storeBillingOf = () => null;`,
       "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
       "/ui/useToast": `export const useToast = () => ({toast: value => globalThis.__billing.toasts.push(value)});`,
     },

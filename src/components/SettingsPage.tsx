@@ -118,7 +118,7 @@ import {
 } from "../stores/settingsStore";
 import { useWorkspaceStore } from "../stores/workspaceStore";
 import { highestPlan } from "../lib/usageStore";
-import { decideProPlanCardCta } from "../lib/upsell";
+import { decideProPlanCardCta, resolveAccountPlan, storeSubscriptionsUrl } from "../lib/upsell";
 import {
   canChangeCloudBackupPreference,
   effectiveAudioRetentionDays,
@@ -168,7 +168,7 @@ const UI_LANGUAGE_OPTIONS: import("./ui/LanguageSelector").LanguageOption[] = [
 const RETENTION_DAY_OPTIONS = [1, 7, 14, 30, 60, 90];
 
 const RETENTION_SELECT_CLASS =
-  "h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-200";
+  "h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 transition-colors duration-200";
 
 const noop = () => {};
 
@@ -496,7 +496,7 @@ function TranscriptionSection({
         description: t("settingsPage.transcription.modes.openwhisprDesc"),
         icon: <Cloud className="w-4 h-4" />,
         disabled: !isSignedIn,
-        badge: !isSignedIn ? t("common.freeAccountRequired") : undefined,
+        signInRequired: !isSignedIn,
       },
       {
         id: "providers",
@@ -1041,6 +1041,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
     hasGroup: boolean;
     isKde: boolean;
     isWlroots: boolean;
+    isCosmic: boolean;
     hasXclip: boolean;
     hasXsel: boolean;
     isNixOS: boolean;
@@ -1350,10 +1351,29 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
     isSignedIn,
     planStateKnown,
     isPersonallySubscribed: usage?.isPersonallySubscribed ?? false,
+    isStoreBilled: Boolean(usage?.storeBilling),
     plan: usage?.plan ?? "free",
     isTrial: usage?.isTrial ?? false,
     isWorkspaceCovered,
   });
+  const storeBilling = usage?.storeBilling ?? null;
+  const accountPlan = resolveAccountPlan({
+    isTrial: usage?.isTrial ?? false,
+    isPastDue: usage?.isPastDue ?? false,
+    isPersonallySubscribed: usage?.isPersonallySubscribed ?? false,
+    storeBilling,
+    isWorkspaceCovered,
+    hasPeriodEnd: Boolean(usage?.currentPeriodEnd),
+    hasCoveringWorkspaceNames: coveringWorkspaceNames.length > 0,
+  });
+  const storeUrl = storeBilling?.store ? storeSubscriptionsUrl(storeBilling.store) : null;
+  const periodEndDate = usage?.currentPeriodEnd
+    ? new Date(usage.currentPeriodEnd).toLocaleDateString(i18n.language, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountTarget, setDeleteAccountTarget] = useState<{
@@ -1617,22 +1637,20 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                   }}
                 />
 
-                <SettingsPanel>
-                  <SettingsPanelRow>
-                    <Button
-                      onClick={handleSignOut}
-                      variant="outline"
-                      disabled={isSigningOut}
-                      size="sm"
-                      className="w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/50"
-                    >
-                      <LogOut className="me-1.5 h-3.5 w-3.5" />
-                      {isSigningOut
-                        ? t("settingsPage.account.signOut.signingOut")
-                        : t("settingsPage.account.signOut.signOut")}
-                    </Button>
-                  </SettingsPanelRow>
-                </SettingsPanel>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSignOut}
+                    variant="outline"
+                    disabled={isSigningOut}
+                    size="sm"
+                    className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/50"
+                  >
+                    <LogOut className="me-1.5 h-3.5 w-3.5" />
+                    {isSigningOut
+                      ? t("settingsPage.account.signOut.signingOut")
+                      : t("settingsPage.account.signOut.signOut")}
+                  </Button>
+                </div>
 
                 <SettingsPanel>
                   <SettingsPanelRow>
@@ -1791,11 +1809,11 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                         <SettingsPanelRow>
                           <SettingsRow
                             label={
-                              usage.isTrial
+                              accountPlan.row === "trial"
                                 ? t("settingsPage.account.planLabels.trial")
-                                : usage.isPastDue
+                                : accountPlan.row === "pastDue"
                                   ? t("settingsPage.account.planLabels.free")
-                                  : usage.isPersonallySubscribed
+                                  : accountPlan.row === "personal" || accountPlan.row === "store"
                                     ? usage.plan === "business"
                                       ? t("settingsPage.account.planLabels.business")
                                       : t("settingsPage.account.planLabels.pro")
@@ -1803,45 +1821,44 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                                       t("settingsPage.account.planLabels.free"))
                             }
                             description={
-                              usage.isTrial
+                              accountPlan.description === "trial"
                                 ? t("settingsPage.account.planDescriptions.trial", {
                                     days: usage.trialDaysLeft,
                                   })
-                                : usage.isPastDue
+                                : accountPlan.description === "pastDue"
                                   ? t("settingsPage.account.planDescriptions.pastDue", {
                                       used: usage.wordsUsed.toLocaleString(i18n.language),
                                       limit: usage.limit.toLocaleString(i18n.language),
                                     })
-                                  : usage.isPersonallySubscribed
-                                    ? usage.currentPeriodEnd
-                                      ? t("settingsPage.account.planDescriptions.nextBilling", {
-                                          date: new Date(usage.currentPeriodEnd).toLocaleDateString(
-                                            i18n.language,
-                                            { month: "short", day: "numeric", year: "numeric" }
-                                          ),
+                                  : accountPlan.description === "storePaymentIssue"
+                                    ? t("settingsPage.account.planDescriptions.storePaymentIssue")
+                                    : accountPlan.description === "accessUntil"
+                                      ? t("settingsPage.account.planDescriptions.accessUntil", {
+                                          date: periodEndDate,
                                         })
-                                      : t("settingsPage.account.planDescriptions.unlimited")
-                                    : coveringWorkspaceNames.length > 0
-                                      ? t("settingsPage.unifiedBilling.providedBy", {
-                                          workspaces: coveringWorkspaceNames.join(", "),
-                                        })
-                                      : // usage.limit is -1 once subscribed, which the
-                                        // free-usage copy would print as "-1 words".
-                                        isWorkspaceCovered
-                                        ? t("settingsPage.account.planDescriptions.unlimited")
-                                        : t("settingsPage.account.planDescriptions.freeUsage", {
-                                            used: usage.wordsUsed.toLocaleString(i18n.language),
-                                            limit: usage.limit.toLocaleString(i18n.language),
+                                      : accountPlan.description === "nextBilling"
+                                        ? t("settingsPage.account.planDescriptions.nextBilling", {
+                                            date: periodEndDate,
                                           })
+                                        : accountPlan.description === "unlimited"
+                                          ? t("settingsPage.account.planDescriptions.unlimited")
+                                          : accountPlan.description === "providedBy"
+                                            ? t("settingsPage.unifiedBilling.providedBy", {
+                                                workspaces: coveringWorkspaceNames.join(", "),
+                                              })
+                                            : t("settingsPage.account.planDescriptions.freeUsage", {
+                                                used: usage.wordsUsed.toLocaleString(i18n.language),
+                                                limit: usage.limit.toLocaleString(i18n.language),
+                                              })
                             }
                           >
-                            {usage.isTrial ? (
+                            {accountPlan.row === "trial" ? (
                               <Badge variant="info">{t("settingsPage.account.badges.trial")}</Badge>
-                            ) : usage.isPastDue ? (
+                            ) : accountPlan.row === "pastDue" ? (
                               <Badge variant="destructive">
                                 {t("settingsPage.account.badges.pastDue")}
                               </Badge>
-                            ) : usage.isPersonallySubscribed ? (
+                            ) : accountPlan.row === "personal" || accountPlan.row === "store" ? (
                               <Badge variant="success">
                                 {usage.plan === "business"
                                   ? t("settingsPage.account.badges.business")
@@ -1900,7 +1917,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                         )}
 
                         <SettingsPanelRow>
-                          {usage.isPastDue ? (
+                          {accountPlan.action === "updatePayment" ? (
                             <Button
                               onClick={() => void openBillingPortal()}
                               disabled={isOpeningBilling}
@@ -1916,7 +1933,22 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                                 t("settingsPage.account.billing.updatePaymentMethod")
                               )}
                             </Button>
-                          ) : usage.isPersonallySubscribed && !usage.isTrial ? (
+                          ) : accountPlan.action === "manageInStore" && storeUrl ? (
+                            <Button
+                              onClick={() => void window.electronAPI?.openExternal?.(storeUrl)}
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                            >
+                              {storeBilling?.store === "play_store"
+                                ? t("settingsPage.account.billing.manageInGooglePlay")
+                                : t("settingsPage.account.billing.manageInAppStore")}
+                            </Button>
+                          ) : accountPlan.action === "storeNote" ? (
+                            <p className="text-xs text-muted-foreground">
+                              {t("settingsPage.account.billing.managedInMobileStore")}
+                            </p>
+                          ) : accountPlan.action === "manageBilling" ? (
                             <Button
                               onClick={() => void openBillingPortal()}
                               variant="outline"
@@ -1928,7 +1960,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                                 ? t("settingsPage.account.billing.opening")
                                 : t("settingsPage.account.billing.manageBilling")}
                             </Button>
-                          ) : isWorkspaceCovered ? null : (
+                          ) : accountPlan.action === "none" ? null : (
                             <Button
                               onClick={async () => {
                                 const generation = getValidatedAuthGeneration();
@@ -1977,6 +2009,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                         "rounded-md p-2.5 flex flex-col",
                         planStateKnown &&
                           !usage?.isPersonallySubscribed &&
+                          !storeBilling &&
                           !usage?.isTrial &&
                           !isWorkspaceCovered
                           ? "border-2 border-primary/30 bg-primary/3 dark:border-primary/20 dark:bg-primary/5"
@@ -2039,7 +2072,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                             ? t("settingsPage.account.billing.opening")
                             : t("settingsPage.account.pricing.downgrade")}
                         </Button>
-                      ) : planStateKnown && !isWorkspaceCovered ? (
+                      ) : planStateKnown && !isWorkspaceCovered && !storeBilling ? (
                         <div className="mt-2 text-center">
                           <span className="text-[9px] font-medium text-primary/70">
                             {t("settingsPage.account.pricing.currentPlan")}
@@ -2051,7 +2084,8 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                     <div
                       className={cn(
                         "rounded-md border-2 p-2.5 flex flex-col",
-                        usage?.isPersonallySubscribed && usage?.plan === "pro"
+                        (usage?.isPersonallySubscribed || (storeBilling && !isWorkspaceCovered)) &&
+                          usage?.plan === "pro"
                           ? "border-primary/40 bg-primary/5 dark:border-primary/30 dark:bg-primary/8"
                           : "border-primary/20 bg-primary/2 dark:border-primary/15 dark:bg-primary/3"
                       )}
@@ -2725,7 +2759,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                           e.target.value as "bottom-right" | "center" | "bottom-left"
                         )
                       }
-                      className="h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 transition-colors duration-200"
+                      className="h-7 rounded border border-border/70 bg-surface-1/80 px-2.5 text-xs font-medium text-foreground shadow-sm hover:border-border-hover hover:bg-surface-2/70 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-1 transition-colors duration-200"
                     >
                       <option value="bottom-right">
                         {t("settingsPage.general.floatingIcon.bottomRight")}
@@ -2939,7 +2973,7 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                       key: "hasWtype",
                       label: "wtype",
                       ok: ydotoolStatus.hasWtype,
-                      required: ydotoolStatus.isWlroots,
+                      required: ydotoolStatus.isWlroots || ydotoolStatus.isCosmic,
                       desc: t("settingsPage.general.waylandPaste.wtypeDesc"),
                       steps: [
                         {

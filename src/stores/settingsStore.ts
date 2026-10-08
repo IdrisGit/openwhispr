@@ -1491,7 +1491,6 @@ function invalidateApiKeyCaches(
     }
   }
   if (isBrowser) window.dispatchEvent(new Event("api-key-changed"));
-  debouncedPersistToEnv();
 }
 
 // Dedicated key setters share write ownership and immediate secure publication.
@@ -1509,6 +1508,7 @@ function createSecretSetter(
     secretWriteVersions[storeKey] = (secretWriteVersions[storeKey] ?? 0) + 1;
     useSettingsStore.setState({ [storeKey]: key });
     secretSaveRequests[storeKey] = saveSecret(saver, key);
+    debouncedPersistToEnv();
     invalidateApiKeyCaches(cacheProvider);
   };
 }

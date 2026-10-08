@@ -160,13 +160,14 @@ async function ensureYdotool() {
 }
 
 async function getYdotoolStatus() {
-  const { isWayland, isKde, isWlroots } = getLinuxSessionInfo();
+  const { isWayland, isKde, isWlroots, isCosmic } = getLinuxSessionInfo();
   const isLinux = process.platform === "linux";
   const status = {
     isLinux,
     isWayland,
     isKde,
     isWlroots,
+    isCosmic,
     hasYdotool: false,
     hasYdotoold: false,
     hasWtype: false,

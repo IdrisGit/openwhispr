@@ -39,6 +39,9 @@ function loadWindowManager() {
       Menu: {},
     },
     "./debugLogger": { debug() {}, error() {} },
+    "./tokenStore": {},
+    "./accountScopeBinding": {},
+    "./meetingNotificationDestination": {},
     "./linuxWindowInputRegion": {},
     "./externalUrlOpener": {},
     "./hotkeyManager": Stub,
@@ -54,7 +57,11 @@ function loadWindowManager() {
       DICTATION_LIFECYCLE: { IDLE: "idle" },
       DICTATION_INPUT_KIND: { DICTATION: "dictation" },
     },
-    "./windowConfig": { WINDOW_SIZES: { BASE: {} }, CONTROL_PANEL_CONFIG: {} },
+    "./windowConfig": {
+      WINDOW_SIZES: { BASE: {} },
+      CONTROL_PANEL_CONFIG: {},
+      NOTIFICATION_WINDOW_CONFIG: {},
+    },
     "./onboardingWindowBounds": {},
     "./onboardingInputPolicy": {},
     "./hotkeyRepeatGate": {},
@@ -131,6 +138,10 @@ test("native Settings intent survives cold loading, wrong/stale readiness, reloa
     restored = true;
   };
   await manager.openSettings();
-  assert.equal(sends.at(-1)[1].section, undefined, "a consumed section does not leak into later opens");
+  assert.equal(
+    sends.at(-1)[1].section,
+    undefined,
+    "a consumed section does not leak into later opens"
+  );
   assert.equal(restored, true, "native request also surfaces a minimized panel");
 });

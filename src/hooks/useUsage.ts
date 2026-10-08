@@ -8,8 +8,10 @@ import {
   loadUsage,
   retryUsage,
   setUsageAccount,
+  storeBillingOf,
   subscribeUsage,
   watchForUpgrade,
+  type StoreBilling,
   type UsageResponse,
   type UsageState,
 } from "../lib/usageStore";
@@ -37,6 +39,8 @@ export interface UseUsageResult {
   limit: number;
   isSubscribed: boolean;
   isPersonallySubscribed: boolean;
+  /** Set when the plan was bought in the mobile app; manage it in the store, never through Stripe. */
+  storeBilling: StoreBilling | null;
   entitledWorkspaceIds: string[];
   isTrial: boolean;
   trialDaysLeft: number | null;
@@ -288,6 +292,7 @@ export function useUsage(): UseUsageResult | null {
     limit,
     isSubscribed,
     isPersonallySubscribed: data?.entitlementSources.personal ?? false,
+    storeBilling: data ? storeBillingOf(data) : null,
     entitledWorkspaceIds: data?.entitlementSources.workspaceIds ?? [],
     isTrial,
     trialDaysLeft: data?.trialDaysLeft ?? null,
