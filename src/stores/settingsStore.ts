@@ -3309,10 +3309,8 @@ export async function initializeSettings(): Promise<void> {
     { once: true }
   );
   const hydrationVersions = { ...secretWriteVersions };
-  const hydrationPublications = { ...secretVersions };
   const ownsLocalSecret = (key: string) => secretWriteVersions[key] === hydrationVersions[key];
-  const ownsSecret = (key: string) =>
-    ownsLocalSecret(key) && secretVersions[key] === hydrationPublications[key];
+  const ownsSecret = (key: string) => ownsLocalSecret(key) && secretVersions[key] === undefined;
 
   if (window.electronAPI) {
     // Preferences are already in localStorage; do not wait for secret or provider hydration.
