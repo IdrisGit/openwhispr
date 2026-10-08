@@ -155,6 +155,16 @@ test("billing callbacks reject old identities/replies and only publish valid bro
     [],
     "obsolete portal errors cannot describe a replacement identity"
   );
+  const portalCalls = calls.length;
+  state.generation = null;
+  await render();
+  await React.act(async () => portal.openBillingPortal());
+  assert.equal(calls.length, portalCalls, "an unvalidated session sends no portal request");
+  assert.deepEqual(
+    state.toasts.map((toast) => toast.title),
+    ["settingsPage.account.billing.couldNotOpenTitle"],
+    "an unvalidated session still gets feedback"
+  );
   const signedInCallback = usage.openCheckout;
   state.generation = null;
   state.auth = { isLoaded: true, isSignedIn: false, user: null };

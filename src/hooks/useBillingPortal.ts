@@ -22,7 +22,16 @@ export function useBillingPortal(usage: UseUsageResult | null): UseBillingPortal
 
   const openBillingPortal = useCallback(async () => {
     const generation = getValidatedAuthGeneration();
-    if (!usage || generation == null) return;
+    if (!usage) return;
+    if (generation == null) {
+      const copy = billingPortalErrorCopy();
+      toast({
+        title: t(copy.titleKey),
+        description: t(copy.descriptionKey),
+        variant: "destructive",
+      });
+      return;
+    }
     setIsOpening(true);
     try {
       const result: { success: boolean; code?: string } = await usage

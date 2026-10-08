@@ -1978,6 +1978,8 @@ class IPCHandlers {
 
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
+      // Only a failed directory listing fails without an ID, and it deleted nothing.
+      if (result.failed && result.failedIds.length === 0) return result;
       try {
         // Files that were already missing still clear their flags; failed deletes keep theirs.
         const ids = this.databaseManager.db

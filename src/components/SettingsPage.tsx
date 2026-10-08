@@ -1403,7 +1403,14 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
   const handleSwitchPlan = async (plan: "monthly" | "annual", tier: "pro" | "business") => {
     const accountId = user?.id;
     const authGeneration = getValidatedAuthGeneration();
-    if (!accountId || authGeneration == null || usage?.status !== "success") return;
+    if (!accountId || usage?.status !== "success") return;
+    if (authGeneration == null) {
+      toast({
+        title: t("settingsPage.account.checkout.couldNotOpenTitle"),
+        description: t("settingsPage.account.checkout.couldNotOpenDescription"),
+      });
+      return;
+    }
     setPreviewLoading(true);
     try {
       const preview = await usage.previewSwitchPlan({ plan, tier });
@@ -1462,7 +1469,14 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
 
   const handleCheckout = async (plan: "monthly" | "annual", tier: "pro" | "business") => {
     const generation = getValidatedAuthGeneration();
-    if (!usage || generation == null) return;
+    if (!usage) return;
+    if (generation == null) {
+      toast({
+        title: t("settingsPage.account.checkout.couldNotOpenTitle"),
+        description: t("settingsPage.account.checkout.couldNotOpenDescription"),
+      });
+      return;
+    }
     setCheckoutProgress({ tier, generation });
     const result = await usage.openCheckout({ plan, tier });
     if (generation !== getValidatedAuthGeneration()) return;
@@ -1947,7 +1961,16 @@ export default function SettingsPage({ navigation }: SettingsPageProps) {
                             <Button
                               onClick={async () => {
                                 const generation = getValidatedAuthGeneration();
-                                if (generation == null) return;
+                                if (generation == null) {
+                                  toast({
+                                    title: t("settingsPage.account.checkout.couldNotOpenTitle"),
+                                    description: t(
+                                      "settingsPage.account.checkout.couldNotOpenDescription"
+                                    ),
+                                    variant: "destructive",
+                                  });
+                                  return;
+                                }
                                 setCheckoutProgress({ tier: "plan-upgrade", generation });
                                 const result = await usage.openCheckout({
                                   plan: billingState.pro ? "annual" : "monthly",
