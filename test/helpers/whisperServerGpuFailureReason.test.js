@@ -180,7 +180,7 @@ test("a CUDA server that comes up without its GPU reports why, not a startup tim
     ],
     [
       "whisper_backend_init_gpu: no GPU found\n",
-      "cuda server started without initializing its GPU backend",
+      "server started without initializing its GPU backend",
     ],
   ];
   for (const [stderr, reason] of cases) {

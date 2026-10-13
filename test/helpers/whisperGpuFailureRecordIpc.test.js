@@ -175,7 +175,7 @@ function createHandlers({ downloadError = null } = {}) {
 test("a Vulkan fallback saves its reason with the flag", () => {
   const { serverManager, envWrites } = createHandlers();
 
-  serverManager.emit("gpu-fallback", { reason: DEVICE_LOST });
+  serverManager.emit("gpu-fallback", { reason: DEVICE_LOST, fallbackBackend: "cpu" });
 
   assert.equal(process.env.WHISPER_GPU_FAILED, "vulkan");
   assert.equal(process.env.WHISPER_GPU_FAILED_REASON_VULKAN, DEVICE_LOST);

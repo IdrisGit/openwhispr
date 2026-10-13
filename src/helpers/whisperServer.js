@@ -700,9 +700,7 @@ class WhisperServerManager extends EventEmitter {
       // A pin restart below settles the device first: a pin to a device that
       // is gone leaves the server without its GPU until the pin is cleared.
       if (expectedBackend && activeBackend !== expectedBackend && pinAction.action === "none") {
-        const error = new Error(
-          `${expectedBackend} server started without initializing its GPU backend`
-        );
+        const error = new Error("server started without initializing its GPU backend");
         error.gpuBackendMissing = true;
         throw error;
       }
@@ -716,8 +714,8 @@ class WhisperServerManager extends EventEmitter {
         // backend. The reason travels with the event so it is saved beside the
         // failure and shown on the GPU card (#1736). A server that came up on the
         // CPU neither exited nor timed out: its log or the check itself says why.
-        // A CPU fallback is announced once its server is up, even if that start
-        // fails: the bundled build can run on the GPU itself (#2168).
+        // A CPU fallback is announced after the CPU start settles, failed or not:
+        // the bundled build can run on the GPU itself (#2168).
         const reason = err.gpuBackendMissing
           ? extractWhisperGpuFailureReason(getProcessInfo()) || err.message
           : extractWhisperGpuFailureReason({ ...getProcessInfo(), timeoutMs: startupTimeoutMs });

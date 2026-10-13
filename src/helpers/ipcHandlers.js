@@ -1387,7 +1387,7 @@ class IPCHandlers {
     // no "switched to CPU" pop-up, but every GPU card re-reads to follow the server
     serverManager.on("cuda-fallback", ({ reason, fallbackBackend }) => {
       this._recordWhisperGpuFailure("cuda", reason);
-      if (fallbackBackend && fallbackBackend !== "cpu") {
+      if (fallbackBackend !== "cpu") {
         broadcastToWindows("whisper-gpu-status-changed");
       } else {
         broadcastToWindows("cuda-fallback-notification", {});
@@ -1395,7 +1395,7 @@ class IPCHandlers {
     });
     serverManager.on("gpu-fallback", ({ reason, fallbackBackend }) => {
       this._recordWhisperGpuFailure("vulkan", reason);
-      if (fallbackBackend && fallbackBackend !== "cpu") {
+      if (fallbackBackend !== "cpu") {
         broadcastToWindows("whisper-gpu-status-changed");
       } else {
         broadcastToWindows("gpu-fallback-notification", {});
