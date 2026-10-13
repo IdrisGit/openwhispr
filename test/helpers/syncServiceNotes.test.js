@@ -511,6 +511,41 @@ test("canSync gating: sign-out blocks every call; plan and backup gates protect 
   );
 });
 
+test("retention opt-out still drains analytics deletes without uploading counters", async (t) => {
+  const ctx = await setup(t);
+  if (!ctx) return;
+  const { api, service } = ctx;
+  localStorageStub.setItem("insightsSyncEnabled", "true");
+  localStorageStub.setItem("dataRetentionEnabled", "false");
+
+  let deleteReads = 0;
+  let localDeletes = 0;
+  let uploadReads = 0;
+  api.getPendingAnalyticsDeletes = async () =>
+    deleteReads++ === 0 ? [{ event_id: "deleted-event" }] : [];
+  api.hardDeleteAnalyticsEvents = async (eventIds) => {
+    localDeletes += eventIds.length;
+    return { success: true, deleted: eventIds.length };
+  };
+  api.getPendingAnalyticsEvents = async () => {
+    uploadReads += 1;
+    return [];
+  };
+  api.markAnalyticsEventsSynced = async () => ({ success: true, updated: 0 });
+  const request = api.cloudApiRequest;
+  api.cloudApiRequest = async (options) => {
+    if (options.path === "/api/analytics/events/delete") {
+      return { success: true, data: { deleted: options.body.eventIds } };
+    }
+    return request(options);
+  };
+
+  await service.syncAll(true);
+
+  assert.equal(localDeletes, 1, "the acknowledged privacy tombstone is retired locally");
+  assert.equal(uploadReads, 0, "retention opt-out must not inspect or send pending counters");
+});
+
 test("an ambient pass bows out when another window holds the lock, a manual pass waits", async (t) => {
   const ctx = await setup(t);
   if (!ctx) return;
@@ -565,12 +600,34 @@ test("a note pull failure is contained: the pass finishes and later stages still
   const errors = silenceConsoleErrors(t);
   const note = db.saveNote("Pending note", "body", "personal").note;
 
+  // Model an older API's incomplete receipt; the normal fake now returns
+  // authoritative text, which can settle without waiting for a list request.
+  const retries = [];
+  t.mock.method(service, "requestSyncAll", (reason) => retries.push(reason));
+  const request = windowStub.electronAPI.cloudApiRequest;
+  t.mock.method(windowStub.electronAPI, "cloudApiRequest", async (options) => {
+    const result = await request(options);
+    if (options.path === "/api/notes/batch-create" && result.success) {
+      result.data.created = result.data.created.map(({ id, client_note_id, updated_at }) => ({
+        id,
+        client_note_id,
+        updated_at,
+      }));
+    }
+    return result;
+  });
   cloud.failWith("/api/notes/list", { status: 500, error: "list exploded" });
   await service.syncAll(true);
 
-  assert.equal(db.getNote(note.id).sync_status, "synced", "the push before the pull still lands");
+  assert.equal(cloud.note(note.client_note_id).content, "body", "the push before the pull lands");
+  assert.equal(
+    db.getNote(note.id).sync_status,
+    "pending",
+    "an incomplete receipt still needs an authoritative row before settling"
+  );
   assert.equal(cloud.logFor("/api/transcriptions/list").length, 1, "later stages still run");
   assert.equal(cloud.logFor("/api/snippets/list").length, 1);
+  assert.ok(retries.includes("retry"), "the incomplete create asks for a recovery pass");
   assert.equal(
     localStorageStub.getItem("lastSyncedAt.notes"),
     null,
