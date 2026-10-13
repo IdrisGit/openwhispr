@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
-import { Check, Terminal, Info } from "lucide-react";
+import { Check, Terminal, Info } from "../icons";
 import { Button } from "./button";
 import { InfoBox } from "./InfoBox";
 import type { PasteToolsResult } from "../../types/electron";
 import {
   getLinuxPasteInstallCommands,
   needsLinuxPasteToolGuidance,
+  needsWtype,
 } from "../../utils/linuxPasteTools";
 
 interface PasteToolsInfoProps {
@@ -82,7 +83,10 @@ export default function PasteToolsInfo({
               </h3>
               <p className="text-sm text-success dark:text-success">
                 {t("pasteToolsInfo.usingMethodPrefix")}{" "}
-                <code className="bg-success/20 px-1 rounded">{methodLabel}</code> {methodSuffix}
+                <code dir="ltr" className="bg-success/20 px-1 rounded">
+                  {methodLabel}
+                </code>{" "}
+                {methodSuffix}
               </p>
             </div>
           </div>
@@ -96,8 +100,9 @@ export default function PasteToolsInfo({
 
   if (needsLinuxPasteToolGuidance(pasteToolsInfo)) {
     const isWayland = pasteToolsInfo.isWayland;
-    const needsWtype = pasteToolsInfo.isWlroots && !pasteToolsInfo.hasWtype;
-    const recommendedTool = needsWtype
+    const wtypeMissing = needsWtype(pasteToolsInfo);
+    const cosmicTerminalsOnly = wtypeMissing && !!pasteToolsInfo.isCosmic;
+    const recommendedTool = wtypeMissing
       ? "wtype"
       : pasteToolsInfo.recommendedInstall === "wtype"
         ? "wtype"
@@ -120,12 +125,14 @@ export default function PasteToolsInfo({
             {showInstall ? (
               <>
                 <p className="text-sm text-warning dark:text-warning mt-1">
-                  {needsWtype ? (
+                  {cosmicTerminalsOnly ? (
+                    t("pasteToolsInfo.wtypeCosmicTerminalsDescription")
+                  ) : wtypeMissing ? (
                     t("pasteToolsInfo.wtypeFallbackDescription")
                   ) : (
                     <>
                       {t("pasteToolsInfo.installPrefix")}{" "}
-                      <code className="bg-warning/20 px-1 rounded font-mono">
+                      <code dir="ltr" className="bg-warning/20 px-1 rounded font-mono">
                         {recommendedTool}
                       </code>
                       :
@@ -137,7 +144,9 @@ export default function PasteToolsInfo({
                   {getLinuxPasteInstallCommands(t, recommendedTool).map(({ label, cmd }) => (
                     <div key={cmd}>
                       <div className="text-muted-foreground">{label}</div>
-                      <div className="text-foreground">{cmd}</div>
+                      <div dir="ltr" className="text-foreground">
+                        {cmd}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -157,14 +166,20 @@ export default function PasteToolsInfo({
             ) : (
               <p className="text-sm text-warning dark:text-warning mt-1">
                 {t("pasteToolsInfo.waylandClipboardDescription")}{" "}
-                <kbd className="bg-warning/20 px-1 rounded text-xs">Ctrl+V</kbd>.
+                <kbd dir="ltr" className="bg-warning/20 px-1 rounded text-xs">
+                  Ctrl+V
+                </kbd>
+                .
               </p>
             )}
 
-            {showInstall && (
+            {showInstall && !cosmicTerminalsOnly && (
               <p className="text-sm text-warning dark:text-warning mt-3">
                 {t("pasteToolsInfo.withoutToolPrefix")}{" "}
-                <kbd className="bg-warning/20 px-1 rounded text-xs">Ctrl+V</kbd>.
+                <kbd dir="ltr" className="bg-warning/20 px-1 rounded text-xs">
+                  Ctrl+V
+                </kbd>
+                .
               </p>
             )}
           </div>
