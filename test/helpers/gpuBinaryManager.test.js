@@ -159,7 +159,6 @@ test("CUDA: resolves its exact asset from the pinned tag and installs binary + c
     "libcudart.so.12": "cudart",
     "libcublas.so.12": "cublas",
     "libcublasLt.so.12": "cublasLt",
-    "CUDA-12.9-LICENSE.txt": "license",
     "README.md": "doc",
   };
 
@@ -176,7 +175,6 @@ test("CUDA: resolves its exact asset from the pinned tag and installs binary + c
   assert.ok(fs.existsSync(path.join(binDir, "libcudart.so.12")));
   assert.ok(fs.existsSync(path.join(binDir, "libcublas.so.12")));
   assert.ok(fs.existsSync(path.join(binDir, "libcublasLt.so.12")));
-  assert.ok(fs.existsSync(path.join(binDir, "CUDA-12.9-LICENSE.txt")));
   assert.ok(!fs.existsSync(path.join(binDir, "README.md")), "unrelated files not copied");
   assert.equal(manager.getCudaBinaryPath(), binaryPath);
   assert.equal(manager.isDownloaded(), true);
@@ -324,7 +322,6 @@ test("guard: a second download while one is in flight throws", async () => {
     "libcudart.so.12": "cudart",
     "libcublas.so.12": "cublas",
     "libcublasLt.so.12": "cublasLt",
-    "CUDA-12.9-LICENSE.txt": "license",
   };
 
   const manager = cudaManagerWithoutDigestPin();
@@ -351,7 +348,6 @@ test("cleanup on failure: archive and extract dir removed, next download can sta
     fs.writeFileSync(path.join(destDir, "libcudart.so.12"), "cudart");
     fs.writeFileSync(path.join(destDir, "libcublas.so.12"), "cublas");
     fs.writeFileSync(path.join(destDir, "libcublasLt.so.12"), "cublasLt");
-    fs.writeFileSync(path.join(destDir, "CUDA-12.9-LICENSE.txt"), "license");
   };
   await manager.download();
   assert.equal(manager.isDownloaded(), true);
@@ -399,7 +395,6 @@ test("install isolation: packs sharing lib names cannot clobber each other", asy
     "libcudart.so.12": "cuda-cudart",
     "libcublas.so.12": "cublas",
     "libcublasLt.so.12": "cublasLt",
-    "CUDA-12.9-LICENSE.txt": "license",
   };
   await cudaManagerWithoutDigestPin().download();
 
@@ -418,7 +413,10 @@ test("atomic install: an incomplete CUDA runtime leaves no half-installed pack",
   state.extractedFiles = { "whisper-server-linux-x64-cuda": "binary" };
 
   const manager = cudaManagerWithoutDigestPin();
-  await assert.rejects(() => manager.download(), { message: /libcudart\.so\.12 not found/ });
+  await assert.rejects(() => manager.download(), {
+    message:
+      /missing required libraries: libcudart\.so\.12, libcublas\.so\.12, libcublasLt\.so\.12/,
+  });
 
   assert.equal(manager.isDownloaded(), false);
   assert.ok(!fs.existsSync(path.join(userDataDir, "bin", "whisper-cuda")));
@@ -446,11 +444,7 @@ test("required libraries: a cached pack is incomplete when a required library is
 });
 
 test("required libraries: an incomplete archive cannot replace a working pack", async () => {
-  const packDir = seedPack("test-pack", [
-    "server-out",
-    "msvcp140.dll",
-    "vcruntime140.dll",
-  ]);
+  const packDir = seedPack("test-pack", ["server-out", "msvcp140.dll", "vcruntime140.dll"]);
   fs.writeFileSync(path.join(packDir, "server-out"), "working-binary");
 
   state.release = makeRelease("bin.zip");
@@ -516,6 +510,19 @@ test("needs update: a 1.9.x Windows CUDA pack (whisper.cpp 0.0.9, no MSVC runtim
   assert.equal(manager.needsUpdate(), true);
 });
 
+test("needs update: a whisper.cpp 0.0.10 Linux CUDA pack, which relied on a system CUDA 12, is outdated (#2168)", () => {
+  const manager = new WhisperCudaManager();
+  const packDir = seedPack(manager.config.dirName, ["whisper-server-linux-x64-cuda"]);
+  assert.equal(manager.isDownloaded(), false);
+  assert.equal(manager.needsUpdate(), true);
+
+  for (const library of ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"]) {
+    fs.writeFileSync(path.join(packDir, library), "runtime");
+  }
+  assert.equal(manager.isDownloaded(), true);
+  assert.equal(manager.needsUpdate(), false);
+});
+
 test("needs update: a pack with no required libraries is never outdated", () => {
   seedPack("whisper-vulkan", ["whisper-server-linux-x64-vulkan"]);
   const manager = new WhisperVulkanManager();
@@ -554,13 +561,11 @@ test("re-download replaces the previous install, including stale libs", async ()
     "libcudart.so.12": "cudart",
     "libcublas.so.12": "cublas",
     "libcublasLt.so.12": "cublasLt",
-    "CUDA-12.9-LICENSE.txt": "license",
   };
   await cudaManagerWithoutDigestPin().download();
 
   const packDir = path.join(userDataDir, "bin", "whisper-cuda");
   assert.deepEqual(fs.readdirSync(packDir).sort(), [
-    "CUDA-12.9-LICENSE.txt",
     "libcublas.so.12",
     "libcublasLt.so.12",
     "libcudart.so.12",
@@ -640,7 +645,6 @@ test("orphan detection: enabled flag with no pack on disk is reported for the no
       "libcudart.so.12",
       "libcublas.so.12",
       "libcublasLt.so.12",
-      "CUDA-12.9-LICENSE.txt",
     ]);
     assert.deepEqual(detectOrphanedGpuPacks(packs), []);
 
