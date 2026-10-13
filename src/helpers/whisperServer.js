@@ -692,21 +692,25 @@ class WhisperServerManager extends EventEmitter {
       const expectedBackend = usingCuda ? "cuda" : usingVulkan ? "vulkan" : null;
       const activeBackend = parseWhisperGpuBackend(stderrBuffer);
       if (expectedBackend && activeBackend !== expectedBackend) {
-        throw new Error(`${expectedBackend} server started without initializing its GPU backend`);
+        const error = new Error(
+          `${expectedBackend} server started without initializing its GPU backend`
+        );
+        error.gpuBackendMissing = true;
+        throw error;
       }
       this.activeGpuBackend = activeBackend;
     } catch (err) {
       // An intentional stop() during startup is not a GPU/thread failure
       if (err.isStopped) throw err;
       if (usingCuda || usingVulkan) {
-        // A GPU server can exit early, die during model load, or hang. stop()
-        // reaps it before trying the next available backend. The reason travels
-        // with the event so it is saved beside the failure and shown on the GPU
-        // card (#1736).
-        const reason = extractWhisperGpuFailureReason({
-          ...getProcessInfo(),
-          timeoutMs: startupTimeoutMs,
-        });
+        // A GPU server can exit early, die during model load, hang, or come up
+        // without its GPU. stop() reaps it before trying the next available
+        // backend. The reason travels with the event so it is saved beside the
+        // failure and shown on the GPU card (#1736). A server that came up on the
+        // CPU neither exited nor timed out: its log or the check itself says why.
+        const reason = err.gpuBackendMissing
+          ? extractWhisperGpuFailureReason(getProcessInfo()) || err.message
+          : extractWhisperGpuFailureReason({ ...getProcessInfo(), timeoutMs: startupTimeoutMs });
         const backend = usingCuda ? "cuda" : "vulkan";
         const fallbackToVulkan = usingCuda && options.fallbackToVulkan === true;
         debugLogger.warn(

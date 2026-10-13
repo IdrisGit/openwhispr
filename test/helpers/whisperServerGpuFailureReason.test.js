@@ -152,6 +152,35 @@ test("a CUDA server that runs out of memory at startup reports the failed alloca
   ]);
 });
 
+test("a CUDA server that comes up without its GPU reports why, not a startup timeout", async (t) => {
+  const cases = [
+    [
+      "ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected\n" +
+        "whisper_backend_init_gpu: no GPU found\n",
+      "ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected",
+    ],
+    [
+      "whisper_backend_init_gpu: no GPU found\n",
+      "cuda server started without initializing its GPU backend",
+    ],
+  ];
+  for (const [stderr, reason] of cases) {
+    const manager = createManager(t);
+    behaviours.set(BINARY.cuda, { stderr, healthy: true });
+    // Like the real server, it answers only once the model (and its log) has loaded
+    let polls = 0;
+    manager.checkHealth = async () => ++polls > 1 && Boolean(manager.process?.healthy);
+    const events = [];
+    manager.on("cuda-fallback", (payload) => events.push(payload));
+
+    await manager.start(modelPath, { useCuda: true });
+
+    assert.equal(manager.useCuda, false);
+    assert.deepEqual(events, [{ reason, fallbackBackend: "cpu" }]);
+    await manager.stop();
+  }
+});
+
 test("a GPU server that never answers is reported as a startup timeout", async (t) => {
   const manager = createManager(t);
   // Prints its banner and hangs
