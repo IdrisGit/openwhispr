@@ -26,8 +26,7 @@ function isLinuxMeetingPromptSourceOutput(sourceOutput) {
 }
 
 // Every pid holding a capture stream, and those whose streams are all
-// production or sink-monitor capture: they still hold the mic for auto-end,
-// but are not meeting evidence.
+// production or sink-monitor capture, which are not meeting evidence.
 function classifyLinuxCapturePids(sourceOutputs) {
   const capturePids = new Set();
   const meetingCapturePids = new Set();
