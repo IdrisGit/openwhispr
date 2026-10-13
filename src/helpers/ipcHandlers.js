@@ -1385,7 +1385,11 @@ class IPCHandlers {
   _attachWhisperServerListeners(serverManager) {
     serverManager.on("cuda-fallback", ({ reason, fallbackBackend }) => {
       this._recordWhisperGpuFailure("cuda", reason);
-      if (fallbackBackend !== "vulkan") {
+      // Landing on Vulkan keeps the GPU: no "switched to CPU" pop-up, but every
+      // GPU card re-reads to follow the server to the Vulkan pack
+      if (fallbackBackend === "vulkan") {
+        broadcastToWindows("whisper-gpu-status-changed");
+      } else {
         broadcastToWindows("cuda-fallback-notification", {});
       }
     });
@@ -1465,7 +1469,7 @@ class IPCHandlers {
     // Every pack download or delete and every Retry ends here, already saved.
     // Tell every window, not just the caller's: Retry on the fallback pop-up
     // runs in the dictation window, and Settings keeps up to three GPU cards
-    // mounted (#1736). A fallback is announced by its own notification.
+    // mounted (#1736). A fallback is announced where it is recorded.
     broadcastToWindows("whisper-gpu-status-changed");
     return !!modelName;
   }

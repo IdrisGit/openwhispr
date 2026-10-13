@@ -356,3 +356,19 @@ test("a bundled whisper-server running on the GPU is reported and tells every wi
   serverManager.useCuda = true;
   assert.deepEqual(await bundled(), [false, false], "a pack's GPU is not the bundled server's");
 });
+
+test("a CUDA failure that lands on Vulkan is saved, with no CPU pop-up, and every window re-reads", () => {
+  const { serverManager, envWrites } = createHandlers();
+
+  serverManager.emit("cuda-fallback", { reason: KERNEL_IMAGE, fallbackBackend: "vulkan" });
+
+  assert.equal(process.env.WHISPER_GPU_FAILED, "cuda");
+  assert.equal(envWrites.at(-1).WHISPER_GPU_FAILED_REASON_CUDA, KERNEL_IMAGE);
+  assert.deepEqual(
+    broadcasts.map(({ window, channel, failed }) => [window, channel, failed]),
+    [
+      ["dictation", STATUS_CHANGED, "cuda"],
+      ["control-panel", STATUS_CHANGED, "cuda"],
+    ]
+  );
+});
