@@ -523,12 +523,11 @@ class WhisperServerManager extends EventEmitter {
     const nextThreadSignature = getThreadSignature(threadResolution);
     const nextVadSignature = getVadSignature(options);
     const nextGpuSignature = getGpuSignature(options);
-    // gpuFallbackActive pins a fallback session to its working CPU server:
-    // after a CUDA crash the next request can resolve to a different backend
-    // (an installed Vulkan pack, since only the crashed backend is recorded in
-    // WHISPER_GPU_FAILED) and must not tear the session down for a GPU cold
-    // start mid-dictation. stop() clears the pin, so pack downloads, explicit
-    // retries, and app restarts get a fresh GPU attempt.
+    // gpuFallbackActive pins a fallback session to its working CPU server: a
+    // later request that still resolves to a GPU backend must not tear the
+    // session down for a GPU cold start mid-dictation. stop() clears the pin,
+    // so pack downloads, explicit retries, and app restarts get a fresh GPU
+    // attempt.
     if (
       this.ready &&
       this.modelPath === modelPath &&
@@ -687,11 +686,20 @@ class WhisperServerManager extends EventEmitter {
     });
 
     const startupTimeoutMs = usingVulkan ? VULKAN_STARTUP_TIMEOUT_MS : STARTUP_TIMEOUT_MS;
+    let pinAction = { action: "none" };
     try {
       await this.waitForReady(getProcessInfo, startupTimeoutMs);
+      if (usingVulkan && !options.vulkanPinChecked) {
+        pinAction = resolveVulkanPinAction({
+          devices: parseVulkanDevices(stderrBuffer),
+          appliedPin: vulkanDeviceIndex,
+        });
+      }
       const expectedBackend = usingCuda ? "cuda" : usingVulkan ? "vulkan" : null;
       const activeBackend = parseWhisperGpuBackend(stderrBuffer);
-      if (expectedBackend && activeBackend !== expectedBackend) {
+      // A pin restart below settles the device first: a pin to a device that
+      // is gone leaves the server without its GPU until the pin is cleared.
+      if (expectedBackend && activeBackend !== expectedBackend && pinAction.action === "none") {
         const error = new Error(
           `${expectedBackend} server started without initializing its GPU backend`
         );
@@ -755,35 +763,29 @@ class WhisperServerManager extends EventEmitter {
     // (and drop a persisted pin that no longer resolves). vulkanPinChecked
     // bounds this to a single extra start; if the pinned restart fails, the
     // catch above falls back to CPU as usual. See #1606.
-    if (usingVulkan && !options.vulkanPinChecked) {
-      const pinAction = resolveVulkanPinAction({
-        devices: parseVulkanDevices(stderrBuffer),
+    if (pinAction.action === "pin") {
+      debugLogger.info("Vulkan device 0 is integrated; restarting pinned to discrete GPU", {
+        index: pinAction.index,
+      });
+      this.emit("vulkan-device-pinned", { index: pinAction.index });
+      await this.stop();
+      return this._doStart(modelPath, {
+        ...options,
+        vulkanDeviceIndex: pinAction.index,
+        vulkanPinChecked: true,
+      });
+    }
+    if (pinAction.action === "clear") {
+      debugLogger.warn("Persisted Vulkan device pin is out of range; clearing it", {
         appliedPin: vulkanDeviceIndex,
       });
-      if (pinAction.action === "pin") {
-        debugLogger.info("Vulkan device 0 is integrated; restarting pinned to discrete GPU", {
-          index: pinAction.index,
-        });
-        this.emit("vulkan-device-pinned", { index: pinAction.index });
-        await this.stop();
-        return this._doStart(modelPath, {
-          ...options,
-          vulkanDeviceIndex: pinAction.index,
-          vulkanPinChecked: true,
-        });
-      }
-      if (pinAction.action === "clear") {
-        debugLogger.warn("Persisted Vulkan device pin is out of range; clearing it", {
-          appliedPin: vulkanDeviceIndex,
-        });
-        this.emit("vulkan-device-pin-cleared");
-        await this.stop();
-        return this._doStart(modelPath, {
-          ...options,
-          vulkanDeviceIndex: -1,
-          vulkanPinChecked: true,
-        });
-      }
+      this.emit("vulkan-device-pin-cleared");
+      await this.stop();
+      return this._doStart(modelPath, {
+        ...options,
+        vulkanDeviceIndex: -1,
+        vulkanPinChecked: true,
+      });
     }
 
     this.startHealthCheck();
