@@ -97,9 +97,13 @@ class WhisperManager {
       (process.env.WHISPER_VULKAN_ENABLED || "").toLowerCase() !== "false" &&
       !failed.includes("vulkan") &&
       !!this._vulkanBinaryManager?.isDownloaded();
-    const options = { useCuda, useVulkan: !useCuda && vulkanAvailable };
-    if (useCuda && vulkanAvailable) options.fallbackToVulkan = true;
-    return options;
+    // Always set fallbackToVulkan: callers merge this over the last start's
+    // options, so an omitted false would keep a stale true
+    return {
+      useCuda,
+      useVulkan: !useCuda && vulkanAvailable,
+      fallbackToVulkan: useCuda && vulkanAvailable,
+    };
   }
 
   // The pack the settings card describes, so the card never disagrees with the
