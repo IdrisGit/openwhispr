@@ -36,6 +36,23 @@ function inertSnippetApi() {
   };
 }
 
+// Every analytics binding syncPendingAnalytics reaches for. A missing one does
+// not fail loudly here -- SyncService catches the TypeError and logs it -- so
+// the pass silently does nothing and the test that asserts it drained still
+// reads as a behaviour failure. Keep this in step with preload.js.
+function inertAnalyticsApi() {
+  return {
+    getPendingAnalyticsClear: async () => null,
+    completeAnalyticsClear: async () => ({ success: true, deleted: 0 }),
+    getPendingAnalyticsDeletes: async () => [],
+    hardDeleteAnalyticsEvents: async () => ({ success: true, deleted: 0 }),
+    getPendingAnalyticsEvents: async () => [],
+    markAnalyticsEventsSynced: async () => ({ success: true, updated: 0 }),
+    countUnclaimedAnalyticsEvents: async () => 0,
+    countAnalyticsEventsAwaitingUpload: async () => 0,
+  };
+}
+
 function createElectronApi(db, options = {}) {
   if (!db) throw new TypeError("createElectronApi requires a DatabaseManager");
   const cloud = options.cloud;
@@ -67,13 +84,32 @@ function createElectronApi(db, options = {}) {
     getNoteByClientId: async (clientNoteId) => db.getNoteByClientId(clientNoteId),
     upsertNoteFromCloud: async (cloudNote, localFolderId, localSpaceId) =>
       db.upsertNoteFromCloud(cloudNote, localFolderId, localSpaceId),
-    acknowledgeNoteCreate: async (id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged) =>
-      db.acknowledgeNoteCreate(id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged),
-    markNoteSyncedIfUnchanged: async (id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId) =>
-      db.markNoteSyncedIfUnchanged(id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId),
+    acknowledgeNoteCreate: async (id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, options) =>
+      db.acknowledgeNoteCreate(id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, options),
+    markNoteSyncedIfUnchanged: async (
+      id,
+      snapshot,
+      expectedCloudId,
+      cloudUpdatedAt,
+      ownerUserId,
+      cloudRevision,
+      cloudNote
+    ) =>
+      db.markNoteSyncedIfUnchanged(
+        id,
+        snapshot,
+        expectedCloudId,
+        cloudUpdatedAt,
+        ownerUserId,
+        cloudRevision,
+        cloudNote
+      ),
+    setNoteCloudBase: async (id, cloudUpdatedAt, cloudRevision, options) =>
+      db.setNoteCloudBase(id, cloudUpdatedAt, cloudRevision, options),
     markNoteSyncError: async (id) => db.markNoteSyncError(id),
     setNoteOwnerFromCloud: async (id, ownerUserId) => db.setNoteOwnerFromCloud(id, ownerUserId),
     countTeamNotesMissingOwner: async () => db.countTeamNotesMissingOwner(),
+    countNotesMissingRevision: async (spaceKind) => db.countNotesMissingRevision(spaceKind),
     restoreNoteAfterDeniedDelete: async (id) => db.restoreNoteAfterDeniedDelete(id),
     hardDeleteNote: async (id) => db.hardDeleteNote(id),
 
@@ -151,6 +187,7 @@ function createElectronApi(db, options = {}) {
 
     ...inertDictionaryApi(),
     ...inertSnippetApi(),
+    ...inertAnalyticsApi(),
   };
 }
 
