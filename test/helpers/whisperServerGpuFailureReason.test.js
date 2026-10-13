@@ -181,6 +181,25 @@ test("a CUDA server that comes up without its GPU reports why, not a startup tim
   }
 });
 
+test("a bundled whisper-server built for CUDA reports the GPU it runs on (#2168)", async (t) => {
+  const manager = createManager(t);
+  behaviours.set(BINARY.cpu, {
+    stderr: "whisper_backend_init_gpu: using CUDA0 backend\n",
+    healthy: true,
+  });
+  let polls = 0;
+  manager.checkHealth = async () => ++polls > 1 && Boolean(manager.process?.healthy);
+  let bundledGpuEvents = 0;
+  manager.on("bundled-gpu", () => bundledGpuEvents++);
+
+  await manager.start(modelPath, {});
+
+  assert.equal(manager.useCuda, false);
+  assert.equal(manager.getStatus().gpuBackend, "cuda");
+  assert.equal(manager.getStatus().gpuAccelerated, true);
+  assert.equal(bundledGpuEvents, 1);
+});
+
 test("a GPU server that never answers is reported as a startup timeout", async (t) => {
   const manager = createManager(t);
   // Prints its banner and hangs

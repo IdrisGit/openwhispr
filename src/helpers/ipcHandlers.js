@@ -1401,6 +1401,17 @@ class IPCHandlers {
     serverManager.on("vulkan-device-pin-cleared", () => {
       this._syncStartupEnv({}, ["WHISPER_VULKAN_DEVICE"]);
     });
+    // The GPU card and banner stop offering a pack (see _whisperBundledGpu)
+    serverManager.on("bundled-gpu", () => broadcastToWindows("whisper-gpu-status-changed"));
+  }
+
+  // A bundled whisper-server built for the GPU runs on it with no pack (#2168),
+  // so no pack is offered.
+  _whisperBundledGpu() {
+    const { serverManager } = this.whisperManager;
+    return (
+      !serverManager.useCuda && !serverManager.useVulkan && serverManager.getStatus().gpuAccelerated
+    );
   }
 
   // Remember the failed backend, and the error line that explains it, so the
@@ -3671,6 +3682,7 @@ class IPCHandlers {
         gpuInfo,
         ...this._whisperGpuFailureStatus("cuda"),
         inUse: this.whisperManager.resolveGpuPackInUse() === "cuda",
+        bundledGpu: this._whisperBundledGpu(),
       };
     });
 
@@ -3735,6 +3747,7 @@ class IPCHandlers {
         hasNvidiaGpu: gpuInfo.hasNvidiaGpu,
         ...this._whisperGpuFailureStatus("vulkan"),
         inUse: this.whisperManager.resolveGpuPackInUse() === "vulkan",
+        bundledGpu: this._whisperBundledGpu(),
       };
     });
 

@@ -793,10 +793,15 @@ class WhisperServerManager extends EventEmitter {
       model: path.basename(modelPath),
       cuda: this.useCuda,
       vulkan: this.useVulkan,
+      gpuBackend: this.activeGpuBackend,
       threads: threadResolution.threads || DEFAULT_WHISPER_THREADS,
       threadSource: threadResolution.source,
       availableParallelism: threadResolution.availableParallelism,
     });
+
+    // The bundled whisper-server can itself be a GPU build (a distro package
+    // that compiles it with CUDA, #2168): it runs on the GPU with no pack.
+    if (!usingCuda && !usingVulkan && this.activeGpuBackend) this.emit("bundled-gpu");
   }
 
   async waitForReady(getProcessInfo, timeoutMs = STARTUP_TIMEOUT_MS) {

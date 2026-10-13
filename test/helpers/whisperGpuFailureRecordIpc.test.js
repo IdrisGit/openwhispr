@@ -334,3 +334,25 @@ test("a pack download that fails changes nothing and announces nothing", async (
   assert.equal((await invoke("download-vulkan-whisper-binary")).success, false);
   assert.deepEqual(toldToReread(), []);
 });
+
+test("a bundled whisper-server running on the GPU is reported and tells every window (#2168)", async () => {
+  const { serverManager, invoke } = createHandlers();
+  const bundled = async () => [
+    (await invoke("get-cuda-whisper-status")).bundledGpu,
+    (await invoke("get-vulkan-whisper-status")).bundledGpu,
+  ];
+  assert.deepEqual(await bundled(), [false, false], "no server running");
+
+  // A start with no pack flags whose log says it initialized CUDA
+  Object.assign(serverManager, { ready: true, process: {}, activeGpuBackend: "cuda" });
+  serverManager.emit("bundled-gpu");
+
+  assert.deepEqual(await bundled(), [true, true]);
+  assert.deepEqual(toldToReread(), [
+    ["dictation", undefined],
+    ["control-panel", undefined],
+  ]);
+
+  serverManager.useCuda = true;
+  assert.deepEqual(await bundled(), [false, false], "a pack's GPU is not the bundled server's");
+});
