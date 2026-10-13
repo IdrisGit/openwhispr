@@ -661,8 +661,7 @@ class AudioActivityDetector extends EventEmitter {
       this._setPidScopedCapability(true);
       // A live listener makes the snapshot reliable unless the excluded-pid
       // provider itself failed. It is external and can, so fall back to any
-      // meeting stream rather than reporting a silent mic. Production and
-      // sink-monitor capture are recording evidence, not meeting evidence.
+      // meeting stream rather than reporting a silent mic.
       this._onMicStateChanged(
         this._externalMicReliable
           ? this._externalCapturePids.size > 0
