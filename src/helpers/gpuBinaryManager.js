@@ -352,15 +352,12 @@ function migrateLegacyBinDir(managers) {
 // notice): the flag is only set after a completed download, and intentional
 // deletes clear it. Returns the affected pack names for the re-download
 // notice; callers must gate re-recording (gpuPackMigrationNotice.recordOnce)
-// so a dismissed notice doesn't return every launch. A pack whose backend
-// failed on this machine (WHISPER_GPU_FAILED) and then vanished, e.g. deleted
-// by a distro launcher (#2168), was no loss, so it gets no notice either.
-function detectOrphanedGpuPacks(packs, failedBackends = []) {
+// so a dismissed notice doesn't return every launch.
+function detectOrphanedGpuPacks(packs) {
   return packs
     .filter(
-      ({ manager, enabledEnvVar, backend }) =>
+      ({ manager, enabledEnvVar }) =>
         process.env[enabledEnvVar] === "true" &&
-        !failedBackends.includes(backend) &&
         manager.isSupported() &&
         !manager.isDownloaded() &&
         !manager.needsUpdate()

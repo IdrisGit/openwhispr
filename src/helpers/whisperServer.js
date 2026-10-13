@@ -716,6 +716,8 @@ class WhisperServerManager extends EventEmitter {
         // backend. The reason travels with the event so it is saved beside the
         // failure and shown on the GPU card (#1736). A server that came up on the
         // CPU neither exited nor timed out: its log or the check itself says why.
+        // A CPU fallback is announced once its server is up, even if that start
+        // fails: the bundled build can run on the GPU itself (#2168).
         const reason = err.gpuBackendMissing
           ? extractWhisperGpuFailureReason(getProcessInfo()) || err.message
           : extractWhisperGpuFailureReason({ ...getProcessInfo(), timeoutMs: startupTimeoutMs });
@@ -727,15 +729,21 @@ class WhisperServerManager extends EventEmitter {
             : `${backend} whisper-server failed, falling back to CPU`,
           { error: err.message, exitCode, reason }
         );
-        this.emit(backend === "cuda" ? "cuda-fallback" : "gpu-fallback", {
-          reason,
-          fallbackBackend: fallbackToVulkan ? "vulkan" : "cpu",
-        });
+        if (fallbackToVulkan) this.emit("cuda-fallback", { reason, fallbackBackend: "vulkan" });
         await this.stop();
         this.gpuFallbackActive = !fallbackToVulkan;
         const fallbackOptions = { ...options, useCuda: false, useVulkan: fallbackToVulkan };
         delete fallbackOptions.fallbackToVulkan;
-        return this._doStart(modelPath, fallbackOptions);
+        try {
+          return await this._doStart(modelPath, fallbackOptions);
+        } finally {
+          if (!fallbackToVulkan) {
+            this.emit(backend === "cuda" ? "cuda-fallback" : "gpu-fallback", {
+              reason,
+              fallbackBackend: this.activeGpuBackend ?? "cpu",
+            });
+          }
+        }
       }
       if (shouldFallbackToDefaultThreads(threadResolution)) {
         const defaultThreadResolution = createThreadResolution(
@@ -1167,11 +1175,12 @@ class WhisperServerManager extends EventEmitter {
     delete fallbackOptions.fallbackToVulkan;
     await this.start(modelPath, fallbackOptions);
     this.gpuFallbackActive = !this.useVulkan;
-    // Emit only once the CPU server is up — the notification tells the user CPU is in use
+    // Emit only once the server is up: it tells whether CPU is in use, or a
+    // bundled GPU build of whisper-server (#2168)
     if (!fallbackToVulkan) {
       this.emit(backend === "cuda" ? "cuda-fallback" : "gpu-fallback", {
         reason,
-        fallbackBackend: "cpu",
+        fallbackBackend: this.activeGpuBackend ?? "cpu",
       });
     }
     return await this._postInference(body, boundary);

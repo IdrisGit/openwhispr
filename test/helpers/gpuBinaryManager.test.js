@@ -677,36 +677,6 @@ test("orphan detection: enabled flag with no pack on disk is reported for the no
   }
 });
 
-test("orphan detection: a pack whose backend failed here gets no re-download notice (#2168)", () => {
-  const { detectOrphanedGpuPacks } = GpuBinaryManager;
-  const packs = [
-    { manager: new WhisperCudaManager(), enabledEnvVar: "WHISPER_CUDA_ENABLED", backend: "cuda" },
-    {
-      manager: new WhisperVulkanManager(),
-      enabledEnvVar: "WHISPER_VULKAN_ENABLED",
-      backend: "vulkan",
-    },
-    { manager: new LlamaVulkanManager(), enabledEnvVar: "LLAMA_VULKAN_ENABLED" },
-  ];
-
-  try {
-    // The AUR launcher deleted a CUDA pack that had failed to load
-    process.env.WHISPER_CUDA_ENABLED = "true";
-    process.env.WHISPER_VULKAN_ENABLED = "true";
-    process.env.LLAMA_VULKAN_ENABLED = "true";
-    assert.deepEqual(detectOrphanedGpuPacks(packs, ["cuda"]), ["Vulkan whisper", "Vulkan llama"]);
-    assert.deepEqual(detectOrphanedGpuPacks(packs), [
-      "CUDA whisper",
-      "Vulkan whisper",
-      "Vulkan llama",
-    ]);
-  } finally {
-    delete process.env.WHISPER_CUDA_ENABLED;
-    delete process.env.WHISPER_VULKAN_ENABLED;
-    delete process.env.LLAMA_VULKAN_ENABLED;
-  }
-});
-
 test("outdated detection: an outdated pack is reported apart from orphans, unless opted out", () => {
   const { detectOrphanedGpuPacks, detectOutdatedGpuPacks } = GpuBinaryManager;
   const cuda = useWindowsAsset(new WhisperCudaManager());

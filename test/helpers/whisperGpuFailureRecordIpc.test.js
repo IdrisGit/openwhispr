@@ -372,3 +372,18 @@ test("a CUDA failure that lands on Vulkan is saved, with no CPU pop-up, and ever
     ]
   );
 });
+
+test("a Vulkan failure that lands on a bundled GPU build is saved, with no CPU pop-up (#2168)", () => {
+  const { serverManager } = createHandlers();
+
+  serverManager.emit("gpu-fallback", { reason: DEVICE_LOST, fallbackBackend: "cuda" });
+
+  assert.equal(process.env.WHISPER_GPU_FAILED, "vulkan");
+  assert.deepEqual(
+    broadcasts.map(({ window, channel }) => [window, channel]),
+    [
+      ["dictation", STATUS_CHANGED],
+      ["control-panel", STATUS_CHANGED],
+    ]
+  );
+});

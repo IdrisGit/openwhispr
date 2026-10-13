@@ -836,11 +836,7 @@ export default function TranscriptionModelPicker({
         ?.whisperServerStatus?.()
         .then((status) => {
           setGpuActive(!!status?.gpuAccelerated);
-          if (status?.gpuAccelerated && status.gpuBackend) {
-            setGpuBackend(status.gpuBackend);
-            setGpuActivating(false);
-            setGpuFailed(false);
-          }
+          if (status?.gpuAccelerated) setGpuActivating(false);
         })
         .catch(() => {});
     };

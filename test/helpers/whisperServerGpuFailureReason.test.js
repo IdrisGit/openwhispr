@@ -239,6 +239,23 @@ test("a CUDA server that fails at startup moves to an installed Vulkan pack", as
   assert.deepEqual(events, [["cuda", { reason: LOADER_ERROR.trim(), fallbackBackend: "vulkan" }]]);
 });
 
+test("a CUDA pack that fails lands on a bundled CUDA build: the GPU stays on (#2168)", async (t) => {
+  const manager = createManager(t);
+  answerAfterOutput(manager);
+  behaviours.set(BINARY.cuda, { stderr: LOADER_ERROR, exit: { code: 127 } });
+  behaviours.set(BINARY.cpu, {
+    stderr: "whisper_backend_init_gpu: using CUDA0 backend\n",
+    healthy: true,
+  });
+  const events = [];
+  manager.on("cuda-fallback", (payload) => events.push(payload));
+
+  await manager.start(modelPath, { useCuda: true });
+
+  assert.equal(manager.useCuda, false);
+  assert.deepEqual(events, [{ reason: LOADER_ERROR.trim(), fallbackBackend: "cuda" }]);
+});
+
 test("a Vulkan pin to a device that is gone is cleared, not saved as a GPU failure (#1606)", async (t) => {
   const manager = createManager(t);
   answerAfterOutput(manager);
