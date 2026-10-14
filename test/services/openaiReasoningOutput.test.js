@@ -173,7 +173,7 @@ test("Responses requests carry the other families' effort facts too", async (t) 
   const { openaiProvider } = await load();
   const customConfig = {
     provider: "custom",
-    baseUrl: "https://glm-host.example/v1",
+    baseUrl: "https://custom-host.example/v1",
     customApiKey: "test-key",
   };
 

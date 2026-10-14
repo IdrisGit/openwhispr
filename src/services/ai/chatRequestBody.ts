@@ -80,7 +80,7 @@ export function applyChatCompletionsParams(
 /**
  * The family's effort for a Responses API body (`reasoning: { effort }`), by
  * the same rules as the chat body above. A model outside the family table
- * gets none, leaving the server's default.
+ * sends no effort, leaving the server's default.
  */
 export function familyResponsesEffort(model: string, config: ReasoningConfig): string | undefined {
   const familyEffort = getModelFamilyConstraints(model)?.reasoningEffort;

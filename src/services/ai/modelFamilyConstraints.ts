@@ -50,8 +50,8 @@ const FAMILIES: Array<ModelFamilyConstraints & { match: RegExp }> = [
     family: "glm-5.3",
     match: /glm[-_]?5[-.]?3/,
     // GLM-5.3/Flash always reason: low|high|max only, no off switch.
-    // "low" is the closest to off. The server default, max, spends a whole
-    // 4,096-token notes budget thinking on a long meeting (#2008); high fits.
+    // "low" is the closest to off. At the server default, max, a long meeting
+    // spent the whole 4,096-token notes budget thinking (#2008); at high it fit.
     reasoningEffort: { suppressValue: "low", defaultValue: "high" },
   },
   {
