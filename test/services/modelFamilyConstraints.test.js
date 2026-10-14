@@ -24,10 +24,11 @@ test("gpt-oss has no reasoning off switch: suppress and cleanup both floor at lo
   assert.deepEqual(effort, { suppressValue: "low", cleanupValue: "low" });
 });
 
-test("glm-5.3 always reasons: suppress floors at low, no cleanup pin (server max default)", async () => {
+test("glm-5.3 always reasons: suppress floors at low, high stands in for the server's max", async () => {
   const { getModelFamilyConstraints } = await load();
   assert.deepEqual(getModelFamilyConstraints("glm-5.3")?.reasoningEffort, {
     suppressValue: "low",
+    defaultValue: "high",
   });
   assert.equal(getModelFamilyConstraints("glm-5.3-flash")?.family, "glm-5.3");
   assert.equal(getModelFamilyConstraints("glm-5-3")?.family, "glm-5.3");

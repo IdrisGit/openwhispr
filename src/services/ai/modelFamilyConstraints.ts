@@ -21,6 +21,11 @@ export interface ModelFamilyConstraints {
      * return whitespace content, failing selection edits.
      */
     cleanupValue?: string;
+    /**
+     * Effort sent while thinking is on, for a family whose server default
+     * reasons past the app's output caps. Without it the server's default applies.
+     */
+    defaultValue?: string;
   };
   /** Family reasons natively and may reject reasoning params outright. */
   omitReasoningParams?: boolean;
@@ -45,8 +50,9 @@ const FAMILIES: Array<ModelFamilyConstraints & { match: RegExp }> = [
     family: "glm-5.3",
     match: /glm[-_]?5[-.]?3/,
     // GLM-5.3/Flash always reason: low|high|max only, no off switch.
-    // "low" is the closest to off; no cleanupValue, default sends nothing.
-    reasoningEffort: { suppressValue: "low" },
+    // "low" is the closest to off. The server default, max, spends a whole
+    // 4,096-token notes budget thinking on a long meeting (#2008); high fits.
+    reasoningEffort: { suppressValue: "low", defaultValue: "high" },
   },
   {
     family: "magistral",
