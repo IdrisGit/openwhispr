@@ -10,7 +10,7 @@ const read = (relativePath) => fs.readFileSync(path.join(__dirname, "../..", rel
 test("scope handler evaluates requests through the binding policy and persists validated bindings", () => {
   const source = read("src/helpers/ipcHandlers.js");
   const handler = source.match(
-    /ipcMain\.handle\("set-active-account-scope"([\s\S]*?)ipcMain\.handle\("delete-account-data"/
+    /ipcMain\.handle\("set-active-account-scope"([\s\S]*?)ipcMain\.handle\(\s*"delete-account-data"/
   );
   assert.ok(handler, "set-active-account-scope handler is present");
   assert.ok(
@@ -27,14 +27,10 @@ test("scope handler evaluates requests through the binding policy and persists v
   );
 });
 
-test("clearing the bearer token also clears the persisted scope binding", () => {
+// What the handler does on a cleared token is tested in accountScopeIpc.test.js.
+test("every bearer token change reaches the handler that clears the scope", () => {
   const source = read("src/helpers/ipcHandlers.js");
-  const subscription = source.match(
-    /tokenStore\.subscribe\(\(\{ generation, token \}\) => \{([\s\S]*?)broadcastToWindows/
-  );
-  assert.ok(subscription, "token subscription is present");
-  assert.ok(subscription[1].includes("setActiveAccountId(null)"));
-  assert.ok(subscription[1].includes("accountScopeBinding.clear()"));
+  assert.ok(source.includes("tokenStore.subscribe((state) => this._handleAuthTokenChange(state))"));
 });
 
 test("boot restores the validated scope before any main-process consumer constructs", () => {
@@ -45,4 +41,19 @@ test("boot restores the validated scope before any main-process consumer constru
   assert.ok(bootWindow, "DatabaseManager constructs before IPCHandlers");
   assert.ok(bootWindow[1].includes("resolveBootAccountScope"));
   assert.ok(bootWindow[1].includes("databaseManager.setActiveAccountId(bootAccountId)"));
+});
+
+test("account-scoped accessibility readiness is revalidated before opening the sticky gate", () => {
+  const source = read("main.js");
+  const handler = source.match(
+    /ipcMain\.on\("mac-accessibility-features-ready"([\s\S]*?)\/\/ Listen for usage limit/
+  );
+  assert.ok(handler, "macOS accessibility readiness handler is present");
+  assert.ok(handler[1].includes("resolveActiveAccountScope"));
+  assert.ok(handler[1].includes("matchesActiveAccountScope"));
+  assert.ok(
+    handler[1].indexOf("matchesActiveAccountScope") <
+      handler[1].indexOf("macAccessibilityFeaturesReady = true"),
+    "the current scope is checked before the readiness gate opens"
+  );
 });

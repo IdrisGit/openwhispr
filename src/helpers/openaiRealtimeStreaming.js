@@ -3,6 +3,11 @@ const debugLogger = require("./debugLogger");
 
 const WEBSOCKET_TIMEOUT_MS = 15000;
 const DISCONNECT_TIMEOUT_MS = 3000;
+// gpt-live-transcribe acks a commit only once every appended byte is
+// transcribed, and it ran at 0.3–0.8x real time in testing, so its final trails
+// the stop by a large fraction of the dictation length (partials keep streaming
+// meanwhile).
+const LIVE_TRANSCRIBE_COMMIT_TIMEOUT_MS = 30000;
 const SAMPLE_RATE = 24000;
 const COLD_START_BUFFER_MAX = 3 * SAMPLE_RATE * 2; // 3 seconds of 16-bit PCM
 const KEEPALIVE_INTERVAL_MS = 15000;
@@ -11,6 +16,23 @@ const SESSION_PREEMPT_MS = 55 * 60 * 1000;
 // Raised from 0.3 to keep mic ambient noise from opening turns (#630); callers
 // on a cleaner channel pass their own vadThreshold.
 const DEFAULT_VAD_THRESHOLD = 0.6;
+
+// Matches the server's check, which may pin a snapshot id.
+const isLiveTranscribe = (model) => model.startsWith("gpt-live-transcribe");
+
+// gpt-live-transcribe rejects every turn_detection config ("Turn detection is
+// not supported for this transcription model"), so it never emits
+// speech_started/speech_stopped and a turn only completes once the client
+// commits — which disconnect() does on stop. Legacy models keep server VAD.
+const turnDetectionFor = (model, vadThreshold) =>
+  isLiveTranscribe(model)
+    ? null
+    : {
+        type: "server_vad",
+        threshold: vadThreshold,
+        silence_duration_ms: 600,
+        prefix_padding_ms: 500,
+      };
 
 // A socket factory does network work before the socket exists, so the dial
 // must be bounded; a socket resolving after the deadline is closed, not leaked.
@@ -28,6 +50,15 @@ async function createSocketWithTimeout(createSocket, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Realtime transcription takes ISO-639-1 like the batch endpoint, so a
+// registry code such as "zh-TW" is reduced to its base; "auto" means no pin.
+function normalizeLanguage(language) {
+  if (typeof language !== "string") return null;
+  const trimmed = language.trim().toLowerCase();
+  if (!trimmed || trimmed === "auto") return null;
+  return trimmed.split("-")[0];
 }
 
 class OpenAIRealtimeStreaming {
@@ -61,6 +92,7 @@ class OpenAIRealtimeStreaming {
     this.speechStartedCount = 0;
     this._vadEventCount = 0;
     this.model = "gpt-4o-mini-transcribe";
+    this.language = null;
     this.inputRate = SAMPLE_RATE;
     this.captureRate = SAMPLE_RATE;
     this.coldStartBuffer = [];
@@ -68,6 +100,7 @@ class OpenAIRealtimeStreaming {
     this.speechStartedAt = null;
     this.bufferingAudio = false;
     this.keepAliveInterval = null;
+    this._onTurnSettled = null;
   }
 
   // Starts buffering audio immediately, before the WebSocket even exists —
@@ -87,6 +120,7 @@ class OpenAIRealtimeStreaming {
     const {
       apiKey,
       model,
+      language,
       preconfigured,
       inputRate,
       captureRate,
@@ -107,6 +141,7 @@ class OpenAIRealtimeStreaming {
 
     this.isConnecting = true;
     this.model = model || "gpt-4o-mini-transcribe";
+    this.language = normalizeLanguage(language);
     this.preconfigured = !!preconfigured;
     this.inputRate = inputRate || SAMPLE_RATE;
     this.captureRate = captureRate || this.inputRate;
@@ -213,6 +248,9 @@ class OpenAIRealtimeStreaming {
             // Echo the server's VAD + format — the only place preconfigured
             // (cloud) session settings ever appear in field logs.
             const sessionInput = event.session?.audio?.input;
+            // The server picks the managed model when it mints the secret; the
+            // session echo is where the client learns which one it got.
+            this.model = sessionInput?.transcription?.model ?? this.model;
             debugLogger.debug(
               `${this.providerLabel} session created (preconfigured)`,
               this._logContext({
@@ -228,6 +266,7 @@ class OpenAIRealtimeStreaming {
               `${this.providerLabel} session created, sending configuration`,
               this._logContext({
                 model: this.model,
+                language: this.language,
                 vadThreshold: this.vadThreshold,
               })
             );
@@ -240,13 +279,10 @@ class OpenAIRealtimeStreaming {
                   audio: {
                     input: {
                       format: { type: "audio/pcm", rate: this.inputRate },
-                      transcription: { model: this.model },
-                      turn_detection: {
-                        type: "server_vad",
-                        threshold: this.vadThreshold,
-                        silence_duration_ms: 600,
-                        prefix_padding_ms: 500,
-                      },
+                      transcription: this.language
+                        ? { model: this.model, language: this.language }
+                        : { model: this.model },
+                      turn_detection: turnDetectionFor(this.model, this.vadThreshold),
                     },
                   },
                 },
@@ -306,6 +342,7 @@ class OpenAIRealtimeStreaming {
               })
             );
           }
+          this._onTurnSettled?.();
           break;
         }
 
@@ -320,6 +357,7 @@ class OpenAIRealtimeStreaming {
               error: event.error?.message || event.error?.code || null,
             })
           );
+          this._onTurnSettled?.();
           break;
         }
 
@@ -567,29 +605,30 @@ class OpenAIRealtimeStreaming {
 
     if (this.ws.readyState === WebSocket.OPEN) {
       if (commit && this.audioBytesSent > 0) {
-        const prevOnFinal = this.onFinalTranscript;
         const prevOnError = this.onError;
+        const timeoutMs = isLiveTranscribe(this.model)
+          ? LIVE_TRANSCRIBE_COMMIT_TIMEOUT_MS
+          : DISCONNECT_TIMEOUT_MS;
 
         await new Promise((resolve) => {
+          const done = () => {
+            clearTimeout(tid);
+            this._onTurnSettled = null;
+            this.onError = prevOnError;
+            resolve();
+          };
+
           const tid = setTimeout(() => {
             debugLogger.debug(
               `${this.providerLabel} commit timeout, using accumulated text`,
               this._logContext()
             );
-            resolve();
-          }, DISCONNECT_TIMEOUT_MS);
-
-          const done = () => {
-            clearTimeout(tid);
-            this.onFinalTranscript = prevOnFinal;
-            this.onError = prevOnError;
-            resolve();
-          };
-
-          this.onFinalTranscript = (text) => {
-            prevOnFinal?.(text);
             done();
-          };
+          }, timeoutMs);
+
+          // Any terminal event for the committed turn ends the wait; an empty
+          // or failed turn must not stall for the whole budget.
+          this._onTurnSettled = done;
 
           this.onError = (err) => {
             if (
@@ -610,7 +649,7 @@ class OpenAIRealtimeStreaming {
         });
       }
 
-      this.ws.close();
+      this.ws?.close();
     }
 
     const result = { text: this.getFullTranscript() };
@@ -625,6 +664,8 @@ class OpenAIRealtimeStreaming {
     clearTimeout(this._sessionTimer);
     this._sessionTimer = null;
     this.stopKeepAlive();
+    // A socket that dies mid-commit can never deliver the turn.
+    this._onTurnSettled?.();
 
     if (this.ws) {
       try {
@@ -640,3 +681,4 @@ class OpenAIRealtimeStreaming {
 }
 
 module.exports = OpenAIRealtimeStreaming;
+module.exports.normalizeLanguage = normalizeLanguage;
