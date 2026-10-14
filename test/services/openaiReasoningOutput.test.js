@@ -134,7 +134,7 @@ test("a custom endpoint keeps the caller's output budget even for a reasoning-sh
 });
 
 // GLM-5.3 reasons at max unless asked otherwise, and on a long meeting that
-// spends the whole 4,096-token notes budget before any notes (#2008).
+// thinking spent the whole 4,096-token notes budget before any notes (#2008).
 const glmNotesCall = (config = {}) => ({
   text: TRANSCRIPT,
   model: "glm-5.3",
