@@ -17,7 +17,9 @@ const { WHISPER_GPU_FAILURE_REASON_KEYS } = require("./whisperGpuFailureReason")
 const { BYOK_API_KEYS } = require("../config/secretKeys");
 const tokenStore = require("./tokenStore");
 const accountScopeBinding = require("./accountScopeBinding");
+const { registerProductHelpIpc, remoteHelpPolicyState } = require("./productHelp");
 const { createCloudApiRequestHandler } = require("./cloudApiRequest");
+const { MetaActivation } = require("./metaActivation");
 const { decodeLeaderboardPngDataUrl, leaderboardImageFilename } = require("./leaderboardImage");
 const { withPolicyRequestHeaders } = require("./policyRequestHeaders");
 const {
@@ -90,6 +92,19 @@ function assertAnalyticsSyncContext(context) {
   }
   return context.accountId;
 }
+// Local engines resolve a failed decode instead of throwing. Retry turns that
+// into a coded error so the toast says what went wrong rather than blaming a
+// missing engine.
+function localTranscriptionFailure(result) {
+  const error = new Error(result.message || result.error || "Local transcription failed");
+  if (result.code === "NO_SPEECH_DETECTED" || result.message === "No audio detected") {
+    error.code = "NO_SPEECH_DETECTED";
+  } else if (result.error === "invalid_response") {
+    error.code = "INVALID_RESPONSE";
+    error.messageKey = "controlPanel.history.retryErrors.invalidResponse";
+  }
+  return error;
+}
 // Which diarization dialect a resolved endpoint speaks, for Custom endpoints
 // that front a known provider. Null when the host offers no known dialect.
 const diarizationHost = (endpoint) => {
@@ -160,9 +175,15 @@ const {
   isSpeakerLocked,
 } = require("./speakerAssignmentPolicy");
 const { normalizeStoredSpeakerCount } = require("./speakerCount");
+const {
+  buildSpeakerRenumber,
+  normalizeSpeakerIndexBase,
+  resolveSpeakerIndexBase,
+} = require("./speakerIndexBase");
 const { downsample24kTo16k, pcm16ToWav } = require("../utils/audioUtils");
 const postMigrationDetector = require("./postMigrationDetector");
 const screenContextCapture = require("./screenContextCapture");
+const { classifyToneAppCategory } = require("./toneAppCategories");
 const {
   DEFAULT_EXPECTED_SPEAKER_COUNT,
   MAX_SPEAKER_COUNT,
@@ -217,7 +238,9 @@ const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 16;
 const CLOUD_CHUNK_SEGMENT_SECONDS = 240;
 
 const { createAbortError } = require("./abortError");
-const { testProviderConnection } = require("./providerConnectionTest");
+const { describeCortiTokenFailure, testProviderConnection } = require("./providerConnectionTest");
+const { createConnectionCheckCache } = require("./connectionCheckCache");
+const { PAID_KEY_CHECKS_FILE, createPaidKeyCheck } = require("./paidKeyCheck");
 const { createUploadCancelRegistry } = require("./uploadCancelRegistry");
 const { applyOpenWhisprOriginHeader } = require("./sessionHeaders");
 const {
@@ -395,7 +418,7 @@ function interpretTranscribeResponse(data) {
     throw Object.assign(new Error("Request timed out"), { code: "SERVER_ERROR" });
   }
   if (data.statusCode === 429) {
-    throw Object.assign(new Error("Daily word limit reached"), {
+    throw Object.assign(new Error("Weekly Cloud word limit reached"), {
       code: "LIMIT_REACHED",
       ...data.data,
     });
@@ -693,6 +716,9 @@ class IPCHandlers {
     // off until the renderer syncs (see meetingDetectionPreferencePolicy.js).
     this.meetingProcessDetection = true;
     this.activeMeetingSpeakerConfig = null;
+    // Diarization session id → { noteId, ceiling }: speaker ids a stopped session's
+    // diarization may still write to its note (see _resolveMeetingSpeakerIndexBase).
+    this._diarizationSpeakerReservations = new Map();
     this.whisperVadSettings = {
       dictationSileroEnabled: false,
       noteRecordingSileroEnabled: true,
@@ -1448,6 +1474,15 @@ class IPCHandlers {
     }
   }
 
+  // The control panel shows the GPU pack notice. An app started to the tray
+  // creates none, so there the dictation panel shows it instead (#2554).
+  _gpuPackNoticeWindow() {
+    const { controlPanelWindow, mainWindow, startedMinimized } = this.windowManager;
+    if (controlPanelWindow && !controlPanelWindow.isDestroyed()) return controlPanelWindow;
+    if (startedMinimized && mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+    return null;
+  }
+
   _whisperGpuFailureStatus(backend) {
     const gpuFailed = this._whisperGpuFailedBackends().includes(backend);
     const reason = gpuFailed ? process.env[WHISPER_GPU_FAILURE_REASON_KEYS[backend]] : null;
@@ -1556,7 +1591,14 @@ class IPCHandlers {
 
     ipcMain.handle("onboarding-set-active", (_event, active) => {
       if (typeof active !== "boolean") return false;
-      return this.windowManager.setOnboardingActive(active);
+      const result = this.windowManager.setOnboardingActive(active);
+      // The dictation panel can show the GPU pack notice only once the normal
+      // app is up: until then it stays hidden.
+      const noticeWindow = this._gpuPackNoticeWindow();
+      if (!active && noticeWindow && noticeWindow === this.windowManager.mainWindow) {
+        noticeWindow.webContents.send("gpu-pack-migration-notice-ready");
+      }
+      return result;
     });
 
     ipcMain.handle("onboarding-demo-begin", (_event, session) => {
@@ -1611,7 +1653,12 @@ class IPCHandlers {
       return true;
     });
 
-    ipcMain.handle("test-provider-connection", async (_event, config) => {
+    // Every panel showing the same credentials and model shares one answer.
+    const cachedConnectionCheck = createConnectionCheckCache();
+    const runPaidKeyCheck = createPaidKeyCheck(() =>
+      path.join(app.getPath("userData"), PAID_KEY_CHECKS_FILE)
+    );
+    const checkProviderConnection = async (config) => {
       if (config?.provider === "corti" && config?.scope === "transcription") {
         try {
           const clientId = String(config.clientId || "").trim();
@@ -1631,35 +1678,14 @@ class IPCHandlers {
           }
           return { success: true };
         } catch (error) {
-          // errorCode is the machine-readable field the renderer maps to i18n;
-          // the English string stays for logs/back-compat. Only a response
-          // Corti actually sent counts as a rejection (getCortiToken prefixes
-          // those); a fetch that never reached it is a network problem, and
-          // reporting it as "credentials rejected" sends the user to re-type a
-          // key that was never the issue.
-          if (error?.name === "AbortError") {
-            return {
-              success: false,
-              errorCode: "timeout",
-              error: "The connection test timed out.",
-            };
-          }
-          if (!/^(Corti authentication failed|Invalid Corti)/.test(error?.message || "")) {
-            return {
-              success: false,
-              errorCode: "network",
-              error: "The provider could not be reached.",
-            };
-          }
-          return {
-            success: false,
-            errorCode: "credentialsRejected",
-            error: "Corti rejected these credentials.",
-          };
+          return describeCortiTokenFailure(error);
         }
       }
-      return testProviderConnection(config);
-    });
+      return testProviderConnection(config, fetch, runPaidKeyCheck);
+    };
+    ipcMain.handle("test-provider-connection", (_event, config) =>
+      cachedConnectionCheck(config, () => checkProviderConnection(config))
+    );
 
     ipcMain.handle("window-minimize", () => {
       if (this.windowManager.controlPanelWindow) {
@@ -1720,6 +1746,19 @@ class IPCHandlers {
       void this.selectionManager?.captureTarget?.();
       const pid = (await this.textEditMonitor?.captureTargetPid?.()) ?? null;
       return { success: true, pid };
+    });
+
+    // Tone & Style: which kind of app the dictation is going into. Runs while
+    // the user speaks; only the category reaches the renderer.
+    ipcMain.handle("capture-dictation-app-category", async () => {
+      const context = await this.selectionManager?.getTargetAppContext?.();
+      const category = classifyToneAppCategory(context);
+      debugLogger.debug("Dictation app category", {
+        category,
+        hasWindowTitle: !!context?.windowTitle,
+        hasUrlHost: !!context?.urlHost,
+      });
+      return category;
     });
 
     ipcMain.handle("force-stop-dictation", () => {
@@ -2472,6 +2511,7 @@ class IPCHandlers {
       );
       this.connectorManager?.accountChanged();
       void this.connectorManager?.notifyStatusChanged();
+      void this.metaActivation?.flush();
       return { success: true };
     });
 
@@ -2507,6 +2547,7 @@ class IPCHandlers {
             erasingDevice: options?.erasingDevice === true,
           });
           const result = this.databaseManager.deleteAccountData(accountId);
+          this.metaActivation?.purge(accountId);
           this.notifyVectorChanges();
           for (const noteId of result.deletedNoteIds) {
             this._asyncMirrorDelete(noteId);
@@ -3267,6 +3308,9 @@ class IPCHandlers {
           mainWindow.showInactive();
         } else {
           mainWindow.blur();
+          // On Linux blur() leaves X focus on the pill, where the assistant panel
+          // took it, so the paste would land in the panel.
+          if (process.platform === "linux") this.windowManager.returnLinuxKeyboardFocus();
           await new Promise((resolve) => setTimeout(resolve, 80));
         }
       }
@@ -3340,8 +3384,8 @@ class IPCHandlers {
       // Promise cannot cross Electron's IPC boundary, though, and renderer
       // callers need to know whether text was pasted, but not the delayed
       // clipboard restoration promise. Successful platform paths predate the
-      // explicit `pasted` outcome; only the clipboard-only fallback and a paste
-      // held back for still-held modifiers (which carries a `reason`) set false.
+      // explicit `pasted` outcome; only the clipboard-only fallback and a held-back
+      // paste (held modifiers or a missing or failed wl-copy, which carries a `reason`) set false.
       return {
         success: true,
         pasted,
@@ -3805,15 +3849,11 @@ class IPCHandlers {
       return { success: true, deletedCount };
     });
 
-    // One-time "GPU pack needs re-downloading" notice recorded by the
-    // legacy-layout migration before any window existed. See #1606.
-    ipcMain.handle("get-gpu-pack-migration-notice", () => {
-      return require("./gpuPackMigrationNotice").read();
-    });
-
-    ipcMain.handle("dismiss-gpu-pack-migration-notice", () => {
-      require("./gpuPackMigrationNotice").clear();
-      return { success: true };
+    // One-time "GPU pack needs re-downloading" notice recorded before any
+    // window existed (#1606). Only the window that shows it can take it.
+    ipcMain.handle("take-gpu-pack-migration-notice", (event) => {
+      if (event.sender !== this._gpuPackNoticeWindow()?.webContents) return null;
+      return require("./gpuPackMigrationNotice").take();
     });
 
     // Clears the remembered GPU failure and reloads the server with the GPU
@@ -4265,6 +4305,16 @@ class IPCHandlers {
         errors.push(`Connector revoke: ${errorCode ?? errorName}`);
       }
 
+      try {
+        this.metaActivation?.dispose();
+        this.metaActivation = null;
+        const activationPath = path.join(app.getPath("userData"), "meta-activation.db");
+        for (const suffix of ["", "-wal", "-shm"])
+          fs.rmSync(activationPath + suffix, { force: true });
+      } catch (e) {
+        errors.push(`Activation data cleanup: ${e.message}`);
+      }
+
       // Close DB connection before deleting the file
       try {
         this.databaseManager?.db?.close();
@@ -4352,6 +4402,7 @@ class IPCHandlers {
           "globe-preference-state.json",
           ".system-audio-permission",
           "account-scope-binding.json",
+          PAID_KEY_CHECKS_FILE,
         ]) {
           fs.rmSync(path.join(app.getPath("userData"), fileName), { force: true });
         }
@@ -6318,6 +6369,10 @@ class IPCHandlers {
 
     ipcMain.handle("auth-clear-session", async (event) => {
       try {
+        await Promise.race([
+          this.metaActivation?.close(),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]).catch(() => {});
         const tokenState = tokenStore.clear();
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win) {
@@ -6453,6 +6508,46 @@ class IPCHandlers {
       tokenStore,
       logger: debugLogger,
     });
+    try {
+      const ActivationDatabase = require("better-sqlite3");
+      const activationDb = new ActivationDatabase(
+        path.join(app.getPath("userData"), "meta-activation.db")
+      );
+      activationDb.pragma("foreign_keys = ON");
+      this.metaActivation = new MetaActivation({
+        db: activationDb,
+        getScope: () =>
+          accountScopeBinding.resolveActiveAccountScope({
+            ...tokenStore.getState(),
+            binding: accountScopeBinding.read(),
+          }),
+        request: createCloudApiRequestHandler({
+          getApiUrl,
+          getAppVersion: () => app.getVersion(),
+          tokenStore,
+          proxyFetch: (url, init) =>
+            proxyFetch(url, { ...init, signal: AbortSignal.timeout(10_000) }),
+        }),
+      });
+      this.metaActivation.start();
+    } catch {
+      // Marketing bookkeeping must never prevent ordinary dictation/startup.
+      debugLogger.warn("Activation storage unavailable");
+    }
+    ipcMain.handle("activation-close", async () => {
+      await Promise.race([
+        this.metaActivation?.close(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]).catch(() => {});
+    });
+    ipcMain.handle("activation-begin", () => this.metaActivation?.begin() ?? null);
+    ipcMain.handle("activation-stop", (_event, id) => {
+      if (typeof id === "string") this.metaActivation?.stopCapture(id);
+    });
+    ipcMain.handle("activation-finish", (_event, id, words) =>
+      this.metaActivation?.finish(id, words)
+    );
+    ipcMain.handle("activation-cancel", (_event, id) => this.metaActivation?.cancel(id));
     const workspacePolicyManager = createWorkspacePolicyManager({
       cachePath: path.join(app.getPath("userData"), "workspace-policy.json"),
       getApiUrl,
@@ -6461,6 +6556,41 @@ class IPCHandlers {
       tokenStore,
       broadcast: (snapshot) => broadcastToWindows("workspace-policy-changed", snapshot),
       logger: debugLogger,
+    });
+    registerProductHelpIpc({
+      ipcMain,
+      fetch: proxyFetch,
+      canLookup: createConnectorPolicyResolver({
+        getAuthHeader: createConnectorAuthLookup({
+          hasBearerToken: () => Boolean(tokenStore.get()),
+          windowFor: (event) => BrowserWindow.fromWebContents(event.sender),
+          authHeaderFor: getAuthHeaderFromWindow,
+        }),
+        getPolicy: (options) => workspacePolicyManager.getPolicy(options),
+        peekPolicy: (options) => workspacePolicyManager.peekPolicy(options),
+        getAuthGeneration: () => tokenStore.getState().generation,
+        classifySnapshot: (snapshot) => remoteHelpPolicyState(snapshot, app.getVersion()),
+        fallbackOnUnavailable: true,
+      }),
+      getBasics: () => ({
+        // checkAccess reads the cached permission verdict; it never requests access.
+        systemAudioPermission:
+          process.platform === "darwin"
+            ? this.audioTapManager?.checkAccess()?.status || "unknown"
+            : "unknown",
+        platform: process.platform,
+        version: app.getVersion(),
+        microphonePermission:
+          process.platform === "linux"
+            ? "unknown"
+            : systemPreferences.getMediaAccessStatus("microphone"),
+        accessibilityPermission:
+          process.platform === "darwin"
+            ? systemPreferences.isTrustedAccessibilityClient(false)
+              ? "granted"
+              : "not-granted"
+            : "not-applicable",
+      }),
     });
     if (this.connectorManager) {
       registerConnectorIpc({
@@ -6641,6 +6771,10 @@ class IPCHandlers {
           sttDetectedLanguageConfidence: opts.sttDetectedLanguageConfidence,
           sttDetectedLanguageAudioSeconds: opts.sttDetectedLanguageAudioSeconds,
           sttDetectedLanguageStatus: opts.sttDetectedLanguageStatus,
+          orukeetLanguageRouting: opts.orukeetLanguageRouting
+            ? JSON.stringify(opts.orukeetLanguageRouting)
+            : undefined,
+          orukeetCleanup: opts.orukeetCleanup ? JSON.stringify(opts.orukeetCleanup) : undefined,
         };
 
         debugLogger.debug("Cloud transcribe request", { audioSize: audioData.length }, "cloud-api");
@@ -6840,13 +6974,11 @@ class IPCHandlers {
             });
           }
           const data = await response.json();
-          if (data?.text) {
-            result = {
-              text: data.text,
-              source: "self-hosted",
-              model: route.model,
-            };
-          }
+          result = {
+            text: data?.text,
+            source: "self-hosted",
+            model: route.model,
+          };
         } else if (route.transport === "local") {
           if (isSherpaLocalProvider(settings.localTranscriptionProvider)) {
             const model =
@@ -6881,13 +7013,13 @@ class IPCHandlers {
                   sessionId: this.sessionId,
                 };
                 if (buffer.length > CLOUD_INLINE_LIMIT) {
-                  const { text } = await chunkedCloudTranscribe({
+                  const { text, warning } = await chunkedCloudTranscribe({
                     buffer,
                     apiUrl,
                     policyHeaders: withPolicyHeaders(authHeader),
                     multipartFields,
                   });
-                  result = { text, source: "openwhispr", model: "cloud" };
+                  result = { text, source: "openwhispr", model: "cloud", warning };
                 } else {
                   const { body, boundary } = buildMultipartBody(
                     buffer,
@@ -6925,7 +7057,7 @@ class IPCHandlers {
             language: route.language,
             apiKey: this.environmentManager.getTinfoilKey(),
           });
-          if (text) result = { text, source: "tinfoil", model };
+          result = { text, source: "tinfoil", model };
         } else if (route.transport === "proxied" && route.provider === "corti") {
           // Corti uses OAuth + an interaction-based REST flow, so it can't use
           // the generic fetch below.
@@ -6946,7 +7078,7 @@ class IPCHandlers {
             audioBuffer: buffer,
             language: route.language,
           });
-          if (text) result = { text, source: "corti", model: route.model };
+          result = { text, source: "corti", model: route.model };
         } else if (route.transport === "proxied" && route.provider === "gemini") {
           if (route.sizeCapBytes && buffer.byteLength > route.sizeCapBytes) {
             throw new Error(byokSizeCapError(route.sizeCapBytes));
@@ -6958,7 +7090,7 @@ class IPCHandlers {
             language: route.language,
             apiKey: this.environmentManager.getGeminiKey(),
           });
-          if (text) result = { text, source: "gemini", model: route.model };
+          result = { text, source: "gemini", model: route.model };
         } else {
           // mistral/xai have no OpenAI-compatible endpoint — main talks to them
           // directly; everything else consumes the route endpoint as-is.
@@ -7052,13 +7184,19 @@ class IPCHandlers {
             });
           }
           const data = await response.json();
-          if (data?.text) {
-            result = { text: data.text, source: provider, model: route.model };
-          }
+          result = { text: data?.text, source: provider, model: route.model };
         }
 
-        if (!result?.text) {
+        if (result?.success === false) {
+          throw localTranscriptionFailure(result);
+        }
+        if (!result) {
           return { success: false, error: "No transcription engine available" };
+        }
+        if (!result.text) {
+          throw Object.assign(new Error("No speech detected in audio"), {
+            code: "NO_SPEECH_DETECTED",
+          });
         }
 
         this.databaseManager.updateTranscriptionText(id, result.text, result.text);
@@ -7080,7 +7218,13 @@ class IPCHandlers {
             void this._ensureAnalyticsHistoryBackfilled();
           });
         }
-        return { success: true, transcription: updated };
+        // A partial result (local truncation, lost cloud chunks) still replaces the
+        // row, as dictation keeps it, but the renderer must say so.
+        return {
+          success: true,
+          transcription: updated,
+          ...(result.warning ? { warning: result.warning } : {}),
+        };
       } catch (rawError) {
         const error = providerErrorContext
           ? asProviderError(rawError, providerErrorContext)
@@ -7090,6 +7234,11 @@ class IPCHandlers {
           { id, error: error.message, code: error.code },
           "audio-storage"
         );
+        if (error.code === "NO_SPEECH_DETECTED" && !error.messageKey) {
+          // Every engine reports silence with this code, so it is translated
+          // here once rather than per route.
+          error.messageKey = "notes.upload.noSpeechDetected";
+        }
         if (error.code) {
           return { success: false, ...ipcErrorFields(error) };
         }
@@ -7170,6 +7319,9 @@ class IPCHandlers {
         removed.push(meetingDiarizationSegments[index]);
         meetingDiarizationSegments.splice(index, 1);
       }
+      // The renderer stops applying retracts once a stop begins, so the
+      // diarization result must name them for its persisted copy (#2781).
+      meetingRetractedMicSegments.push(...removed);
       return removed;
     };
 
@@ -7329,6 +7481,7 @@ class IPCHandlers {
       const micStartedAt = meetingMicDiarizationStartedAt;
       const systemAudioHeard = meetingSystemAudioHeard;
       const diarizationSegments = meetingDiarizationSegments;
+      const retractedSegments = meetingRetractedMicSegments;
       if (meetingDiarizationStream) {
         await new Promise((resolve) => meetingDiarizationStream.end(resolve));
         meetingDiarizationStream = null;
@@ -7344,6 +7497,7 @@ class IPCHandlers {
       meetingSystemAudioHeard = false;
       meetingSystemAudioHandover.reset();
       meetingDiarizationSegments = [];
+      meetingRetractedMicSegments = [];
       const { pcmPath, startedAt, diarizedSource, cleanupPcmPaths } = resolveDiarizationInput({
         systemPcmPath,
         micPcmPath,
@@ -7357,6 +7511,7 @@ class IPCHandlers {
       return {
         diarizationPcmPath: pcmPath,
         diarizationSegments,
+        retractedSegments,
         diarizationStartedAt: startedAt,
         diarizedSource,
       };
@@ -7778,8 +7933,6 @@ class IPCHandlers {
       return { mode, strategy: "unsupported" };
     };
 
-    const hasNativeMeetingSystemAudio = () => getMeetingSystemAudioMode() === "native";
-
     const isMeetingStreamingConnected = (systemAudioMode = getMeetingSystemAudioCapabilityMode()) =>
       !!this._meetingMicStreaming?.isConnected &&
       (systemAudioMode === "unsupported" || !!this._meetingSystemStreaming?.isConnected);
@@ -7858,13 +8011,28 @@ class IPCHandlers {
       return win;
     };
 
-    const MEETING_MIC_REFERENCE_ALIGNMENT_MS = 320;
+    // System audio captured in main (the macOS tap, the Windows and Linux
+    // helpers) arrives on its own schedule, unsynchronized with the renderer's
+    // mic, so mic chunks wait for that reference before echo analysis. Each
+    // waits only as long as its reference lags: the echo detector searches
+    // 500 ms back, and every millisecond held comes out of what's left for
+    // speaker latency.
+    const MEETING_MIC_REFERENCE_ALIGNMENT_MS = {
+      native: 320,
+      "wasapi-loopback": 100,
+      "pipewire-loopback": 100,
+    };
+    // Only a reference chunk received this recently holds the mic, so a capture
+    // that stopped or went idle doesn't delay it.
+    const MEETING_MIC_REFERENCE_RECENT_MS = 1000;
     const MEETING_STARTUP_WARMUP_MS = 1500;
     const MEETING_MIC_BLEED_LOOKBACK_MS = 500;
     const MEETING_MIC_STATS_LOG_LIMIT = 200;
     const MEETING_SYSTEM_AUDIO_SILENCE_WARNING_MS = 45000;
     const MEETING_SYSTEM_AUDIO_TICK_MS = 2000;
     let meetingMicStatsLogCount = 0;
+    let meetingSystemAudioStrategy = null;
+    let meetingSystemChunkReceivedAt = null;
     let meetingSystemAudioSilenceTimer = null;
     let meetingSystemAudioTicker = null;
     let meetingSystemAudioWatchdogWin = null;
@@ -7917,6 +8085,7 @@ class IPCHandlers {
     let meetingSystemAudioHeard = false;
     const meetingSystemAudioHandover = createMeetingSystemAudioHandover();
     let meetingDiarizationSegments = [];
+    let meetingRetractedMicSegments = [];
     let meetingLiveSpeakerActive = false;
     let meetingLiveSpeakerState = null;
     let meetingLiveSpeakerStartedAt = null;
@@ -7930,7 +8099,10 @@ class IPCHandlers {
     let meetingLocalProvider = null;
     let meetingLocalModel = null;
     let meetingLocalLanguage = null;
-    let meetingLocalTranscribing = false;
+    // The pass that is transcribing buffered audio, if any. Stop and rollback
+    // await it: a pass that finished after the reset would push its finals into
+    // the next session and send them to no window.
+    let meetingLocalTranscribePromise = null;
     let meetingPendingMicChunks = [];
     let meetingPendingMicFinals = [];
     let meetingPendingMicFinalTimer = null;
@@ -7938,6 +8110,8 @@ class IPCHandlers {
     let meetingOneOnOneAttendee = null;
     let meetingOneOnOneProfileBound = false;
     let meetingNoteId = null;
+    // First speaker index this session may mint; past a resumed note's ids.
+    let meetingSpeakerIndexBase = 0;
 
     const getLiveSpeakerProfiles = () => {
       const attendees = this._getNoteNonSelfParticipants(meetingNoteId);
@@ -8126,9 +8300,13 @@ class IPCHandlers {
       }
 
       const now = Date.now();
+      const holdMs =
+        force || !meetingMicNeedsReferenceAlignment()
+          ? 0
+          : MEETING_MIC_REFERENCE_ALIGNMENT_MS[meetingSystemAudioStrategy];
       while (meetingPendingMicChunks.length > 0) {
         const next = meetingPendingMicChunks[0];
-        if (!force && now - next.queuedAt < MEETING_MIC_REFERENCE_ALIGNMENT_MS) {
+        if (holdMs && now - next.queuedAt < holdMs) {
           break;
         }
 
@@ -8145,6 +8323,20 @@ class IPCHandlers {
         }
 
         dispatchMeetingAudioBuffer(next.buffer, "mic");
+      }
+    };
+
+    const meetingMicNeedsReferenceAlignment = () =>
+      Object.hasOwn(MEETING_MIC_REFERENCE_ALIGNMENT_MS, meetingSystemAudioStrategy) &&
+      meetingSystemChunkReceivedAt !== null &&
+      Date.now() - meetingSystemChunkReceivedAt < MEETING_MIC_REFERENCE_RECENT_MS;
+
+    const setMeetingSystemAudioStrategy = (strategy) => {
+      meetingSystemAudioStrategy = strategy;
+      // A capture that fell back no longer delivers the reference these
+      // chunks are waiting for, so release them now.
+      if (!meetingMicNeedsReferenceAlignment()) {
+        flushPendingMeetingMicChunks(true);
       }
     };
 
@@ -8251,6 +8443,7 @@ class IPCHandlers {
             getSpeakerProfiles: getLiveSpeakerProfiles,
             maxSpeakers: resolveSessionMaxSpeakers(),
             enabled: true,
+            speakerIndexBase: meetingSpeakerIndexBase,
           }
         )
         .catch((error) => {
@@ -8472,15 +8665,25 @@ class IPCHandlers {
       }
     };
 
-    const transcribeAllLocalBuffers = async () => {
-      if (meetingLocalTranscribing) return;
-      meetingLocalTranscribing = true;
-      try {
-        await transcribeLocalMeetingChunk("system");
-        await transcribeLocalMeetingChunk("mic");
-      } finally {
-        meetingLocalTranscribing = false;
+    const transcribeAllLocalBuffers = () => {
+      if (meetingLocalTranscribePromise) return meetingLocalTranscribePromise;
+      meetingLocalTranscribePromise = (async () => {
+        try {
+          await transcribeLocalMeetingChunk("system");
+          await transcribeLocalMeetingChunk("mic");
+        } finally {
+          meetingLocalTranscribePromise = null;
+        }
+      })();
+      return meetingLocalTranscribePromise;
+    };
+
+    const settleLocalMeetingTranscription = async () => {
+      if (meetingLocalTimer) {
+        clearInterval(meetingLocalTimer);
+        meetingLocalTimer = null;
       }
+      await meetingLocalTranscribePromise?.catch(() => {});
     };
 
     const dropMeetingMicDiarizationCapture = () => {
@@ -8510,6 +8713,7 @@ class IPCHandlers {
       meetingOneOnOneAttendee = null;
       meetingOneOnOneProfileBound = false;
       meetingNoteId = null;
+      meetingSpeakerIndexBase = 0;
       this._activeMeetingNoteId = null;
       meetingLocalMode = false;
       meetingLocalBuffers = { mic: [], system: [] };
@@ -8526,13 +8730,14 @@ class IPCHandlers {
       meetingSystemAudioHeard = false;
       meetingSystemAudioHandover.reset();
       meetingDiarizationSegments = [];
+      meetingRetractedMicSegments = [];
       meetingLocalWin = null;
       meetingLocalTranscript = "";
       meetingLocalProvider = null;
       meetingLocalModel = null;
       meetingLocalLanguage = null;
-      meetingLocalTranscribing = false;
       meetingPendingMicChunks = [];
+      meetingSystemChunkReceivedAt = null;
       resetPendingMicFinals();
       meetingAecEnabled = false;
       meetingStartedAt = null;
@@ -8666,8 +8871,10 @@ class IPCHandlers {
       this._meetingMicStreaming = null;
       this._meetingSystemStreaming = null;
       meetingSendCounts = { mic: 0, system: 0 };
+      meetingMicStatsLogCount = 0;
       meetingLiveSpeakerStartedAt = null;
       meetingPendingMicChunks = [];
+      meetingSystemChunkReceivedAt = null;
       resetPendingMicFinals();
       meetingAecEnabled = false;
       meetingEchoLeakDetector.reset();
@@ -8773,8 +8980,10 @@ class IPCHandlers {
       }
       await stopMeetingAec();
       await stopLiveSpeakerIdentification().catch(() => {});
-      resetMeetingLocalState();
+      // Late finals from either path must land before the reset clears them.
+      await settleLocalMeetingTranscription();
       await disconnectMeetingStreaming().catch(() => {});
+      resetMeetingLocalState();
       this.activeMeetingSpeakerConfig = null;
     };
 
@@ -8861,6 +9070,7 @@ class IPCHandlers {
         options.mode,
         options.model,
         options.baseUrl,
+        options.pipelineOptions,
         readsSavedKey ? credentialGeneration : null,
         provider === "openai-realtime"
           ? OpenAIRealtimeStreaming.normalizeLanguage(options.language)
@@ -8904,6 +9114,9 @@ class IPCHandlers {
           provider === "orukeet"
             ? new OrukeetStreaming(isCloud ? MANAGED_STREAM_OPTIONS : {})
             : new OpenAIRealtimeStreaming();
+        if (provider === "orukeet")
+          streaming.onUsageError = (metadata) =>
+            debugLogger.error("Combined cleanup usage could not be recorded", metadata);
         setupDictationCallbacks(streaming, event);
         // Assign before the token fetch (a real network round trip) so
         // dictation-realtime-send has a live instance to buffer into instead
@@ -8920,6 +9133,7 @@ class IPCHandlers {
                 proxyFetch,
                 tokenStore,
                 withPolicyHeaders,
+                pipelineOptions: options.pipelineOptions,
               });
             } else {
               await streaming.connect({
@@ -9053,6 +9267,9 @@ class IPCHandlers {
       // scoped stop/auto-end matching.
       const recordingSessionId = options.sessionId;
       meetingStartedAt = Date.now();
+      // Stop captures and clears the segments, but a stop that fails partway
+      // (the audio tap won't stop) never gets there.
+      meetingDiarizationSegments = [];
       meetingConnectionOptions = options;
       meetingConnectionWin = BrowserWindow.fromWebContents(event.sender);
       meetingReconnectCount = 0;
@@ -9070,6 +9287,7 @@ class IPCHandlers {
           // Auto-end stays fail-safe until the renderer confirms a real source.
           systemAudioAvailable: false,
         });
+        setMeetingSystemAudioStrategy(result.systemAudioStrategy);
         // Arms on any active system-audio strategy — capture follows platform
         // capability, not call detection — so the warning copy also covers
         // in-person recordings where a silent system tap is expected.
@@ -9077,17 +9295,26 @@ class IPCHandlers {
           armMeetingSystemAudioSilenceTimer(meetingConnectionWin, result.systemAudioStrategy);
           startMeetingSystemAudioWatchdog(meetingConnectionWin, result.systemAudioStrategy);
         }
-        return { ...result, sessionId: recordingSessionId };
+        return {
+          ...result,
+          sessionId: recordingSessionId,
+          speakerIndexBase: meetingSpeakerIndexBase,
+        };
       };
 
       try {
         const systemAudioPlan = await getMeetingSystemAudioPlan({ refreshWindowsCapability: true });
         let { mode: systemAudioMode, strategy: systemAudioStrategy } = systemAudioPlan;
+        setMeetingSystemAudioStrategy(systemAudioStrategy);
         const requestedConnectionKey = getMeetingConnectionKey(options, credentialGeneration);
         meetingEchoLeakDetector.reset();
         meetingOneOnOneAttendee = resolveOneOnOneAttendeeForNote(options.noteId);
         meetingOneOnOneProfileBound = false;
         meetingNoteId = options.noteId ?? null;
+        meetingSpeakerIndexBase = this._resolveMeetingSpeakerIndexBase(
+          meetingNoteId,
+          options.speakerIndexBase
+        );
         this._activeMeetingNoteId = meetingNoteId;
 
         // Seed the speaker cap from the note/calendar participants up front so live
@@ -9207,6 +9434,7 @@ class IPCHandlers {
         // evidence or an AEC reference for the mic arriving now.
         if (!synthetic) {
           meetingEchoLeakDetector.recordSystemChunk(outboundBuffer, receivedAt);
+          meetingSystemChunkReceivedAt = receivedAt;
           if (meetingAecEnabled && !this.meetingAecManager?.processSystemBuffer(outboundBuffer)) {
             meetingAecEnabled = false;
           }
@@ -9270,19 +9498,6 @@ class IPCHandlers {
           return;
         }
 
-        if (!hasNativeMeetingSystemAudio()) {
-          const analysis = meetingEchoLeakDetector.analyzeMicChunk(outboundBuffer);
-          if (analysis?.shouldMute && !meetingAecEnabled) {
-            if (!meetingLocalMode) {
-              dispatchMeetingAudioBuffer(Buffer.alloc(outboundBuffer.length), "mic");
-            }
-            return;
-          }
-
-          dispatchMeetingAudioBuffer(outboundBuffer, "mic");
-          return;
-        }
-
         meetingPendingMicChunks.push({
           buffer: outboundBuffer,
           queuedAt: Date.now(),
@@ -9312,6 +9527,8 @@ class IPCHandlers {
     const completeMeetingSystemAudioHandover = () => {
       debugLogger.info("Renderer loopback took over system audio capture", {}, "meeting");
       meetingSystemAudioWatchdog.detachCapture();
+      // Renderer loopback runs on the mic's clock, so the mic stops waiting.
+      setMeetingSystemAudioStrategy("loopback");
       void this.windowsLoopbackAudioManager?.stop().catch(() => {});
     };
 
@@ -9495,22 +9712,25 @@ class IPCHandlers {
         const diarizationWin = meetingLocalWin || this.windowManager.controlPanelWindow;
 
         if (meetingLocalMode) {
-          if (meetingLocalTimer) {
-            clearInterval(meetingLocalTimer);
-            meetingLocalTimer = null;
-          }
           try {
+            await settleLocalMeetingTranscription();
             await transcribeAllLocalBuffers();
           } catch (err) {
             debugLogger.error("Local meeting final transcription failed", { error: err.message });
           }
           flushPendingMicFinals(true);
-          const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
-            await captureMeetingDiarizationState();
+          const {
+            diarizationPcmPath,
+            diarizationSegments,
+            retractedSegments,
+            diarizationStartedAt,
+            diarizedSource,
+          } = await captureMeetingDiarizationState();
           const transcript =
             buildOrderedTranscriptText(diarizationSegments) || meetingLocalTranscript;
           const sessionSpeakerConfigSnapshot = this.activeMeetingSpeakerConfig;
           const noteIdSnapshot = meetingNoteId;
+          const speakerIndexBaseSnapshot = meetingSpeakerIndexBase;
           this.activeMeetingSpeakerConfig = null;
           resetMeetingLocalState();
 
@@ -9524,21 +9744,29 @@ class IPCHandlers {
             liveSpeakerState,
             sessionSpeakerConfigSnapshot,
             noteIdSnapshot,
-            diarizedSource
+            diarizedSource,
+            speakerIndexBaseSnapshot,
+            retractedSegments
           );
 
           return { success: true, transcript, diarizationSessionId };
         }
 
         const results = await disconnectMeetingStreaming({ flushPending: true });
-        const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
-          await captureMeetingDiarizationState();
+        const {
+          diarizationPcmPath,
+          diarizationSegments,
+          retractedSegments,
+          diarizationStartedAt,
+          diarizedSource,
+        } = await captureMeetingDiarizationState();
         const transcript =
           buildOrderedTranscriptText(diarizationSegments) ||
           [results[0]?.text, results[1]?.text].filter(Boolean).join(" ");
 
         const sessionSpeakerConfigSnapshot = this.activeMeetingSpeakerConfig;
         const noteIdSnapshot = meetingNoteId;
+        const speakerIndexBaseSnapshot = meetingSpeakerIndexBase;
         this.activeMeetingSpeakerConfig = null;
 
         // Fire-and-forget background diarization (or notify skip)
@@ -9551,7 +9779,9 @@ class IPCHandlers {
           liveSpeakerState,
           sessionSpeakerConfigSnapshot,
           noteIdSnapshot,
-          diarizedSource
+          diarizedSource,
+          speakerIndexBaseSnapshot,
+          retractedSegments
         );
 
         return { success: true, transcript, diarizationSessionId };
@@ -9911,6 +10141,8 @@ class IPCHandlers {
             promptMode: opts.promptMode,
             purpose: opts.purpose,
             screenContext: opts.screenContext,
+            tone: opts.tone,
+            appCategory: opts.appCategory,
             language: opts.language,
             locale: opts.locale,
             sessionId: this.sessionId,
@@ -9927,6 +10159,8 @@ class IPCHandlers {
             sttDetectedLanguageConfidence: opts.sttDetectedLanguageConfidence,
             sttDetectedLanguageAudioSeconds: opts.sttDetectedLanguageAudioSeconds,
             sttDetectedLanguageStatus: opts.sttDetectedLanguageStatus,
+            orukeetLanguageRouting: opts.orukeetLanguageRouting,
+            orukeetCleanup: opts.orukeetCleanup,
             audioDurationMs: opts.audioDurationMs,
             audioSizeBytes: opts.audioSizeBytes,
             audioFormat: opts.audioFormat,
@@ -10012,7 +10246,6 @@ class IPCHandlers {
             systemPrompt: opts.systemPrompt,
             tools: opts.tools,
             ...(opts.screenContext ? { screenContext: opts.screenContext } : {}),
-            ...(opts.noteChat ? { noteChat: true } : {}),
             sessionId: this.sessionId,
             clientType: "desktop",
             appVersion: app.getVersion(),
@@ -10175,6 +10408,8 @@ class IPCHandlers {
               sttDetectedLanguageConfidence: opts.sttDetectedLanguageConfidence,
               sttDetectedLanguageAudioSeconds: opts.sttDetectedLanguageAudioSeconds,
               sttDetectedLanguageStatus: opts.sttDetectedLanguageStatus,
+              orukeetLanguageRouting: opts.orukeetLanguageRouting,
+              orukeetCleanup: opts.orukeetCleanup,
               audioSizeBytes: opts.audioSizeBytes,
               audioFormat: opts.audioFormat,
               clientTotalMs: opts.clientTotalMs,
@@ -10888,23 +11123,7 @@ class IPCHandlers {
 
     ipcMain.handle("get-ydotool-status", () => {
       const { getYdotoolStatus } = require("./ensureYdotool");
-      const { getLinuxSessionInfo } = require("./linuxSession");
-      const { execFileSync } = require("child_process");
-      const status = getYdotoolStatus();
-      const { isKde } = getLinuxSessionInfo();
-      let hasXclip = false;
-      let hasXsel = false;
-      if (isKde) {
-        try {
-          execFileSync("which", ["xclip"], { timeout: 1000 });
-          hasXclip = true;
-        } catch {}
-        try {
-          execFileSync("which", ["xsel"], { timeout: 1000 });
-          hasXsel = true;
-        } catch {}
-      }
-      return { ...status, hasXclip, hasXsel };
+      return getYdotoolStatus();
     });
 
     ipcMain.handle("get-debug-state", async () => {
@@ -12818,6 +13037,34 @@ class IPCHandlers {
     return reconciledSpeakers;
   }
 
+  // The renderer's base covers the transcript it resumes; mappings and embeddings
+  // can also hold ids no row carries any more (merged clusters, a cluster that
+  // owned no segment), and a reused one would still name the new voice.
+  // A note recorded again before its last session's diarization lands has neither
+  // that result's ids in the seed nor its embeddings stored yet, so the session's
+  // reserved ceiling counts too.
+  _resolveMeetingSpeakerIndexBase(noteId, requestedBase) {
+    let base = normalizeSpeakerIndexBase(requestedBase);
+    if (noteId == null) return base;
+    for (const reservation of this._diarizationSpeakerReservations.values()) {
+      if (reservation.noteId === noteId) base = Math.max(base, reservation.ceiling);
+    }
+    try {
+      const storedIds = [
+        ...this.databaseManager.getSpeakerMappings(noteId).map((m) => m.speaker_id),
+        ...this.databaseManager.getNoteSpeakerEmbeddings(noteId).map((e) => e.speaker_id),
+      ];
+      return resolveSpeakerIndexBase(base, storedIds);
+    } catch (error) {
+      debugLogger.warn(
+        "Could not read stored speaker ids for the meeting note",
+        { noteId, error: error.message },
+        "speaker"
+      );
+      return base;
+    }
+  }
+
   _resolveSpeakerExpectation({ sessionConfig, noteId, observedSpeakerIds, diarizedSource }) {
     // Only a count the user set explicitly outranks the note: participants added
     // mid-meeting postdate the config snapshot taken at recording start.
@@ -12865,53 +13112,100 @@ class IPCHandlers {
     liveSpeakerState = null,
     sessionConfig = null,
     noteId = null,
-    diarizedSource = "system"
+    diarizedSource = "system",
+    speakerIndexBase = 0,
+    retractedSegments = []
   ) {
+    const startMs =
+      (Number.isFinite(audioStartedAt) && audioStartedAt) ||
+      transcriptSegments.find((segment) => segment.source === diarizedSource)?.timestamp ||
+      transcriptSegments[0]?.timestamp ||
+      0;
+    const isEpochMs = startMs > 1e9;
+    const normalized = transcriptSegments.map((seg) => ({
+      ...seg,
+      timestamp:
+        seg.timestamp != null
+          ? isEpochMs
+            ? (seg.timestamp - startMs) / 1000
+            : seg.timestamp
+          : undefined,
+    }));
+
+    // Split before any send so diarized, skipped and failed runs drop the same
+    // echo rows.
+    const { kept, removed: echoDuplicates } = this.diarizationManager?.splitMicEchoDuplicates(
+      normalized
+    ) ?? { kept: normalized, removed: [] };
+    const echoDuplicateSet = new Set(echoDuplicates);
+    const isEchoDuplicate = (index) => echoDuplicateSet.has(normalized[index]);
+    // Rows main dropped that the renderer may still hold in the transcript it
+    // persisted at stop. Raw (epoch-ms) timestamps, matching that copy (#2781).
+    const removedSegments = [
+      ...retractedSegments,
+      ...transcriptSegments.filter((_, index) => isEchoDuplicate(index)),
+    ].map(({ text, source, timestamp }) => ({ text, source, timestamp }));
     const send = (payload) => {
       if (win && !win.isDestroyed()) {
-        win.webContents.send("meeting-diarization-complete", { sessionId, noteId, ...payload });
+        win.webContents.send("meeting-diarization-complete", {
+          sessionId,
+          noteId,
+          ...payload,
+          removedSegments,
+        });
       }
     };
+    // Raw rows, sent when there is no diarization to merge.
+    const sendUndiarized = () =>
+      send({
+        segments: transcriptSegments
+          .map((segment, index) => ({ ...segment, id: segment.id || `segment-${index}` }))
+          .filter((_, index) => !isEchoDuplicate(index)),
+      });
 
     const diarizationEnabled = (sessionConfig?.enabled ?? this.speakerDiarizationEnabled) !== false;
 
     if (!diarizationEnabled || !this.diarizationManager?.isAvailable() || !rawPcmPath) {
-      send({
-        segments: transcriptSegments.map((segment, index) => ({
-          ...segment,
-          id: segment.id || `segment-${index}`,
-        })),
-      });
+      sendUndiarized();
       return;
     }
 
     const fs = require("fs");
 
+    const observedSpeakerIds = new Set(
+      transcriptSegments
+        .filter((segment) => segment.source === "system" && segment.speaker)
+        .map((segment) => segment.speaker)
+    );
+    for (const speakerId of Object.keys(liveSpeakerState || {})) {
+      observedSpeakerIds.add(speakerId);
+    }
+
+    if (observedSpeakerIds.size > 10) {
+      debugLogger.warn("Excessive speaker count from live identification", {
+        observedSpeakers: observedSpeakerIds.size,
+      });
+    }
+
+    const { numSpeakers, cap } = this._resolveSpeakerExpectation({
+      sessionConfig,
+      noteId,
+      observedSpeakerIds,
+      diarizedSource,
+    });
+    // Reserved before the async work so a "record more" started while this runs
+    // numbers its speakers past every cluster the result can name.
+    if (noteId != null) {
+      this._diarizationSpeakerReservations.set(sessionId, {
+        noteId,
+        ceiling: speakerIndexBase + cap,
+      });
+    }
+
     (async () => {
       let tmpWav = null;
       try {
         tmpWav = await this.diarizationManager.convertRawPcmToWav(rawPcmPath, 24000);
-        const observedSpeakerIds = new Set(
-          transcriptSegments
-            .filter((segment) => segment.source === "system" && segment.speaker)
-            .map((segment) => segment.speaker)
-        );
-        for (const speakerId of Object.keys(liveSpeakerState || {})) {
-          observedSpeakerIds.add(speakerId);
-        }
-
-        if (observedSpeakerIds.size > 10) {
-          debugLogger.warn("Excessive speaker count from live identification", {
-            observedSpeakers: observedSpeakerIds.size,
-          });
-        }
-
-        const { numSpeakers, cap } = this._resolveSpeakerExpectation({
-          sessionConfig,
-          noteId,
-          observedSpeakerIds,
-          diarizedSource,
-        });
         let diarizationSegments = await this.diarizationManager.diarize(
           tmpWav,
           numSpeakers > 0 ? { numSpeakers } : {}
@@ -12923,34 +13217,21 @@ class IPCHandlers {
           );
         }
 
-        const startMs =
-          (Number.isFinite(audioStartedAt) && audioStartedAt) ||
-          transcriptSegments.find((segment) => segment.source === diarizedSource)?.timestamp ||
-          transcriptSegments[0]?.timestamp ||
-          0;
-        const isEpochMs = startMs > 1e9;
-        const normalized = transcriptSegments.map((seg) => ({
-          ...seg,
-          timestamp:
-            seg.timestamp != null
-              ? isEpochMs
-                ? (seg.timestamp - startMs) / 1000
-                : seg.timestamp
-              : undefined,
-        }));
-
         const enrichedSegments = this.diarizationManager.mergeWithTranscript(
-          normalized,
+          kept,
           diarizationSegments,
-          { diarizedSource }
+          { diarizedSource, speakerIndexBase }
         );
 
         const speakerSet = new Set(diarizationSegments.map((d) => d.speaker));
-        const speakerRenumber = new Map();
-        let sIdx = 0;
-        for (const sp of speakerSet) {
-          speakerRenumber.set(sp, `speaker_${sIdx}`);
-          sIdx++;
+        const speakerRenumber = buildSpeakerRenumber(speakerSet, speakerIndexBase);
+        // Narrowed to the ids the result actually names; kept until quit, since the
+        // renderer persists them only after this send.
+        if (noteId != null) {
+          this._diarizationSpeakerReservations.set(sessionId, {
+            noteId,
+            ceiling: speakerIndexBase + speakerRenumber.size,
+          });
         }
 
         // Mirrors the mic-mode single-cluster softening in mergeWithTranscript:
@@ -13055,7 +13336,10 @@ class IPCHandlers {
         send({ segments: enrichedSegments, speakerEmbeddings: speakerEmbeddingsMap });
       } catch (err) {
         debugLogger.warn("Background diarization failed", { error: err.message });
-        send({ segments: [] });
+        this._diarizationSpeakerReservations.delete(sessionId);
+        // The renderer only applies removedSegments alongside segments, so a
+        // failed run falls back to the skip result rather than an empty one.
+        sendUndiarized();
       } finally {
         try {
           fs.unlinkSync(rawPcmPath);
