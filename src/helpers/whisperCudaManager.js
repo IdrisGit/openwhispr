@@ -4,6 +4,13 @@ const { WHISPER_CPP_TAG, WINDOWS_MSVC_RUNTIME_LIBRARIES } = require("./whisperCp
 // Pinned so untested future binaries never auto-ship; bump together with the digests below
 // sha256 per release tag; tags without an entry fall back to the API-reported digest
 const EXPECTED_DIGESTS = {
+  // Linux archive bundles the CUDA 12 runtime (cudart, cuBLAS, cuBLASLt)
+  "0.0.11": {
+    "whisper-server-win32-x64-cuda.zip":
+      "5d0ce15234aed4e30c075010c13dd23771fb5c714c48047e287306ab340eea9a",
+    "whisper-server-linux-x64-cuda.zip":
+      "702478df828069aca6e687b869b2f68d20105143328046cdb070551637b0b198",
+  },
   // Adds app-local MSVC runtime DLLs to the Windows archive
   "0.0.10": {
     "whisper-server-win32-x64-cuda.zip":

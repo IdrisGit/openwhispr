@@ -166,7 +166,7 @@ test("CUDA: resolves its exact asset from the pinned tag and installs binary + c
   const manager = cudaManagerWithoutDigestPin();
   await manager.download();
 
-  assert.match(state.fetchedUrls[0], /OpenWhispr\/whisper\.cpp\/releases\/tags\/0\.0\.10$/);
+  assert.match(state.fetchedUrls[0], /OpenWhispr\/whisper\.cpp\/releases\/tags\/0\.0\.11$/);
   assert.equal(state.downloads[0].url, "https://dl/whisper-server-linux-x64-cuda.zip");
 
   const binDir = path.join(userDataDir, "bin", "whisper-cuda");
