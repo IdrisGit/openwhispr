@@ -23,6 +23,7 @@ export default class FakeAudioManager {
   setAssistantSelectionContext() {}
   setTranslationRequested(value) { this.translationRequested = value; }
   setSttConfig(config) { this.sttConfig = config; }
+  isSttConfigStale() { return false; }
   cacheMicrophoneDeviceId() {}
   prepareMicCapture() {}
   cancelPreparedMicCapture() {}
@@ -36,6 +37,12 @@ export default class FakeAudioManager {
   stopRecording() {
     globalThis.__mediaSessionEvents.push(["audio-stop"]);
     this.state = { isRecording: false, isProcessing: true, isStreaming: false };
+    this.callbacks.onStateChange(this.state);
+    return true;
+  }
+  cancelRecording() {
+    globalThis.__mediaSessionEvents.push(["audio-cancel"]);
+    this.state = { isRecording: false, isProcessing: false, isStreaming: false };
     this.callbacks.onStateChange(this.state);
     return true;
   }
@@ -75,6 +82,9 @@ async function mountHarness(t) {
   let root = null;
   t.after(async () => {
     if (root) await React.act(async () => root.unmount());
+    delete globalThis.__mediaSessionAudioManager;
+    delete globalThis.__mediaSessionEvents;
+    delete globalThis.__mediaSessionSettings;
   });
 
   const noopDispose = () => () => {};
@@ -161,6 +171,14 @@ async function mountHarness(t) {
       });
       return result;
     },
+    cancel: async () => {
+      let result;
+      await React.act(async () => {
+        result = await api.cancelRecording();
+      });
+      return result;
+    },
+    manager: globalThis.__mediaSessionAudioManager,
     duplicateEnd: async () =>
       React.act(async () => globalThis.__mediaSessionAudioManager.emitDuplicateEnd()),
     unmount: async () => {
@@ -222,4 +240,74 @@ test("disabling the setting mid-recording still ends the session without restori
   assert.equal(await harness.stop(), true);
 
   assert.deepEqual(harness.events.slice(1), [["resume", sessionId, false], ["audio-stop"]]);
+});
+
+test("cancellation ends its media session once before cancelling capture", async (t) => {
+  const harness = await mountHarness(t);
+
+  await harness.start();
+  const sessionId = harness.events[0][1];
+  assert.equal(await harness.cancel(), true);
+  await harness.duplicateEnd();
+  await harness.unmount();
+
+  assert.deepEqual(harness.events, [
+    ["pause", sessionId],
+    ["resume", sessionId, true],
+    ["audio-cancel"],
+    ["audio-cleanup"],
+  ]);
+});
+
+test("an unexpected recording end restores media without waiting for transcription", async (t) => {
+  const harness = await mountHarness(t);
+
+  await harness.start();
+  const sessionId = harness.events[0][1];
+  await React.act(async () => {
+    harness.manager.state = { isRecording: false, isProcessing: true, isStreaming: false };
+    harness.manager.callbacks.onStateChange(harness.manager.state);
+  });
+  await harness.duplicateEnd();
+
+  assert.deepEqual(harness.events, [
+    ["pause", sessionId],
+    ["resume", sessionId, true],
+  ]);
+});
+
+test("consecutive recordings use distinct media sessions with one end each", async (t) => {
+  const harness = await mountHarness(t);
+
+  await harness.start();
+  const firstSessionId = harness.events[0][1];
+  await harness.cancel();
+  await harness.start();
+  const secondSessionId = harness.events[3][1];
+  assert.notEqual(secondSessionId, firstSessionId);
+  await harness.stop();
+  await harness.unmount();
+
+  assert.deepEqual(harness.events, [
+    ["pause", firstSessionId],
+    ["resume", firstSessionId, true],
+    ["audio-cancel"],
+    ["pause", secondSessionId],
+    ["resume", secondSessionId, true],
+    ["audio-stop"],
+    ["audio-cleanup"],
+  ]);
+});
+
+test("enabling media pause after capture starts cannot resume a player it did not pause", async (t) => {
+  const harness = await mountHarness(t);
+  harness.settings.pauseMediaOnDictation = false;
+
+  await harness.start();
+  assert.deepEqual(harness.events, []);
+  harness.settings.pauseMediaOnDictation = true;
+  await harness.stop();
+  await harness.unmount();
+
+  assert.deepEqual(harness.events, [["audio-stop"], ["audio-cleanup"]]);
 });
