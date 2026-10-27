@@ -22,6 +22,7 @@ export default class FakeAudioManager {
   setAssistantSelectionContext() {}
   setTranslationRequested(value) { this.translationRequested = value; }
   shouldUseStreaming() { return false; }
+  isSttConfigStale() { return false; }
   prepareMicCapture() {}
   cancelPreparedMicCapture() {}
   cacheMicrophoneDeviceId() {}

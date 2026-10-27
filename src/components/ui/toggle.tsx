@@ -4,15 +4,10 @@ interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
-  "aria-label"?: string;
+  ariaLabel?: string;
 }
 
-export const Toggle = ({
-  checked,
-  onChange,
-  disabled = false,
-  "aria-label": ariaLabel,
-}: ToggleProps) => {
+export const Toggle = ({ checked, onChange, disabled = false, ariaLabel }: ToggleProps) => {
   const getTrackClasses = () => {
     if (disabled) {
       return checked ? "bg-primary/40" : "bg-muted";
