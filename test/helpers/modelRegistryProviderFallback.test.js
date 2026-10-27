@@ -47,7 +47,21 @@ test("Parakeet compatibility distinguishes auto and unsupported languages", asyn
   assert.equal(getParakeetLanguageCompatibility("parakeet-tdt-0.6b-v3", "fr"), "compatible");
   assert.equal(
     getParakeetLanguageCompatibility("cohere-transcribe-03-2026", "auto"),
-    "language-required"
+    "english-fallback"
+  );
+  assert.equal(
+    getParakeetLanguageCompatibility("cohere-transcribe-03-2026", " ZH_tw "),
+    "compatible"
+  );
+  assert.equal(
+    getParakeetLanguageCompatibility("nemotron-3.5-asr-streaming-0.6b", "ja"),
+    "compatible"
+  );
+  assert.equal(getParakeetLanguageCompatibility("orukeet-v0.1.0", "ja"), "unsupported");
+  assert.equal(getParakeetLanguageCompatibility("orukeet-v0.1.0", "auto"), "compatible");
+  assert.equal(
+    getParakeetLanguageCompatibility("nemotron-speech-streaming-en-0.6b", "en-GB"),
+    "english-only"
   );
   assert.equal(
     getParakeetLanguageCompatibility("cohere-transcribe-03-2026", "zh-TW"),

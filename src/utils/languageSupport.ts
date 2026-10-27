@@ -30,8 +30,7 @@ export function getBaseLanguageCode(language: string | null | undefined): string
 }
 
 export function getLanguageInstruction(language: string | undefined): string {
-  if (!language) return "";
-  const orthographyInstruction = ORTHOGRAPHY_INSTRUCTIONS[language];
+  const orthographyInstruction = language ? ORTHOGRAPHY_INSTRUCTIONS[language] : undefined;
   return [registry._genericTemplate, orthographyInstruction].filter(Boolean).join(" ");
 }
 

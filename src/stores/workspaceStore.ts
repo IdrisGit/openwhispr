@@ -4,6 +4,7 @@ import { WorkspacesService } from "../services/WorkspacesService";
 import logger from "../utils/logger";
 import { usePolicyStore } from "./policyStore";
 import { useEnterpriseIdentityStore } from "./enterpriseIdentityStore";
+import { defaultActiveWorkspaceId } from "../lib/workspaceSwitcher";
 
 interface WorkspaceState {
   workspaces: Workspace[];
@@ -20,7 +21,8 @@ interface WorkspaceState {
   refreshMembers: (workspaceId: string) => Promise<void>;
 }
 
-const ACTIVE_WORKSPACE_KEY = "activeWorkspaceId";
+// Shared by every window of this origin; the dictation window mirrors it (lib/accountScopeMirror).
+export const ACTIVE_WORKSPACE_KEY = "activeWorkspaceId";
 
 function readActiveWorkspaceId(): string | null {
   if (typeof window === "undefined") return null;
@@ -113,11 +115,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         if (generation !== accountGeneration) return;
         const activeId = get().activeWorkspaceId;
         const stillValid = activeId && workspaces.some((w) => w.id === activeId);
-        const resolvedActiveId = stillValid
-          ? activeId
-          : workspaces.length === 1
-            ? workspaces[0].id
-            : null;
+        const resolvedActiveId = stillValid ? activeId : defaultActiveWorkspaceId(workspaces);
         set({
           workspaces,
           loaded: true,

@@ -3,6 +3,7 @@ const fs = require("fs");
 const {
   resolveManagedEnterpriseScope,
   validateManagedEnterpriseEnvelope,
+  managedScopesForConfig,
 } = require("./enterpriseManagedConfig.mjs");
 const { AuthContextError } = require("./cloudApiRequest");
 
@@ -102,7 +103,7 @@ function requiresEnforcedManagedAccess(config) {
   );
 }
 
-function responseError(code, error, identity = null, enforcementRequired) {
+function responseError(code, error, identity = null, enforcementRequired, enforcedScopes) {
   return {
     success: false,
     status: "error",
@@ -112,6 +113,7 @@ function responseError(code, error, identity = null, enforcementRequired) {
     code,
     error,
     ...(typeof enforcementRequired === "boolean" ? { enforcementRequired } : {}),
+    ...(Array.isArray(enforcedScopes) ? { enforcedScopes } : {}),
   };
 }
 
@@ -145,7 +147,7 @@ function createEnterpriseIdentityManager({
     }
   }
 
-  function evictIdentity(identity, code, enforcementRequired = false) {
+  function evictIdentity(identity, code, enforcementRequired = false, enforcedScopes = []) {
     configs.delete(identity.cacheKey);
     configRequests.delete(identity.cacheKey);
     clearIdentityCredentials(identity);
@@ -157,6 +159,7 @@ function createEnterpriseIdentityManager({
       config: null,
       code,
       enforcementRequired,
+      enforcedScopes,
     });
   }
 
@@ -219,11 +222,22 @@ function createEnterpriseIdentityManager({
     };
   }
 
-  async function fetchWithTimeout(url, init) {
+  // The deadline covers the body as well as the headers: a server that sends
+  // headers and then stalls would otherwise hang the shared config and
+  // credential requests that every later caller joins.
+  async function fetchWithTimeout(url, init, read) {
     const controller = new AbortController();
+    const aborted = new Promise((_, reject) => {
+      controller.signal.addEventListener("abort", () => reject(controller.signal.reason), {
+        once: true,
+      });
+    });
     const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
-      return await proxyFetch(url, { ...init, signal: controller.signal });
+      return await Promise.race([
+        proxyFetch(url, { ...init, signal: controller.signal }).then(read),
+        aborted,
+      ]);
     } finally {
       clearTimeout(timeout);
     }
@@ -242,27 +256,39 @@ function createEnterpriseIdentityManager({
     const url = `${identity.apiUrl}/api/workspaces/${encodeURIComponent(
       identity.workspaceId
     )}/enterprise-providers`;
-    const response = await fetchWithTimeout(url, {
-      method: "GET",
-      headers: requestHeaders(identity),
+    let responseError;
+    const body = await fetchWithTimeout(
+      url,
+      { method: "GET", headers: requestHeaders(identity) },
+      async (response) => {
+        assertIdentityCurrent(identity);
+        if (!response.ok) {
+          responseError = Object.assign(
+            new Error(`Managed enterprise API error: ${response.status}`),
+            {
+              code: response.status === 401 ? "AUTH_EXPIRED" : "MANAGED_CONFIG_FAILED",
+              status: response.status,
+            }
+          );
+          const detail = await readError(response, responseError.message);
+          responseError.message = detail.message;
+          responseError.code = detail.code || responseError.code;
+          throw responseError;
+        }
+        try {
+          return await response.json();
+        } catch (cause) {
+          const error = new Error("Managed enterprise configuration response is malformed", {
+            cause,
+          });
+          error.code = "MANAGED_CONFIG_INVALID";
+          throw error;
+        }
+      }
+    ).catch((error) => {
+      // A stalled error body must not turn a known authorization failure into a timeout.
+      throw responseError || error;
     });
-    assertIdentityCurrent(identity);
-    if (!response.ok) {
-      const detail = await readError(response, `Managed enterprise API error: ${response.status}`);
-      const error = new Error(detail.message);
-      error.code =
-        detail.code || (response.status === 401 ? "AUTH_EXPIRED" : "MANAGED_CONFIG_FAILED");
-      error.status = response.status;
-      throw error;
-    }
-    let body;
-    try {
-      body = await response.json();
-    } catch (cause) {
-      const error = new Error("Managed enterprise configuration response is malformed", { cause });
-      error.code = "MANAGED_CONFIG_INVALID";
-      throw error;
-    }
     assertIdentityCurrent(identity);
     const config = validateManagedEnterpriseEnvelope(body?.data, identity.workspaceId);
     if (!config) {
@@ -306,7 +332,14 @@ function createEnterpriseIdentityManager({
           const prior = configs.get(identity.cacheKey)?.config || cachedConfig(cachePath, identity);
           error.enforcementRequired =
             error?.code === "ENTERPRISE_REQUIRED" ? false : requiresEnforcedManagedAccess(prior);
-          evictIdentity(identity, error.code || "MANAGED_CONFIG_FAILED", error.enforcementRequired);
+          error.enforcedScopes =
+            error?.code === "ENTERPRISE_REQUIRED" ? [] : managedScopesForConfig(prior).enforced;
+          evictIdentity(
+            identity,
+            error.code || "MANAGED_CONFIG_FAILED",
+            error.enforcementRequired,
+            error.enforcedScopes
+          );
           throw error;
         }
         if (!isTransientConfigError(error)) throw error;
@@ -345,36 +378,53 @@ function createEnterpriseIdentityManager({
         error.code || "MANAGED_CONFIG_FAILED",
         error.message,
         identity,
-        error.enforcementRequired
+        error.enforcementRequired,
+        error.enforcedScopes
       );
     }
   }
 
-  async function fetchAssertion(identity, provider) {
+  async function fetchAssertion(identity, provider, inferenceScope) {
     const url = `${identity.apiUrl}/api/workspaces/${encodeURIComponent(
       identity.workspaceId
     )}/enterprise-providers/${provider}/assertion`;
-    const response = await fetchWithTimeout(url, {
-      method: "POST",
-      headers: requestHeaders(identity, true),
-      body: "{}",
-    });
-    assertIdentityCurrent(identity);
-    if (!response.ok) {
-      const detail = await readError(response, `Managed identity API error: ${response.status}`);
-      const error = new Error(detail.message);
-      error.code =
-        detail.code || (response.status === 401 ? "AUTH_EXPIRED" : "IDENTITY_EXCHANGE_FAILED");
-      error.status = response.status;
+    let responseError;
+    const body = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: requestHeaders(identity, true),
+        body: JSON.stringify(inferenceScope ? { inferenceScope } : {}),
+      },
+      async (response) => {
+        assertIdentityCurrent(identity);
+        if (!response.ok) {
+          responseError = Object.assign(
+            new Error(`Managed identity API error: ${response.status}`),
+            {
+              code: response.status === 401 ? "AUTH_EXPIRED" : "IDENTITY_EXCHANGE_FAILED",
+              status: response.status,
+            }
+          );
+          const detail = await readError(response, responseError.message);
+          responseError.message = detail.message;
+          responseError.code = detail.code || responseError.code;
+          throw responseError;
+        }
+        return response.json();
+      }
+    ).catch((cause) => {
+      const error = responseError || cause;
       if (isAuthorizationError(error)) {
         const prior = configs.get(identity.cacheKey)?.config || cachedConfig(cachePath, identity);
         error.enforcementRequired =
           error.code === "ENTERPRISE_REQUIRED" ? false : requiresEnforcedManagedAccess(prior);
-        evictIdentity(identity, error.code, error.enforcementRequired);
+        error.enforcedScopes =
+          error.code === "ENTERPRISE_REQUIRED" ? [] : managedScopesForConfig(prior).enforced;
+        evictIdentity(identity, error.code, error.enforcementRequired, error.enforcedScopes);
       }
       throw error;
-    }
-    const body = await response.json();
+    });
     if (typeof body?.data?.assertion !== "string") {
       throw Object.assign(new Error("Managed identity assertion is malformed"), {
         code: "IDENTITY_EXCHANGE_FAILED",
@@ -421,7 +471,7 @@ function createEnterpriseIdentityManager({
       return {
         credentialProvider: () =>
           dedupeCredential(key, async () => {
-            const assertion = await fetchAssertion(identity, "bedrock");
+            const assertion = await fetchAssertion(identity, "bedrock", resolution.inferenceScope);
             const credentials = await createAwsWebIdentityProvider({
               roleArn: record.config.roleArn,
               roleSessionName: `openwhispr-${identity.workspaceId.slice(0, 8)}`,
@@ -456,7 +506,7 @@ function createEnterpriseIdentityManager({
     return {
       tokenProvider: () =>
         dedupeCredential(key, async () => {
-          const assertion = await fetchAssertion(identity, "azure");
+          const assertion = await fetchAssertion(identity, "azure", resolution.inferenceScope);
           const tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(
             record.config.tenantId
           )}/oauth2/v2.0/token`;
@@ -467,19 +517,26 @@ function createEnterpriseIdentityManager({
             client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
             client_assertion: assertion,
           });
-          const response = await fetchWithTimeout(tokenUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
-          });
-          if (!response.ok) {
-            const detail = await readError(
-              response,
-              `Microsoft identity error: ${response.status}`
-            );
-            throw Object.assign(new Error(detail.message), { code: "IDENTITY_EXCHANGE_FAILED" });
-          }
-          const token = await response.json();
+          const token = await fetchWithTimeout(
+            tokenUrl,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: body.toString(),
+            },
+            async (response) => {
+              if (!response.ok) {
+                const detail = await readError(
+                  response,
+                  `Microsoft identity error: ${response.status}`
+                );
+                throw Object.assign(new Error(detail.message), {
+                  code: "IDENTITY_EXCHANGE_FAILED",
+                });
+              }
+              return response.json();
+            }
+          );
           assertIdentityCurrent(identity);
           if (typeof token?.access_token !== "string" || !Number.isFinite(token?.expires_in)) {
             throw Object.assign(new Error("Microsoft identity response is malformed"), {
@@ -514,7 +571,11 @@ function createEnterpriseIdentityManager({
       config: resolution.record.config,
       version: resolution.record.version,
       generation: config.generation,
-      ...managedProviderFunctions(identity, { ...resolution, generation: config.generation }),
+      ...managedProviderFunctions(identity, {
+        ...resolution,
+        generation: config.generation,
+        inferenceScope: request.inferenceScope,
+      }),
     };
   }
 

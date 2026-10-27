@@ -11,6 +11,28 @@ export function parseEventDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+export function formatTimeRange(locale: string, startTime: string, endTime: string): string {
+  const format = (value: string) =>
+    new Date(value).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  return `${format(startTime)} – ${format(endTime)}`;
+}
+
+/** "Tue, Oct 20 · 14:15 – 15:15", or "Tue, Oct 20 · All day". */
+export function formatEventWhen(
+  event: { start_time: string; end_time: string; is_all_day: number | boolean },
+  locale: string,
+  allDayLabel: string
+): string {
+  const start = parseEventDate(event.start_time);
+  const day = start
+    ? start.toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" })
+    : "";
+  const time = event.is_all_day
+    ? allDayLabel
+    : formatTimeRange(locale, event.start_time, event.end_time);
+  return day ? `${day} · ${time}` : time;
+}
+
 export function normalizeDbDate(dateStr: string): Date {
   if (typeof dateStr !== "string" || !dateStr.trim()) return new Date(NaN);
   const trimmed = dateStr.trim();
@@ -19,22 +41,35 @@ export function normalizeDbDate(dateStr: string): Date {
   return new Date(source);
 }
 
-export function formatShortDate(dateStr: string): string {
+export function formatShortDate(dateStr: string, locale?: string): string {
   if (!dateStr) return "";
   const date = normalizeDbDate(dateStr);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
+}
+
+export function formatNoteDate(dateStr: string, locale?: string): string {
+  const date = normalizeDbDate(dateStr);
+  if (Number.isNaN(date.getTime())) return "";
+  const datePart = date.toLocaleDateString(locale, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const timePart = date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  return `${datePart} \u00b7 ${timePart}`;
 }
 
 export function formatRelativeTime(
   dateStr: string,
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: (key: string, options?: Record<string, unknown>) => string,
+  locale?: string
 ): string {
   if (!dateStr) return "";
   const date = normalizeDbDate(dateStr);
   if (Number.isNaN(date.getTime())) return "";
   const diff = Date.now() - date.getTime();
-  if (diff < 0) return formatShortDate(dateStr);
+  if (diff < 0) return formatShortDate(dateStr, locale);
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
@@ -42,10 +77,14 @@ export function formatRelativeTime(
   if (minutes < 60) return t("notes.list.minutesAgo", { count: minutes });
   if (hours < 24) return t("notes.list.hoursAgo", { count: hours });
   if (days < 7) return t("notes.list.daysAgo", { count: days });
-  return formatShortDate(dateStr);
+  return formatShortDate(dateStr, locale);
 }
 
-export function formatDateGroup(date: Date | string, t: (key: string) => string): string {
+export function formatDateGroup(
+  date: Date | string,
+  t: (key: string) => string,
+  locale?: string
+): string {
   if (!date) return "";
   const d = typeof date === "string" ? normalizeDbDate(date) : date;
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
@@ -58,5 +97,5 @@ export function formatDateGroup(date: Date | string, t: (key: string) => string)
   if (target.getTime() === today.getTime()) return t("controlPanel.history.dateGroups.today");
   if (target.getTime() === yesterday.getTime())
     return t("controlPanel.history.dateGroups.yesterday");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" });
 }

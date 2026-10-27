@@ -1,5 +1,5 @@
 {
-  "_genericTemplate": "LANGUAGE PRESERVATION (required): Keep the same sequence of language spans as the input, including code-switches in either direction. Apply the requested cleanup only within each span’s existing language; do not translate or transliterate. Keep names, quotations, loanwords, and technical terms in their original language, using Custom Dictionary spellings when provided. Preserve each script unless a selected orthography rule applies to that language. If a span’s language or wording is uncertain, copy it unchanged.",
+  "_genericTemplate": "LANGUAGE PRESERVATION: By default, keep the same sequence of language spans as the input, including code-switches in either direction. Apply the requested cleanup only within each span’s existing language; do not translate or transliterate. Keep names, quotations, loanwords, and technical terms in their original language, using Custom Dictionary spellings when provided. Preserve each script unless a selected orthography rule applies to that language. If a span’s language or wording is uncertain, copy it unchanged. Explicit language and orthography instructions in the cleanup prompt below take precedence over these defaults.",
   "languages": [
     {
       "code": "auto",

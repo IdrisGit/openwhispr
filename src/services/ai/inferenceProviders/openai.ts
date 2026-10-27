@@ -1,19 +1,34 @@
 import type { InferenceProvider } from "./types";
 import { API_ENDPOINTS, TOKEN_LIMITS, buildApiUrl } from "../../../config/constants";
-import { getOpenAiApiConfig } from "../../../models/ModelRegistry";
+import { getCloudModel, getOpenAiApiConfig } from "../../../models/ModelRegistry";
 import { getSettings } from "../../../stores/settingsStore";
-import { withRetry, createApiRetryStrategy, httpError } from "../../../utils/retry";
+import { withRetry, createApiRetryStrategy } from "../../../utils/retry";
 import logger from "../../../utils/logger";
 import { canBorrowCleanupCustomKey, resolveConfiguredOpenAIBase } from "../openaiBase";
 import {
   applyChatCompletionsParams,
+  emptyOutputError,
+  emptyResponseError,
   fetchWithParamFallback,
   isTruncatedFinishReason,
+  REASONING_MODEL_MIN_OUTPUT_TOKENS,
+  responsesReasoningEffort,
+  truncatedOutputError,
 } from "../chatRequestBody";
 import { detectEndpointDialect } from "../thinkingSuppressionDialects";
-import { getLlmRequestTimeoutSeconds } from "../../../helpers/llmRequestTimeout.js";
+import { abortOnCancel, isRequestCancelled, requestCancelledError } from "../requestCancellation";
+import {
+  getLlmRequestTimeoutSeconds,
+  llmRequestTimeoutError,
+} from "../../../helpers/llmRequestTimeout.js";
 import { extractApiErrorMessage } from "../apiErrorMessage";
 import { wrapCleanupTranscript } from "../../../config/prompts";
+import { openCodeSessionHeaders } from "../openCodeSession";
+import {
+  asProviderError,
+  providerHttpError,
+  redactProviderBody,
+} from "../../../helpers/providerHttpErrors.js";
 
 const OPENAI_ENDPOINT_PREF_STORAGE_KEY = "openAiEndpointPreference";
 const PROBE_TIMEOUT_MS = 2_000;
@@ -93,15 +108,13 @@ async function detectServerType(base: string): Promise<void> {
     return;
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     const res = await fetch(buildApiUrl(base, "/models"), {
       method: "GET",
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
-
     if (!res.ok) {
       probedBases.add(base);
       return;
@@ -122,6 +135,8 @@ async function detectServerType(base: string): Promise<void> {
     probedBases.add(base);
   } catch {
     probedBases.add(base);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -152,7 +167,7 @@ export const openaiProvider: InferenceProvider = {
       keyLength: apiKey?.length || 0,
     });
 
-    const systemPrompt = config.systemPrompt || ctx.getSystemPrompt(agentName);
+    const systemPrompt = config.systemPrompt || ctx.getSystemPrompt(agentName, config.toneStyle);
     const userContent = config.systemPrompt ? text : wrapCleanupTranscript(text);
     const imageDataUrl = config.screenContext
       ? `data:${config.screenContext.mediaType};base64,${config.screenContext.data}`
@@ -192,6 +207,16 @@ export const openaiProvider: InferenceProvider = {
       endpointCandidates = getEndpointCandidates(openAiBase);
     }
     const isCustomEndpoint = openAiBase !== API_ENDPOINTS.OPENAI_BASE;
+    // Only the user's own endpoint is self-hosted; isCustomEndpoint also covers OpenRouter.
+    const errorContext = {
+      provider: isOpenRouter ? "OpenRouter" : "OpenAI",
+      selfHosted: isCustomProvider,
+      model,
+      surface: "llm",
+    };
+    // One cleanup call is one conversation: every attempt below (endpoint
+    // fallback, parameter fallback, retry) reuses the same session id.
+    const openCodeHeaders = openCodeSessionHeaders(openAiBase);
 
     logger.logReasoning("OPENAI_ENDPOINTS", {
       base: openAiBase,
@@ -210,6 +235,11 @@ export const openaiProvider: InferenceProvider = {
       });
     }
 
+    // Only registry-known OpenAI reasoning models on OpenAI's own host: an
+    // unknown id (fine-tune, proxy) may reject a cap above its output limit.
+    const hasReasoningRoom =
+      !isCustomEndpoint && getCloudModel(model)?.supportsTemperature === false;
+
     const retryStrategy = createApiRetryStrategy();
     const response = await withRetry(async () => {
       let lastError: Error | null = null;
@@ -217,10 +247,12 @@ export const openaiProvider: InferenceProvider = {
 
       for (const { url: endpoint, type } of endpointCandidates) {
         const controller = new AbortController();
-        const timeoutSeconds = getLlmRequestTimeoutSeconds();
+        const timeoutSeconds = getLlmRequestTimeoutSeconds({ scope: config.inferenceScope });
         const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+        const unlinkCancel = abortOnCancel(config.requestId, controller);
+        let readingBody = false;
         try {
-          const maxTokens =
+          const requestedMaxTokens =
             config.maxTokens ||
             Math.max(
               4096,
@@ -231,6 +263,11 @@ export const openaiProvider: InferenceProvider = {
                 TOKEN_LIMITS.TOKEN_MULTIPLIER
               )
             );
+          // A known endpoint host knows its own request shape better than the model id does.
+          const apiConfig = dialect ?? getOpenAiApiConfig(model, resolvedProvider);
+          const maxTokens = hasReasoningRoom
+            ? Math.max(requestedMaxTokens, REASONING_MODEL_MIN_OUTPUT_TOKENS)
+            : requestedMaxTokens;
 
           const requestBody: Record<string, unknown> = { model };
 
@@ -238,11 +275,11 @@ export const openaiProvider: InferenceProvider = {
             requestBody.input = buildMessages(type);
             requestBody.store = false;
             requestBody.max_output_tokens = maxTokens;
-            // A known endpoint host knows its own request shape better than the model id does.
-            const apiConfig = dialect ?? getOpenAiApiConfig(model, resolvedProvider);
             if (apiConfig.supportsTemperature) {
               requestBody.temperature = config.temperature ?? (config.systemPrompt ? 0.3 : 0);
             }
+            const effort = responsesReasoningEffort(model, resolvedProvider, config, openAiBase);
+            if (effort) requestBody.reasoning = { effort };
           } else {
             requestBody.messages = buildMessages(type);
             applyChatCompletionsParams(requestBody, {
@@ -255,12 +292,14 @@ export const openaiProvider: InferenceProvider = {
           }
 
           const res = await fetchWithParamFallback(
+            endpoint,
             () =>
               fetch(endpoint, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
                   ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+                  ...openCodeHeaders,
                 },
                 body: JSON.stringify(requestBody),
                 signal: controller.signal,
@@ -280,24 +319,37 @@ export const openaiProvider: InferenceProvider = {
               (res.status === 404 || res.status === 405) && type === "responses";
 
             if (isUnsupportedEndpoint) {
-              lastError = httpError(errorMessage, res.status);
+              lastError = providerHttpError({
+                ...errorContext,
+                status: res.status,
+                body: errorData,
+                headers: res.headers,
+              });
               rememberPreference(openAiBase, "chat");
               logger.logReasoning("OPENAI_ENDPOINT_FALLBACK", {
                 attemptedEndpoint: endpoint,
-                error: errorMessage,
+                error: redactProviderBody(errorMessage),
               });
               continue;
             }
 
-            throw httpError(errorMessage, res.status);
+            throw providerHttpError({
+              ...errorContext,
+              status: res.status,
+              body: errorData,
+              headers: res.headers,
+            });
           }
 
           rememberPreference(openAiBase, type);
-          return res.json();
+          readingBody = true;
+          return await res.json();
         } catch (error) {
           if ((error as Error).name === "AbortError") {
-            throw new Error(`Request timed out after ${timeoutSeconds}s`);
+            if (isRequestCancelled(config.requestId)) throw requestCancelledError();
+            throw llmRequestTimeoutError(timeoutSeconds);
           }
+          if (readingBody) throw error;
           lastError = error as Error;
           if (retryStrategy.shouldRetry(lastError)) {
             lastRetryableError = lastError;
@@ -312,23 +364,29 @@ export const openaiProvider: InferenceProvider = {
           throw lastRetryableError || error;
         } finally {
           clearTimeout(timeoutId);
+          unlinkCancel();
         }
       }
 
       throw lastRetryableError || lastError || new Error("No OpenAI endpoint responded");
-    }, retryStrategy);
+    }, retryStrategy).catch((error) => {
+      // Classified only once it has left withRetry, so the deadline is still
+      // attempted exactly once.
+      throw asProviderError(error, errorContext);
+    });
 
     const isResponsesApi = Array.isArray(response?.output);
     const isChatCompletions = Array.isArray(response?.choices);
 
-    if (config.requireCompleteOutput) {
-      const responseIncomplete =
-        response?.status === "incomplete" ||
-        !!response?.incomplete_details ||
-        response?.choices?.some((choice: any) => isTruncatedFinishReason(choice?.finish_reason));
-      if (responseIncomplete) {
-        throw new Error("Model output was truncated before the selection edit completed");
-      }
+    const responseIncomplete =
+      response?.status === "incomplete" ||
+      !!response?.incomplete_details ||
+      response?.choices?.some((choice: any) => isTruncatedFinishReason(choice?.finish_reason));
+    const contentFiltered =
+      response?.incomplete_details?.reason === "content_filter" ||
+      response?.choices?.some((choice: any) => choice?.finish_reason === "content_filter");
+    if (config.requireCompleteOutput && responseIncomplete) {
+      throw truncatedOutputError();
     }
 
     logger.logReasoning("OPENAI_RAW_RESPONSE", {
@@ -345,6 +403,7 @@ export const openaiProvider: InferenceProvider = {
     });
 
     let responseText = "";
+    let refusal = "";
 
     if (isResponsesApi) {
       for (const item of response.output) {
@@ -353,6 +412,9 @@ export const openaiProvider: InferenceProvider = {
             if (content.type === "output_text" && content.text) {
               responseText = content.text.trim();
               break;
+            }
+            if (content.type === "refusal" && content.refusal) {
+              refusal = content.refusal;
             }
           }
           if (responseText) break;
@@ -401,8 +463,16 @@ export const openaiProvider: InferenceProvider = {
     });
 
     if (!responseText) {
-      if (config.requireCompleteOutput) {
-        throw new Error("Model returned an empty selection edit");
+      if (refusal) {
+        throw new Error(`Model declined the request: ${refusal}`);
+      }
+      // A content filter also marks a Responses reply "incomplete", but no output
+      // budget ran out: an empty reply, never retried and never echoed back.
+      if (contentFiltered) throw emptyOutputError("Model output was stopped by a content filter");
+      const error = emptyResponseError("OpenAI", config, !!responseIncomplete);
+      // No retry code: that request already had a retry's room.
+      if (error) {
+        throw responseIncomplete && hasReasoningRoom ? truncatedOutputError(error.message) : error;
       }
       logger.logReasoning("OPENAI_EMPTY_RESPONSE_FALLBACK", {
         model,

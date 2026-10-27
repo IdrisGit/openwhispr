@@ -1,12 +1,18 @@
-import { applyTinfoilModels, getTinfoilModels, type CloudModelDefinition } from "./ModelRegistry";
+import {
+  applyTinfoilModels,
+  getCloudProviderDefaultModelId,
+  getTinfoilModels,
+  type CloudModelDefinition,
+} from "./ModelRegistry";
+import { pickProviderDefaultModel } from "./providerDefaultModel";
 import {
   isCachedListFresh,
   readCachedTinfoilModels,
   writeCachedTinfoilModels,
 } from "./tinfoilModelCache";
-import { INFERENCE_SCOPES } from "../config/inferenceScopes";
+import { INFERENCE_SCOPES, usesCloudModelCatalog } from "../config/inferenceScopes";
 import { getSettings, setStringSetting } from "../stores/settingsStore";
-import { recordTinfoilModelSwitch } from "../stores/tinfoilModelSwitchStore";
+import { recordRetiredModelSwitch } from "../stores/retiredModelSwitchStore";
 
 /** A chat model as reported by Tinfoil's /v1/models, narrowed by the main process. */
 export interface TinfoilCatalogModel {
@@ -20,9 +26,8 @@ export interface TinfoilCatalogModel {
  * Curated, translated descriptions keyed by model id. The endpoint only returns
  * English copy.
  */
-const DESCRIPTION_KEYS: Record<string, string> = {
-  "deepseek-v4-pro": "models.descriptions.cloud.tinfoil_deepseek_v4_pro",
-  "glm-5-2": "models.descriptions.cloud.tinfoil_glm_5_2",
+export const DESCRIPTION_KEYS: Record<string, string> = {
+  "glm-5-3": "models.descriptions.cloud.tinfoil_glm_5_3",
   "gemma4-31b": "models.descriptions.cloud.tinfoil_gemma4_31b",
   "gpt-oss-120b": "models.descriptions.cloud.tinfoil_gpt_oss_120b",
   "llama3-3-70b": "models.descriptions.cloud.tinfoil_llama3_3_70b",
@@ -40,12 +45,10 @@ function toCloudModels(catalog: TinfoilCatalogModel[]): CloudModelDefinition[] {
   }));
 }
 
-const DEFAULT_MODEL_ID = "glm-5-2";
-
 export function pickDefaultTinfoilModel(
   models: CloudModelDefinition[]
 ): CloudModelDefinition | undefined {
-  return models.find((model) => model.id === DEFAULT_MODEL_ID) ?? models[0];
+  return pickProviderDefaultModel(models, getCloudProviderDefaultModelId("tinfoil"));
 }
 
 /**
@@ -64,7 +67,8 @@ function reconcileSelectedModels(
   const announced = new Set<string>();
 
   for (const scope of Object.values(INFERENCE_SCOPES)) {
-    const { provider, model } = scope.storeKeys;
+    const { mode, provider, model } = scope.storeKeys;
+    if (!usesCloudModelCatalog(settings[mode])) continue;
     if (settings[provider] !== "tinfoil") continue;
 
     const selected = settings[model];
@@ -74,7 +78,8 @@ function reconcileSelectedModels(
     // Several scopes can share a retired model; say so once.
     if (announced.has(selected)) continue;
     announced.add(selected);
-    recordTinfoilModelSwitch({
+    recordRetiredModelSwitch({
+      provider: "tinfoil",
       from: previous.find((m) => m.id === selected)?.name ?? selected,
       to: replacement.name,
     });

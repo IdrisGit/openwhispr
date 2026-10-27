@@ -15,7 +15,6 @@ const helperSources = fs
   }));
 
 const NON_POLICY_ROUTE_REASONS = new Map([
-  ["streaming-usage", "usage accounting does not perform a policy-gated action"],
   ["usage", "entitlement and recovery status must remain available"],
   ["stripe/switch-plan", "billing recovery must remain available"],
   ["stripe/preview-switch", "billing recovery must remain available"],
@@ -57,9 +56,11 @@ test("chunk pool recovery cannot abort inline multipart uploads", () => {
 });
 
 test("the shared realtime-token helper applies policy headers", () => {
+  // realtimeTokenProviders.test.js pins that createServerTokenPoster sends its
+  // request through withPolicyHeaders; this pins that main hands it the real one.
   assert.match(
     source,
-    /const postServerToken[\s\S]{0,900}?headers:\s*withPolicyHeaders\(/,
+    /createServerTokenPoster\(\{[\s\S]{0,300}?\bwithPolicyHeaders,/,
     "the shared realtime-token helper must apply policy headers"
   );
 });

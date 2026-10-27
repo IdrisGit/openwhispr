@@ -2,9 +2,18 @@ import type { InferenceProvider } from "./types";
 import { TOKEN_LIMITS } from "../../../config/constants";
 import { withRetry, createApiRetryStrategy } from "../../../utils/retry";
 import logger from "../../../utils/logger";
-import { applyChatCompletionsParams, isTruncatedFinishReason } from "../chatRequestBody";
+import {
+  applyChatCompletionsParams,
+  emptyResponseError,
+  isTruncatedFinishReason,
+  truncatedOutputError,
+} from "../chatRequestBody";
 import { getTinfoilChatClient } from "../tinfoilClient";
-import { getLlmRequestTimeoutSeconds } from "../../../helpers/llmRequestTimeout.js";
+import { isRequestCancelled, requestCancelledError, requestSignal } from "../requestCancellation";
+import {
+  getLlmRequestTimeoutSeconds,
+  llmRequestTimeoutError,
+} from "../../../helpers/llmRequestTimeout.js";
 import { wrapCleanupTranscript } from "../../../config/prompts";
 
 export const tinfoilProvider: InferenceProvider = {
@@ -17,7 +26,7 @@ export const tinfoilProvider: InferenceProvider = {
     // refuses to send anything over an unverified transport.
     const client = await getTinfoilChatClient(apiKey);
 
-    const systemPrompt = config.systemPrompt || ctx.getSystemPrompt(agentName);
+    const systemPrompt = config.systemPrompt || ctx.getSystemPrompt(agentName, config.toneStyle);
     const userContent = config.systemPrompt ? text : wrapCleanupTranscript(text);
     const messages = [
       { role: "system", content: systemPrompt },
@@ -40,15 +49,25 @@ export const tinfoilProvider: InferenceProvider = {
     applyChatCompletionsParams(requestBody, { model, provider: "tinfoil", config, maxTokens });
 
     // Keep SDK-internal retries off so withRetry stays the single retry layer.
-    const timeoutMs = getLlmRequestTimeoutSeconds() * 1000;
-    const response = await withRetry(
-      () =>
-        client.chat.completions.create(requestBody as any, {
-          timeout: timeoutMs,
+    const timeoutSeconds = getLlmRequestTimeoutSeconds({ scope: config.inferenceScope });
+    const response = await withRetry(async () => {
+      try {
+        return await client.chat.completions.create(requestBody as any, {
+          timeout: timeoutSeconds * 1000,
           maxRetries: 0,
-        }),
-      createApiRetryStrategy()
-    );
+          signal: requestSignal(config.requestId),
+        });
+      } catch (error) {
+        // The SDK's abort error has no status, which withRetry would re-send.
+        if (isRequestCancelled(config.requestId)) throw requestCancelledError();
+        // The SDK reports an expired deadline as a connection error, which
+        // withRetry would otherwise treat as a network drop and re-send.
+        if ((error as Error).name === "APIConnectionTimeoutError") {
+          throw llmRequestTimeoutError(timeoutSeconds);
+        }
+        throw error;
+      }
+    }, createApiRetryStrategy());
 
     const responseText =
       response.choices
@@ -56,11 +75,11 @@ export const tinfoilProvider: InferenceProvider = {
         .find((content: unknown) => typeof content === "string" && content.trim())
         ?.trim() || "";
 
-    if (
-      config.requireCompleteOutput &&
-      response.choices?.some((choice: any) => isTruncatedFinishReason(choice?.finish_reason))
-    ) {
-      throw new Error("Model output was truncated before the selection edit completed");
+    const responseIncomplete = response.choices?.some((choice: any) =>
+      isTruncatedFinishReason(choice?.finish_reason)
+    );
+    if (config.requireCompleteOutput && responseIncomplete) {
+      throw truncatedOutputError();
     }
 
     logger.logReasoning("TINFOIL_RESPONSE", {
@@ -72,9 +91,8 @@ export const tinfoilProvider: InferenceProvider = {
     });
 
     if (!responseText) {
-      if (config.requireCompleteOutput) {
-        throw new Error("Model returned an empty selection edit");
-      }
+      const error = emptyResponseError("Tinfoil", config, !!responseIncomplete);
+      if (error) throw error;
       logger.logReasoning("TINFOIL_EMPTY_RESPONSE_FALLBACK", {
         model,
         originalTextLength: text.length,
