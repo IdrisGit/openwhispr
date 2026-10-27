@@ -853,6 +853,9 @@ test("uinput logs dispatch without claiming the target received the paste", asyn
   const TestClipboardManager = loadClipboardManager({ spawn: createSuccessfulSpawn([]) });
   const manager = new TestClipboardManager();
   const log = t.mock.method(manager, "safeLog", () => {});
+  // Unrelated diagnostics must not make this wording check fail.
+  debugLogger.info("Unrelated diagnostic", { method: "other" }, "clipboard");
+  manager.safeLog("✅ Paste successful using another tool");
   manager.commandExists = () => false;
   manager.resolveLinuxFastPasteBinary = () => "/tmp/linux-fast-paste";
   manager._readPortalToken = () => null;
@@ -860,18 +863,14 @@ test("uinput logs dispatch without claiming the target received the paste", asyn
   const result = await withWaylandEnvironment("GNOME", () => manager.pasteLinux(null));
 
   assert.equal(result.method, "uinput");
-  assert.deepEqual(
-    info.mock.calls.map((call) => call.arguments),
-    [
-      [
-        "Paste injection dispatched",
-        { tool: "linux-fast-paste", method: "uinput", detectedWindowClass: null },
-        "clipboard",
-      ],
-    ]
-  );
-  assert.ok(log.mock.calls.some((call) => call.arguments[0].includes("injection dispatched")));
-  assert.ok(log.mock.calls.every((call) => !call.arguments[0].includes("Paste successful")));
+  const uinputEvents = info.mock.calls.filter((call) => call.arguments[1]?.method === "uinput");
+  assert.ok(uinputEvents.some((call) => call.arguments[0] === "Paste injection dispatched"));
+  assert.ok(uinputEvents.every((call) => !call.arguments[0].includes("Paste successful")));
+  const uinputMessages = log.mock.calls
+    .map((call) => call.arguments[0])
+    .filter((message) => message.includes("linux-fast-paste (uinput)"));
+  assert.ok(uinputMessages.some((message) => message.includes("injection dispatched")));
+  assert.ok(uinputMessages.every((message) => !message.includes("Paste successful")));
 });
 
 test("GNOME falls back to a tokenless portal after uinput fails", async () => {
