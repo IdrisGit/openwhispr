@@ -7,6 +7,7 @@ export type SettingsSectionType =
   | "workspace"
   | "general"
   | "hotkeys"
+  | "toneStyle"
   | "speechToText"
   | "llms"
   | "privacyData"
@@ -29,6 +30,7 @@ const SECTIONS = new Set<string>([
   "workspace",
   "general",
   "hotkeys",
+  "toneStyle",
   "speechToText",
   "llms",
   "privacyData",
@@ -42,6 +44,7 @@ const ALIASES: Record<string, SettingsSectionType> = {
   dictationAgent: "llms",
   intelligence: "llms",
   meetings: "llms",
+  noteFormatting: "llms",
   prompts: "llms",
   transcription: "speechToText",
   uploadTranscription: "speechToText",
@@ -55,6 +58,7 @@ const ALIAS_TABS: Record<string, LlmTab | SpeechTab> = {
   uploadTranscription: "upload",
   dictationAgent: "dictationAgent",
   meetings: "noteFormatting",
+  noteFormatting: "noteFormatting",
   intelligence: "dictationCleanup",
   agentMode: "chatIntelligence",
   agentConfig: "chatIntelligence",

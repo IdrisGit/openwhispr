@@ -132,6 +132,7 @@ export function getGracePeriodRemainingMs(): number {
 }
 
 export async function signOut(): Promise<void> {
+  await window.electronAPI?.closeActivationStream?.().catch(() => undefined);
   try {
     await authClient.signOut();
   } catch {

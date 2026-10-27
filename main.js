@@ -564,8 +564,8 @@ function initializeCoreManagers() {
       llamaVulkanManager,
     ]);
     if (clearedPacks.length > 0) {
-      // No window exists yet — persist the notice; a control panel window
-      // shows it as a toast and clears it. See #1606.
+      // No window exists yet — persist the notice; the window that shows it
+      // as a toast takes it (#1606, #2554).
       require("./src/helpers/gpuPackMigrationNotice").record(clearedPacks);
     }
     // The 1.8.3 migration deleted lib-carrying packs without recording that
@@ -573,10 +573,40 @@ function initializeCoreManagers() {
     // with no pack on disk only happens via such data loss. recordOnce gates
     // each pack to one notice so a dismissed toast doesn't return every launch.
     const gpuPacks = [
-      { manager: whisperCudaManager, enabledEnvVar: "WHISPER_CUDA_ENABLED", group: "whisper" },
-      { manager: whisperVulkanManager, enabledEnvVar: "WHISPER_VULKAN_ENABLED", group: "whisper" },
+      {
+        manager: whisperCudaManager,
+        enabledEnvVar: "WHISPER_CUDA_ENABLED",
+        group: "whisper",
+        backend: "cuda",
+      },
+      {
+        manager: whisperVulkanManager,
+        enabledEnvVar: "WHISPER_VULKAN_ENABLED",
+        group: "whisper",
+        backend: "vulkan",
+      },
       { manager: llamaVulkanManager, enabledEnvVar: "LLAMA_VULKAN_ENABLED" },
     ];
+    // A pack whose backend failed here and then vanished (a distro launcher
+    // deletes it, #2168) was no loss: drop its flag as a delete would, so no
+    // notice names it, even after an upgrade clears the remembered failure.
+    const failedBackends = WhisperManager.resolveFailedGpuBackends(process.env.WHISPER_GPU_FAILED);
+    for (const { manager, enabledEnvVar, backend } of gpuPacks) {
+      if (
+        failedBackends.includes(backend) &&
+        process.env[enabledEnvVar] === "true" &&
+        !manager.isDownloaded() &&
+        !manager.needsUpdate()
+      ) {
+        delete process.env[enabledEnvVar];
+        environmentManager.removeKeyFromEnvFile(enabledEnvVar).catch((err) => {
+          debugLogger.error("Failed to clear a vanished GPU pack's flag from .env", {
+            key: enabledEnvVar,
+            error: err.message,
+          });
+        });
+      }
+    }
     const orphanedPacks = detectOrphanedGpuPacks(gpuPacks);
     if (orphanedPacks.length > 0) {
       require("./src/helpers/gpuPackMigrationNotice").recordOnce(orphanedPacks);
@@ -779,11 +809,7 @@ app.on("open-url", (event, url) => {
 
   void handleOAuthDeepLink(url);
 
-  if (windowManager && isLiveWindow(windowManager.controlPanelWindow)) {
-    windowManager.controlPanelWindow.show();
-    windowManager.controlPanelWindow.focus();
-    dockManager.setControlPanelVisible(true);
-  }
+  windowManager?.showControlPanel();
 });
 
 function isInvitationDeepLink(url) {
@@ -883,9 +909,7 @@ function handleInvitationDeepLink(deepLinkUrl) {
     pendingInvitationDeepLinkToken = token;
     if (!windowManager) return;
     if (isLiveWindow(windowManager.controlPanelWindow)) {
-      windowManager.controlPanelWindow.show();
-      windowManager.controlPanelWindow.focus();
-      dockManager.setControlPanelVisible(true);
+      windowManager.showControlPanel();
       // Best-effort fast path — the get-pending-invitation-token pull is the reliable path.
       windowManager.controlPanelWindow.webContents.send("workspace-invitation-token", token);
     } else {
@@ -994,9 +1018,7 @@ async function applySessionTokenAndRefresh(token) {
       oauthProtocol: OAUTH_PROTOCOL,
     });
   }
-  windowManager.controlPanelWindow.show();
-  windowManager.controlPanelWindow.focus();
-  dockManager.setControlPanelVisible(true);
+  windowManager.showControlPanel();
 }
 
 async function handleOAuthDeepLink(deepLinkUrl) {
@@ -1021,9 +1043,7 @@ function handleUpgradeDeepLink() {
     windowManager.controlPanelWindow.webContents.executeJavaScript(
       'window.dispatchEvent(new Event("upgrade-success"))'
     );
-    windowManager.controlPanelWindow.show();
-    windowManager.controlPanelWindow.focus();
-    dockManager.setControlPanelVisible(true);
+    windowManager.showControlPanel();
   }
 }
 
@@ -1244,6 +1264,7 @@ async function startApp() {
   const launchedHidden = wasLaunchedAtLoginHidden();
   const startMinimized = environmentManager.getStartMinimized() || launchedHidden;
   if (debugLogger) debugLogger.info("Start minimized", { enabled: startMinimized, launchedHidden });
+  windowManager.startedMinimized = startMinimized;
   await windowManager.createMainWindow();
   await checkStartupHold();
   if (!startMinimized) {
@@ -1328,7 +1349,8 @@ async function startApp() {
   const meetingHotkeyCallback = () => {
     if (!isMeetingPress()) return;
     debugLogger.info("Meeting hotkey triggered", {}, "meeting");
-    windowManager.startManualMeeting();
+    // Usually pressed mid-call: an open panel updates behind the meeting app.
+    windowManager.startManualMeeting({ activate: false });
   };
 
   const savedMeetingKey = environmentManager.getMeetingKey?.() || "";
@@ -1624,6 +1646,7 @@ async function startApp() {
     let rightModActiveKey = null;
 
     globeKeyManager.on("right-modifier-down", async (modifier) => {
+      hotkeyManager.logHotkeyEvent("macos-native", "down", modifier);
       // Check voice agent slot for right-modifier
       if (hotkeyManager.slotHasHotkey("voiceAgent", modifier)) {
         windowManager.sendToggleVoiceAgent();
@@ -1660,6 +1683,7 @@ async function startApp() {
     });
 
     globeKeyManager.on("right-modifier-up", async (modifier) => {
+      hotkeyManager.logHotkeyEvent("macos-native", "up", modifier);
       if (hotkeyManager.slotHasHotkey("dictation", modifier)) {
         if (!isLiveWindow(windowManager.mainWindow)) return;
 
@@ -1712,6 +1736,7 @@ async function startApp() {
     globeKeyManager.on("mouse-button-down", async (button) => {
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
+      hotkeyManager.logHotkeyEvent("macos-native", "down", button);
 
       if (hotkeyManager.slotHasHotkey("voiceAgent", button)) {
         windowManager.sendToggleVoiceAgent();
@@ -1751,6 +1776,7 @@ async function startApp() {
     globeKeyManager.on("mouse-button-up", async (button) => {
       if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
       if (!isMouseButtonHotkey(button)) return;
+      hotkeyManager.logHotkeyEvent("macos-native", "up", button);
 
       if (!hotkeyManager.slotHasHotkey("dictation", button)) return;
       if (!isLiveWindow(windowManager.mainWindow)) return;
@@ -1855,6 +1881,7 @@ async function startApp() {
     // Dictation supports push-to-talk and needs the overlay window; meeting
     // drives other windows (matching their globalShortcut callbacks and macOS).
     const dispatchNativeKeyDown = (key) => {
+      hotkeyManager.logHotkeyEvent("native-listener", "down", key);
       if (hotkeyManager.slotHasHotkey("dictation", key)) {
         if (!isLiveWindow(windowManager.mainWindow)) return;
         if (windowManager.getActivationMode() === "push") {
@@ -1869,12 +1896,13 @@ async function startApp() {
       } else if (hotkeyManager.slotHasHotkey("translation", key)) {
         windowManager.sendToggleTranslation();
       } else if (hotkeyManager.slotHasHotkey("meeting", key)) {
-        windowManager.startManualMeeting();
+        windowManager.startManualMeeting({ activate: false });
       }
     };
 
     // Only dictation drives push-to-talk, so only its key-up matters.
     const dispatchNativeKeyUp = (key) => {
+      hotkeyManager.logHotkeyEvent("native-listener", "up", key);
       if (!hotkeyManager.slotHasHotkey("dictation", key)) return;
       if (windowManager.winPushState?.active) {
         windowManager.handleWindowsPushKeyUp(key);
@@ -1976,12 +2004,7 @@ if (gotSingleInstanceLock) {
     }
 
     if (isLiveWindow(windowManager.controlPanelWindow)) {
-      if (windowManager.controlPanelWindow.isMinimized()) {
-        windowManager.controlPanelWindow.restore();
-      }
-      windowManager.controlPanelWindow.show();
-      windowManager.controlPanelWindow.focus();
-      dockManager.setControlPanelVisible(true);
+      windowManager.showControlPanel();
       if (windowManager.controlPanelWindow.webContents.isCrashed()) {
         windowManager.loadControlPanel();
       }
@@ -2082,12 +2105,7 @@ if (gotSingleInstanceLock) {
     } else {
       // Show control panel when dock icon is clicked (most common user action)
       if (windowManager && isLiveWindow(windowManager.controlPanelWindow)) {
-        if (windowManager.controlPanelWindow.isMinimized()) {
-          windowManager.controlPanelWindow.restore();
-        }
-        windowManager.controlPanelWindow.show();
-        windowManager.controlPanelWindow.focus();
-        dockManager.setControlPanelVisible(true);
+        windowManager.showControlPanel();
       } else if (windowManager) {
         // If control panel doesn't exist, create it
         windowManager.createControlPanelWindow();
@@ -2113,7 +2131,13 @@ if (gotSingleInstanceLock) {
     }
     event.preventDefault();
     performSyncTeardown();
-    sidecarRegistry.shutdownAll().finally(() => app.exit(0));
+    Promise.allSettled([
+      sidecarRegistry.shutdownAll(),
+      Promise.race([
+        ipcHandlers?.metaActivation?.shutdown(),
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]),
+    ]).finally(() => app.exit(0));
   });
 }
 

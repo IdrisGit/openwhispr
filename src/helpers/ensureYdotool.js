@@ -160,7 +160,7 @@ async function ensureYdotool() {
 }
 
 async function getYdotoolStatus() {
-  const { isWayland, isKde, isWlroots, isCosmic } = getLinuxSessionInfo();
+  const { isWayland, isKde, isWlroots, isCosmic, requiresWlCopy } = getLinuxSessionInfo();
   const isLinux = process.platform === "linux";
   const status = {
     isLinux,
@@ -168,6 +168,8 @@ async function getYdotoolStatus() {
     isKde,
     isWlroots,
     isCosmic,
+    requiresWlCopy,
+    hasWlCopy: false,
     hasYdotool: false,
     hasYdotoold: false,
     hasWtype: false,
@@ -222,6 +224,7 @@ async function getYdotoolStatus() {
     hasYdotool,
     hasYdotoold,
     hasWtype,
+    hasWlCopy,
     daemonRunning,
     hasService,
     hasUinput,
@@ -234,6 +237,7 @@ async function getYdotoolStatus() {
     run("which", ["ydotool"]).then(Boolean),
     run("which", ["ydotoold"]).then(Boolean),
     run("which", ["wtype"]).then(Boolean),
+    (requiresWlCopy || isKde) && run("which", ["wl-copy"]).then(Boolean),
     checkDaemon(),
     Promise.all(servicePaths.map((file) => exists(file))).then((results) => results.some(Boolean)),
     exists("/dev/uinput", fs.constants.W_OK),
@@ -245,6 +249,7 @@ async function getYdotoolStatus() {
   ]);
   return {
     ...status,
+    hasWlCopy: !!hasWlCopy,
     hasYdotool,
     hasYdotoold,
     hasWtype,

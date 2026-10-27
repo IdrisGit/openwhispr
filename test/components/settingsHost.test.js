@@ -93,7 +93,9 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   );
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   let openSettings;
+  let backgroundRenders = 0;
   function NavigationChild({ navigation }) {
+    backgroundRenders++;
     openSettings = useStore(navigation, (state) => state.openSettings);
     return React.createElement(GpuAccelerationBanner, { navigation });
   }
@@ -136,6 +138,11 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
   assert.equal(globalThis.__gpuBannerOptions.settingsOpen, true);
 
   const modal = globalThis.__settingsModalProps;
+  assert.equal(
+    backgroundRenders,
+    1,
+    "opening and closing Settings leaves its background subtree untouched"
+  );
   await React.act(async () => {
     showSettingsFromMain({ hostId: readyHost, requestId: 3, section: "llms" });
     await flush();
@@ -147,12 +154,25 @@ test("SettingsHost routes opens and releases its main-process listeners", async 
     showSettingsFromMain({ hostId: readyHost, requestId: 4, section: "llms" });
     await flush();
   });
-  assert.equal(modal.navigation.getState().section, "llms", "a repeated named open navigates again");
+  assert.equal(
+    modal.navigation.getState().section,
+    "llms",
+    "a repeated named open navigates again"
+  );
   await React.act(async () => {
     showSettingsFromMain({ hostId: readyHost, requestId: 5 });
     await flush();
   });
-  assert.equal(modal.navigation.getState().section, "llms", "a plain open keeps the current section");
+  assert.equal(
+    modal.navigation.getState().section,
+    "llms",
+    "a plain open keeps the current section"
+  );
+  await React.act(async () => openSettings("toneStyle"));
+  assert.equal(modal.navigation.getState().section, "toneStyle");
+  await React.act(async () => openSettings("noteFormatting"));
+  assert.equal(modal.navigation.getState().llmTab, "noteFormatting");
+  assert.equal(backgroundRenders, 1, "named navigation does not rebuild the background tree");
 
   // Ported from the readiness test: a disposed host cannot consume a late
   // document read or an already-queued callback after its cleanup.

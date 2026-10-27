@@ -26,6 +26,7 @@ function loadWindowManager() {
       return true;
     }
     focus() {}
+    show() {}
     setTitle() {}
   }
   class Stub {}
@@ -47,6 +48,7 @@ function loadWindowManager() {
     "./hotkeyManager": Stub,
     "./dragManager": Stub,
     "./mainWindowPlacementCoordinator": Stub,
+    "./plasmaWorkAreas": { plasmaWorkAreas: {} },
     "./menuManager": { setupControlPanelMenu() {} },
     "./devServerManager": {},
     "./navigationGuard": {},

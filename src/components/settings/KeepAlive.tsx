@@ -1,20 +1,7 @@
-import { useState, type ReactNode, type Ref } from "react";
+import { useState, type ReactNode } from "react";
+import { TabPanel } from "../ui/TabPanel";
 
-export function TabPanel({
-  active,
-  children,
-  ref,
-}: {
-  active: boolean;
-  children: ReactNode;
-  ref?: Ref<HTMLDivElement>;
-}) {
-  return (
-    <div hidden={!active} ref={ref}>
-      {children}
-    </div>
-  );
-}
+export { TabPanel };
 
 /** Mounts children on first activation, then keeps them mounted (hidden) for the owner's lifetime. */
 export function KeepAlive({ active, children }: { active: boolean; children: ReactNode }) {

@@ -16,6 +16,7 @@ import {
   Shield,
   ShieldCheck,
   Users,
+  SquareSparkle,
 } from "./icons";
 import SidebarModal, { type SidebarItem } from "./ui/SidebarModal";
 import SettingsPage, { AccountAvatar } from "./SettingsPage";
@@ -69,6 +70,13 @@ export default function SettingsModal({ navigation, onOpenChange }: SettingsModa
       label: t("settingsModal.sections.hotkeys.label"),
       icon: Keyboard,
       description: t("settingsModal.sections.hotkeys.description"),
+      group: t("settingsModal.groups.app"),
+    },
+    {
+      id: "toneStyle",
+      label: t("settingsModal.sections.toneStyle.label"),
+      icon: SquareSparkle,
+      description: t("settingsModal.sections.toneStyle.description"),
       group: t("settingsModal.groups.app"),
     },
     {

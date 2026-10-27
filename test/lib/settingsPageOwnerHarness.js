@@ -79,7 +79,7 @@ const SPEECH_MOCKS = {
     }
   `,
   "/stores/policyStore": `export const usePolicyStore = select => globalThis.__settingsPageOwner.policy(select); usePolicyStore.getState = () => globalThis.__settingsPageOwner.policy.getState();`,
-  "/stores/meetingRecordingStore": `export const stopRecording = () => globalThis.__settingsPageOwner.stopRecording?.();`,
+  "/stores/meetingRecordingStore": `export const stopRecording = () => globalThis.__settingsPageOwner.stopRecording?.(); export const useMeetingRecordingStore = {getState: () => ({isRecording: false})};`,
   "/services/SyncService.js": `export const syncService = { purgeTeamSpacesForSignOut: () => globalThis.__settingsPageOwner.purgeTeamSpaces?.(), scheduleSettingsPush() {} };`,
   "/lib/auth": `
     export const AUTH_URL = "https://auth.example.test";
@@ -191,7 +191,7 @@ async function mountSettingsPageOwner(
     "/stores/enterpriseIdentityStore": `export const useManagedScopeResolution = () => ({kind: "unmanaged"}); export const getManagedScopeResolution = () => ({kind: "unmanaged"});`,
     "/stores/workspaceStore": `const state = {workspaces: [], loaded: false}; export const useWorkspaceStore = select => select(state);`,
     "/stores/noteStore.js": `export const useMigration = () => null; export const startMigration = async () => {}; export const loadFolders = () => {}; export const initializeNotesTree = () => {};`,
-    "/stores/meetingRecordingStore": `export const stopRecording = async () => {};`,
+    "/stores/meetingRecordingStore": `export const stopRecording = async () => {}; export const useMeetingRecordingStore = {getState: () => ({isRecording: false})};`,
     "/services/SyncService.js": `export const syncService = {purgeTeamSpacesForSignOut: async () => {}, scheduleSettingsPush() {}};`,
     "/lib/auth": `
       export const AUTH_URL = "https://auth.example.test";

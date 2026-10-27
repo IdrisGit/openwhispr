@@ -51,10 +51,8 @@ test("retained transcription pickers reconcile only confirmed, current backend i
         export const useDialogs = () => dialogs;`,
       "/components/ui/useToast": `const context = {toast() {}}; export const useToast = () => context;`,
       "/hooks/usePolicy": `const policy = {status: "unmanaged", policy: null}; export const usePolicySnapshot = () => policy;`,
-      "/stores/settingsStore": `
-        const settings = {isSignedIn: false};
-        export const useSettingsStore = selector => selector(settings);
-        export const clearMissingLocalModelSelections = () => {};`,
+      "/i18n": `export const normalizeUiLanguage = value => value || "en"; export default {language: "en", changeLanguage: async () => {}};`,
+      "/stores/settingsStore": `export * from "/stores/settingsStore.ts";`,
     },
   });
   const { default: Picker } = await vite.ssrLoadModule("/components/TranscriptionModelPicker.tsx");

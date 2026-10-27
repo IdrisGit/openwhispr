@@ -113,7 +113,8 @@ async function setup(t) {
       "/hooks/usePolicy": `const policy = {status: "unmanaged", policy: null}; export const usePolicySnapshot = () => policy;`,
       "/stores/policyStore": `import {create} from "zustand"; export const usePolicyStore = create(() => ({agentAllowed: true})); globalThis.__gpuPolicy = usePolicyStore;`,
       "/stores/policyRules": `export * from "/stores/policyRules.ts"; export const isAgentAllowed = state => state.agentAllowed;`,
-      "/stores/settingsStore": `const settings = {useCleanupModel: true, openaiApiKey: "", setOpenaiApiKey() {}}; export const useSettingsStore = selector => selector(settings); export const clearMissingLocalModelSelections = () => {};`,
+      "/i18n": `export const normalizeUiLanguage = value => value || "en"; export default {language: "en", changeLanguage: async () => {}};`,
+      "/stores/settingsStore": `export * from "/stores/settingsStore.ts"; import {useSettingsStore as real} from "/stores/settingsStore.ts"; const settings = {...real.getState(), useCleanupModel: true}; export const useSettingsStore = selector => selector(settings);`,
       "/GpuDeviceSelector": `export default function GpuDeviceSelector() { return null; }`,
       "/ui/PromptStudio": `export default function PromptStudio() { return null; }`,
       "/InferenceConfigEditor": `import React from "react"; import Selector from "/components/ReasoningModelSelector.tsx"; const noop = () => {}; export default function Editor({scope, navigation}) { return React.createElement(Selector, {settingsScope: scope, settingsNavigation: navigation, mode: "local", reasoningModel: "", setReasoningModel: noop, localReasoningProvider: "qwen", setLocalReasoningProvider: noop, cloudReasoningBaseUrl: "", setCloudReasoningBaseUrl: noop}); }`,
@@ -472,7 +473,7 @@ test("a hidden GPU-pack download finishes and activation polls without routine r
   h.api.downloadCudaWhisperBinary = () => download.promise;
   let action;
   await React.act(async () => {
-    action = globalThis.__gpuActions["gpu.enableButton"]();
+    action = globalThis.__gpuActions["gpu.enableBackend"]();
   });
   assert.doesNotMatch(h.container.textContent, /gpu.downloadFailed/);
   await render(false);

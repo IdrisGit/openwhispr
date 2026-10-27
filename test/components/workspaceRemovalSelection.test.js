@@ -147,10 +147,10 @@ test("deleting A preserves a newer B selection and managed identity while reconc
   });
   assert.equal(
     store.getState().activeWorkspaceId,
-    null,
-    "multiple survivors do not invent a selection"
+    "B",
+    "main's workspace default selects a surviving workspace when the old one is removed"
   );
-  assert.equal(seen.identity.workspaceId, null);
+  assert.equal(seen.identity.workspaceId, "B");
 
   await seed();
   run = await start();

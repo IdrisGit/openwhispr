@@ -148,3 +148,60 @@ test("local JSON replacement preserves document bytes and rejects ambiguous enve
     });
   }
 });
+
+test("both edit prompts tell the model to hand a question about the selection back", async () => {
+  const {
+    SELECTION_QUESTION_MARKER,
+    buildSelectionEditSystemPrompt,
+    buildLocalSelectionEditSystemPrompt,
+  } = await load();
+  const cloud = buildSelectionEditSystemPrompt("", "__OPENWHISPR_SELECTION_COMPLETE_test__");
+  const local = buildLocalSelectionEditSystemPrompt();
+  for (const prompt of [cloud, local]) {
+    assert.ok(prompt.includes(SELECTION_QUESTION_MARKER));
+    assert.match(prompt, /explain/);
+  }
+  assert.ok(local.includes(JSON.stringify({ replacement: SELECTION_QUESTION_MARKER })));
+});
+
+test("a question verdict is recognised in every shape the edit paths return it", async () => {
+  const { SELECTION_QUESTION_MARKER: question, isSelectionQuestionResponse } = await load();
+  const marker = "__OPENWHISPR_SELECTION_COMPLETE_test__";
+  for (const response of [
+    `${question}${marker}`,
+    ` ${question}\n${marker}`,
+    // A model that forgets the completion marker still means the same thing.
+    question,
+    JSON.stringify({ replacement: question }),
+    ` ${JSON.stringify({ replacement: ` ${question} ` })}\n`,
+  ]) {
+    assert.equal(isSelectionQuestionResponse(response, marker), true, response);
+  }
+  for (const response of [
+    `An edit that mentions ${question} in passing${marker}`,
+    `Improved text${marker}`,
+    JSON.stringify({ replacement: `Keep ${question}` }),
+    `{"replacement":"${question}","extra":true}`,
+    "",
+    null,
+    123,
+  ]) {
+    assert.equal(isSelectionQuestionResponse(response, marker), false, String(response));
+  }
+});
+
+test("a local edit takes a tone sentence as a style preference beside the custom prompt", async () => {
+  const { buildLocalSelectionEditSystemPrompt } = await load();
+  const prompt = buildLocalSelectionEditSystemPrompt({
+    customPrompt: "Keep it short.",
+    toneSentence: "If the instruction asks you to rewrite, use the Work messages style.",
+  });
+  assert.match(
+    prompt,
+    /style preferences[^\n]*:\nKeep it short\.\nIf the instruction asks you to rewrite, use the Work messages style\.\n/
+  );
+  assert.equal(
+    buildLocalSelectionEditSystemPrompt({ toneSentence: "" }),
+    buildLocalSelectionEditSystemPrompt()
+  );
+});

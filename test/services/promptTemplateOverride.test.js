@@ -20,7 +20,15 @@ test("request-local cleanup templates preserve provider contracts and normal inf
   });
   const savedPrompt = () => useSettingsStore.getState().customPrompts.cleanup;
   const template = "Draft {{agentName}}";
-  const expected = getCleanupSystemPrompt("Whisper", ["OpenWhispr"], "fr", "en", template);
+  const toneStyle = { appCategory: "work", tone: "casual" };
+  const expected = getCleanupSystemPrompt(
+    "Whisper",
+    ["OpenWhispr"],
+    "fr",
+    "en",
+    toneStyle,
+    template
+  );
   assert.match(expected, /^Draft Whisper/);
   assert.match(expected, /French|français/i);
   assert.match(expected, /OpenWhispr/);
@@ -39,6 +47,8 @@ test("request-local cleanup templates preserve provider contracts and normal inf
   const pending = service.processText(text, "test-model", "Whisper", {
     provider: "local",
     cleanupPrompt: template,
+    toneStyle,
+    reasoningEffort: "minimal",
   });
   assert.equal(localCalls[0][0], wrapCleanupTranscript(text));
   assert.equal(localCalls[0][3].systemPrompt, expected);
@@ -63,10 +73,23 @@ test("request-local cleanup templates preserve provider contracts and normal inf
     provider: "lan",
     lanUrl: "http://127.0.0.1:1234/v1",
     cleanupPrompt: template,
+    toneStyle,
   });
   assert.equal(body.messages[0].content, expected);
   assert.equal(body.messages[1].content, wrapCleanupTranscript(text));
   assert.equal(body.temperature, 0, "the override keeps deterministic cleanup sampling");
+  await service.processText(text, "gpt-oss-20b", "Whisper", {
+    provider: "custom",
+    baseUrl: "https://cleanup.example.test/v1",
+    customApiKey: "test-key",
+    cleanupPrompt: template,
+    toneStyle,
+    disableThinking: false,
+    reasoningEffort: "high",
+  });
+  assert.equal(body.input[0].content, expected, "draft and tone both reach Responses");
+  assert.equal(body.input[1].content, wrapCleanupTranscript(text));
+  assert.equal(body.reasoning.effort, "high", "request-local prompts retain reasoning controls");
 
   let cloud;
   window.electronAPI.cloudReason = async (_text, options) => {
@@ -76,6 +99,7 @@ test("request-local cleanup templates preserve provider contracts and normal inf
   await service.processText(text, "auto", "Whisper", {
     provider: "openwhispr",
     cleanupPrompt: template,
+    toneStyle,
   });
   assert.equal(
     cloud.customPrompt,
@@ -89,6 +113,8 @@ test("request-local cleanup templates preserve provider contracts and normal inf
   assert.deepEqual(cloud.customDictionary, ["OpenWhispr"]);
   assert.equal(cloud.language, "fr");
   assert.equal(cloud.locale, "en");
+  assert.equal(cloud.tone, "casual");
+  assert.equal(cloud.appCategory, "work");
   await service.processText(text, "auto", "Whisper", {
     provider: "openwhispr",
     cleanupPrompt: "",

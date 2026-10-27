@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import ApiKeyInput from "./ui/ApiKeyInput";
 import ModelCardList from "./ui/ModelCardList";
 import SearchableModelList, { MODEL_SEARCH_THRESHOLD } from "./ui/SearchableModelList";
 import { buildApiUrl, getModelListBaseCandidates, normalizeBaseUrl } from "../config/constants";
 import { isSecureHttpEndpoint } from "../utils/urlUtils";
 import { GetApiKeyLink } from "./ui/GetApiKeyLink";
+import { ConnectionCheckAnnouncer } from "./ui/ConnectionCheckAnnouncer";
+import { ProviderCheckField } from "./ui/ProviderCheckField";
+import { usePanelVisible } from "./ui/usePanelVisible";
+import { isWindowSwitchBlur, useFocusHold } from "../hooks/useFocusHold";
+import { useConnectionAutoCheck } from "../hooks/useConnectionAutoCheck";
+import { useCredentialDraft } from "../hooks/useCredentialDraft";
+import { useTypingPause } from "../hooks/useTypingPause";
 
 interface ModelOption {
   value: string;
@@ -31,12 +36,14 @@ interface OpenAICompatiblePanelProps {
   // Providers whose /models is public but whose inference needs a key.
   apiKeyRequired?: boolean;
   getKeyUrl?: string;
+  // The connection the panel checks: the user's own server, or OpenRouter.
+  provider?: "custom" | "openrouter";
 }
 
 export default function OpenAICompatiblePanel({
   baseUrl,
   setBaseUrl,
-  apiKey,
+  apiKey: savedApiKey,
   setApiKey,
   model,
   setModel,
@@ -46,6 +53,7 @@ export default function OpenAICompatiblePanel({
   lockedBaseUrl = false,
   apiKeyRequired = false,
   getKeyUrl,
+  provider = "custom",
 }: OpenAICompatiblePanelProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<string | null>(null);
@@ -60,6 +68,8 @@ export default function OpenAICompatiblePanel({
   const requestRef = useRef(0);
   const activeRequestRef = useRef<{ owner: string; controller: AbortController } | null>(null);
   const liveRef = useRef(false);
+  const keyDraft = useCredentialDraft();
+  const apiKey = keyDraft.value("apiKey", savedApiKey);
   useEffect(() => {
     liveRef.current = true;
     const requests = requestRef;
@@ -70,13 +80,13 @@ export default function OpenAICompatiblePanel({
       requests.current++;
     };
   }, []);
-  const adoptedOwnerRef = useRef<string | null>(null);
+  const completedOwnerRef = useRef<string | null>(null);
   const setBaseUrlRef = useRef(setBaseUrl);
   useEffect(() => {
     setBaseUrlRef.current = setBaseUrl;
   }, [setBaseUrl]);
   const normalizedBase = normalizeBaseUrl(baseUrl);
-  const effectiveKey = apiKey.trim();
+  const effectiveKey = savedApiKey.trim();
   // Memory-only ownership; never persisted, logged or used as an allowlist.
   const owner = JSON.stringify([normalizedBase, effectiveKey, lockedBaseUrl]);
   const modelOptions = catalog.owner === owner ? catalog.options : [];
@@ -88,10 +98,50 @@ export default function OpenAICompatiblePanel({
         : catalog.error.message
       : null;
 
+  const visible = usePanelVisible();
+  const editing = useFocusHold();
+  // An address with no http:// or https:// is left to the model list, which says so.
+  const checkReady =
+    provider === "openrouter" ? Boolean(apiKey.trim()) : normalizedBase.includes("://");
+  // The address applies when its field is left, so it is never half-typed here.
+  const delayMs = useTypingPause({
+    typed: apiKey,
+    context: JSON.stringify([provider, normalizedBase, model, visible]),
+    held: editing.held,
+  });
+  const check = useConnectionAutoCheck({
+    // The model is this panel's own (or "" under a tab that is only browsed), so a saved model
+    // the server no longer lists fails as modelNotFound.
+    config: { scope: "reasoning", provider, baseUrl: normalizedBase, apiKey, model },
+    // A hidden panel is not ready to ask; a shown one asks again, and the main process answers
+    // a check it remembers at once.
+    ready: checkReady && visible,
+    delayMs,
+  });
+  const followKeyDraft = keyDraft.follow;
+  const refused = check.failure?.errorCode === "credentialsRejected";
+  useEffect(() => {
+    followKeyDraft({
+      phase: check.phase,
+      checked: { apiKey },
+      // Someone's own server may refuse a key for other reasons, so only OpenRouter's refusal
+      // holds a key back.
+      refused: refused && provider === "openrouter",
+    });
+  }, [check.phase, apiKey, refused, provider, followKeyDraft]);
+
   const hasBase = normalizedBase !== "";
   const trimmedDraft = draftBase.trim();
   const hasSavedBase = Boolean((baseUrl || "").trim());
   const isDraftDirty = trimmedDraft !== (baseUrl || "").trim();
+  // The status describes the applied address, so it waits while another one is typed.
+  const endpointCheck = isDraftDirty ? { ...check, phase: "idle" as const, failure: null } : check;
+  const failureReason =
+    !apiKey.trim() && refused ? t("reasoning.custom.endpointUnauthorized") : undefined;
+  // While the check covers the address, its reason under the field replaces the list's line.
+  const listErrorShown =
+    Boolean(modelsError) && (lockedBaseUrl || !checkReady || check.phase === "connected");
+  const keyLabel = t(apiKeyRequired ? "common.apiKey" : "reasoning.custom.apiKeyOptional");
 
   const loadRemoteModels = useCallback(
     async (baseOverride = normalizedBase) => {
@@ -99,7 +149,7 @@ export default function OpenAICompatiblePanel({
       const normalized = normalizeBaseUrl(baseOverride);
       const owner = JSON.stringify([normalized, effectiveKey, lockedBaseUrl]);
       activeRequestRef.current?.controller.abort();
-      adoptedOwnerRef.current = null;
+      completedOwnerRef.current = null;
       const request = ++requestRef.current;
       const isCurrent = () => liveRef.current && request === requestRef.current;
       const controller = new AbortController();
@@ -188,11 +238,11 @@ export default function OpenAICompatiblePanel({
 
         if (!isCurrent()) return;
         const resolvedOwner = JSON.stringify([resolvedBase, effectiveKey, lockedBaseUrl]);
+        completedOwnerRef.current = resolvedOwner;
         setCatalog({ owner: resolvedOwner, options: mapped, loading: false, error: null });
         if (mapped.length > MODEL_SEARCH_THRESHOLD) setSearchable(true);
         // Discovery never clears a manually entered model ID or endpoint draft.
         if (resolvedBase !== normalized) {
-          adoptedOwnerRef.current = resolvedOwner;
           activeRequestRef.current = { owner: resolvedOwner, controller };
           setBaseUrlRef.current(resolvedBase);
         }
@@ -218,8 +268,9 @@ export default function OpenAICompatiblePanel({
   // Automatic discovery synchronizes the committed configuration with a
   // remote catalog. Explicit Apply/Reset/Refresh requests stay in their events.
   useEffect(() => {
-    if (adoptedOwnerRef.current === owner) adoptedOwnerRef.current = null;
-    else if (activeRequestRef.current?.owner !== owner) void loadRemoteModels();
+    if (!visible || isDraftDirty || apiKey.trim() !== effectiveKey) return;
+    if (completedOwnerRef.current !== owner && activeRequestRef.current?.owner !== owner)
+      void loadRemoteModels();
     const requests = requestRef;
     return () => {
       const active = activeRequestRef.current;
@@ -229,7 +280,7 @@ export default function OpenAICompatiblePanel({
         requests.current++;
       }
     };
-  }, [owner, loadRemoteModels]);
+  }, [owner, loadRemoteModels, visible, isDraftDirty, apiKey, effectiveKey]);
 
   const applyBase = () => {
     const normalized = trimmedDraft ? normalizeBaseUrl(trimmedDraft) : trimmedDraft;
@@ -238,11 +289,9 @@ export default function OpenAICompatiblePanel({
     void loadRemoteModels(normalized);
   };
 
-  const handleBlur = () => {
-    if (!trimmedDraft) return;
-    if (trimmedDraft !== (baseUrl || "").trim()) {
-      applyBase();
-    }
+  const handleBlur = (event: FocusEvent<HTMLInputElement>) => {
+    if (isWindowSwitchBlur(event)) return;
+    if (trimmedDraft && isDraftDirty) applyBase();
   };
 
   const handleReset = () => {
@@ -275,19 +324,22 @@ export default function OpenAICompatiblePanel({
 
   return (
     <>
+      <ConnectionCheckAnnouncer announcement={check.announcement} />
       {!lockedBaseUrl && (
-        <div className="space-y-2">
+        <div className="space-y-2" onFocus={editing.onFocus} onBlur={editing.onBlur}>
           <h4 className="font-medium text-foreground">{t("reasoning.custom.endpointTitle")}</h4>
-          <Input
+          <ProviderCheckField
             aria-label={t("reasoning.custom.endpointTitle")}
-            dir="ltr"
+            check={endpointCheck}
+            failureReason={failureReason}
             value={draftBase}
             onChange={(event) =>
               setDraft(event.target.value.trim() === baseUrl.trim() ? null : event.target.value)
             }
             onBlur={handleBlur}
             placeholder={baseUrlPlaceholder}
-            className="text-sm"
+            autoComplete="off"
+            spellCheck={false}
           />
           {helpExamples ?? (
             <p className="text-xs text-muted-foreground">
@@ -305,20 +357,30 @@ export default function OpenAICompatiblePanel({
         </div>
       )}
 
-      <div className="space-y-2 pt-3">
+      <div className="space-y-2 pt-3" onFocus={editing.onFocus} onBlur={editing.onBlur}>
         <div className="flex items-baseline justify-between">
-          <h4 className="font-medium text-foreground">
-            {t(apiKeyRequired ? "common.apiKey" : "reasoning.custom.apiKeyOptional")}
-          </h4>
+          <h4 className="font-medium text-foreground">{keyLabel}</h4>
           {getKeyUrl && <GetApiKeyLink url={getKeyUrl} />}
         </div>
-        <ApiKeyInput
-          apiKey={apiKey}
-          setApiKey={setApiKey}
-          label=""
-          helpText={apiKeyRequired ? "" : t("reasoning.custom.apiKeyHelp")}
+        <ProviderCheckField
+          aria-label={keyLabel}
+          // At a fixed address the key completes the connection, so it carries the status.
+          check={lockedBaseUrl ? check : undefined}
+          invalidOn="credentialsRejected"
+          type="password"
+          value={apiKey}
+          onChange={(event) => keyDraft.change("apiKey", event.target.value.trim(), setApiKey)}
+          onBlur={keyDraft.save}
+          placeholder={t("apiKeyInput.placeholder")}
+          autoComplete="off"
+          spellCheck={false}
         />
-        {apiKeyRequired && !apiKey?.trim() && (
+        {!apiKeyRequired && (
+          <p className="text-xs text-muted-foreground/70 mt-1">
+            {t("reasoning.custom.apiKeyHelp")}
+          </p>
+        )}
+        {apiKeyRequired && !apiKey.trim() && (
           <p className="text-xs text-warning">{t("reasoning.custom.keyRequiredHint")}</p>
         )}
       </div>
@@ -370,7 +432,7 @@ export default function OpenAICompatiblePanel({
             {modelsLoading && (
               <p className="text-xs text-primary">{t("reasoning.custom.fetchingModels")}</p>
             )}
-            {modelsError && <p className="text-xs text-destructive">{modelsError}</p>}
+            {listErrorShown && <p className="text-xs text-destructive">{modelsError}</p>}
             {!modelsLoading && !modelsError && modelOptions.length === 0 && (
               <p className="text-xs text-warning">{t("reasoning.custom.noModels")}</p>
             )}

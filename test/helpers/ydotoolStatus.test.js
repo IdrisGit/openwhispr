@@ -71,6 +71,14 @@ test("Wayland diagnostics do not block main and skip irrelevant sessions", async
     assert.equal(status.daemonRunning, true);
     assert.equal(status.hasXclip, true);
     assert.equal(status.hasXsel, true);
+    assert.equal(status.hasWlCopy, true, "KDE still probes its Wayland clipboard tool");
+    commands.length = 0;
+    session = { isWayland: true, isKde: false, isWlroots: true, requiresWlCopy: true };
+    const wlroots = await getYdotoolStatus();
+    assert.equal(wlroots.requiresWlCopy, true);
+    assert.equal(wlroots.hasWlCopy, true);
+    assert.equal(wlroots.hasXclip, false);
+    assert.ok(commands.some(([file, tool]) => file === "which" && tool === "wl-copy"));
     assert.ok(commands.some(([file, tool]) => file === "which" && tool === "ydotool"));
   } finally {
     Object.defineProperty(process, "platform", originalPlatform);

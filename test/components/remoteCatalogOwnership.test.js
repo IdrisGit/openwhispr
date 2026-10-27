@@ -18,7 +18,7 @@ test("remote catalogs reject ABA/key/refresh races, keep drafts and adopt only c
     noExternal: ["react-i18next"],
     mockModules: {
       "react-i18next": `const t = key => key; export const useTranslation = () => ({t});`,
-      "/ui/input": `export const Input = props => { globalThis.__remoteCatalog.input = props; return null; };`,
+      "/ui/ProviderCheckField": `export const ProviderCheckField = props => { if (props["aria-label"] === "reasoning.custom.endpointTitle") globalThis.__remoteCatalog.input = props; return null; };`,
       "/ui/button": `export const Button = props => { globalThis.__remoteCatalog.buttons.push(props); return null; };`,
       "/ui/ApiKeyInput": `export default () => null;`,
       "/ui/ModelCardList": `export default ({models}) => {globalThis.__remoteCatalog.options = models; return null;};`,
@@ -93,31 +93,35 @@ test("remote catalogs reject ABA/key/refresh races, keep drafts and adopt only c
   );
   assert.equal(pending.length, typed, "typing does not fetch");
   await change({ baseUrl: "https://external.test/v1" });
+  assert.equal(pending.length, typed, "an unapplied endpoint draft suppresses discovery");
   assert.equal(
     seen.input.value,
     " https://draft.test/v1/ ",
     "external settings preserve a genuine endpoint draft"
   );
-  await finish(7, ["external"]);
-  await React.act(async () => seen.input.onBlur());
+  const leaveEndpoint = () =>
+    seen.input.onBlur({
+      currentTarget: { contains: () => false, ownerDocument: { activeElement: null } },
+    });
+  await React.act(async () => leaveEndpoint());
   assert.equal(writes.at(-1), "https://draft.test/v1");
-  await finish(8, ["applied"]);
+  await finish(7, ["applied"]);
 
   await change({ baseUrl: "https://fallback.test/api/v1", lockedBaseUrl: false });
-  await finish(9, []);
-  assert.equal(pending[10].url, "https://fallback.test/v1/models");
-  await finish(10, ["fallback"]);
+  await finish(8, []);
+  assert.equal(pending[9].url, "https://fallback.test/v1/models");
+  await finish(9, ["fallback"]);
   assert.equal(writes.at(-1), "https://fallback.test/v1");
-  assert.equal(pending.length, 11, "owned adopted catalog is not fetched twice");
+  assert.equal(pending.length, 10, "owned adopted catalog is not fetched twice");
   await change({ baseUrl: "https://obsolete.test/api/v1" });
-  await finish(11, []);
+  await finish(10, []);
   await change({ baseUrl: "https://current.test/v1" });
-  await finish(12, ["stale-fallback"]);
+  await finish(11, ["stale-fallback"]);
   assert.equal(writes.at(-1), "https://fallback.test/v1", "stale fallback cannot write settings");
-  await finish(13, ["current"]);
+  await finish(12, ["current"]);
   await refresh();
   await render(null);
-  await finish(14, ["unmounted"]);
+  await finish(13, ["unmounted"]);
   assert.equal(writes.at(-1), "https://fallback.test/v1");
   for (const action of ["apply", "reset"]) {
     await render(React.createElement(Owner));
@@ -127,7 +131,7 @@ test("remote catalogs reject ABA/key/refresh races, keep drafts and adopt only c
         seen.input.onChange({ target: { value: "https://unmounted.test/api/v1" } })
       );
     await React.act(async () => {
-      if (action === "apply") seen.input.onBlur();
+      if (action === "apply") leaveEndpoint();
       else seen.buttons.findLast((button) => button.children === "common.reset").onClick();
       root.render(null);
     });
